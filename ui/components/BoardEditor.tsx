@@ -198,9 +198,10 @@ export function BoardEditor({
               onSelect={async () => {
                 const updated = await boardsAPI.toggleShare(board.id);
                 if (updated.access === 'public') {
-                    toast.success("Public access enabled");
+                  await navigator.clipboard.writeText(window.location.href);
+                  toast.success("Public access enabled. Link copied to clipboard!");
                 } else {
-                    toast.success("Public access disabled");
+                  toast.success("Public access disabled");
                 }
               }}
             />
