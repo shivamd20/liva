@@ -25,10 +25,10 @@
 			"tag": "v2"
 		}
 	],
-	// "assets": {
-		// "directory": "./public",
-		// "not_found_handling": "single-page-application"
-	// },
+	"assets": {
+		"directory": "./public",
+		"not_found_handling": "single-page-application"
+	},
 	"durable_objects": {
 		"bindings": [
 			{
