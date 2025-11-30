@@ -26,7 +26,7 @@ export default defineConfig({
       },
        '/ws/note': {
         target: 'http://127.0.0.1:8787', // wrangler dev default port
-        changeOrigin: true,
+        changeOrigin: false,
         ws: true,
         rewriteWsOrigin: false
       }
