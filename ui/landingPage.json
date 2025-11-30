@@ -89,8 +89,8 @@
             },
             {
                 "feature": "Open source",
-                "excalidraw": "Yes",
-                "liva": "Yes"
+                "excalidraw": "Partial (UI Only)",
+                "liva": "100% (UI + Sync Backend)"
             }
         ]
     },
