@@ -59,7 +59,8 @@
 	],
     "vars": {
         "BETTER_AUTH_SECRET": "CHANGE_ME_TO_A_RANDOM_SECRET",
-        "AUTH_BASE_URL": "http://localhost:5173"
+        "AUTH_BASE_URL": "http://localhost:5173",
+		"GOOGLE_CLIENT_ID": "590117253094-s8kso38hd3843apbs68gjei368ccrojp.apps.googleusercontent.com"
     }
 	/**
 	 * Smart Placement
