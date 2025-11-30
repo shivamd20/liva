@@ -6,6 +6,9 @@
 ![Status](https://img.shields.io/badge/status-development-orange)
 ![Stack](https://img.shields.io/badge/stack-Cloudflare%20Workers%20%7C%20React%20%7C%20Durable%20Objects-F38020)
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/shivamd20/liva)
+
+
 ## 🚀 Motivation
 
 We built Liva to bridge the gap between local-first drawing tools and real-time collaborative platforms, without the complexity of managing traditional WebSocket servers or databases.
