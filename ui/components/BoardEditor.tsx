@@ -4,7 +4,7 @@
  * Clean component that delegates sync logic to useExcalidrawSync hook
  */
 import { Board } from '../types';
-import { Excalidraw, LiveCollaborationTrigger } from '@excalidraw/excalidraw';
+import { Excalidraw, LiveCollaborationTrigger, MainMenu } from '@excalidraw/excalidraw';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
@@ -187,7 +187,9 @@ export function BoardEditor({
         onPointerUpdate={onPointerUpdate}
         onPointerDown={onPointerDown}
         onLinkOpen={onLinkOpen}
-      />
+      >
+        {menuItems && <MainMenu>{menuItems}</MainMenu>}
+      </Excalidraw>
     </div>
   );
 }
