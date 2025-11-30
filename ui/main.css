@@ -6,5 +6,16 @@
   }
 }
 
+@theme {
+  --font-handwriting: 'Comic Sans MS', 'Chalkboard SE', 'Comic Neue', sans-serif;
+  
+  --animate-float: float 3s ease-in-out infinite;
+  
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+  }
+}
+
 @source "./**/*.{js,ts,jsx,tsx}";
 @source "./index.html";

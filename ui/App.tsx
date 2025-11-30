@@ -1,4 +1,4 @@
-import { Routes, Route, useParams, useNavigate } from 'react-router-dom';
+import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
 import { HomeBoard } from './components/HomeBoard';
 import { NewBoardPage } from './components/NewBoardPage';
@@ -90,6 +90,7 @@ export function App() {
   const { data: allBoards = [] } = useBoards();
   const deleteBoard = useDeleteBoard();
   const navigate = useNavigate();
+  const location = useLocation();
   const { data: session, isPending: isAuthPending } = useSession();
 
   const handleNewBoard = () => {
@@ -109,6 +110,8 @@ export function App() {
     });
   };
 
+  const isLandingPage = location.pathname === '/';
+
   return (
     <div className="flex h-screen bg-white">
       <Routes>
@@ -127,7 +130,7 @@ export function App() {
         />
       </Routes>
       <AuthDialog 
-        isOpen={!isAuthPending && !session?.user} 
+        isOpen={!isLandingPage && !isAuthPending && !session?.user} 
         onOpenChange={() => {}} 
       />
     </div>
