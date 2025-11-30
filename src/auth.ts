@@ -22,7 +22,9 @@ export const createAuth = (env: Env) => {
     },
     baseURL: env.AUTH_BASE_URL,
     trustedOrigins: [
-        "http://localhost:5173"
+        "http://localhost:5173",
+        "http://localhost:8787",
+        "https://liva.shvm.in"
     ],
     plugins: [
       anonymous({
