@@ -24,6 +24,7 @@ export interface NoteCurrent {
     updatedAt: number;
     collaborators: string[];
     userId: string;
+    access: 'private' | 'public';
 }
 
 // -----------------------------------------------------------------------------

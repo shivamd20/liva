@@ -24,7 +24,7 @@ export const notesRouter = router({
 
 	revertToVersion: publicProcedure.input(getVersionInput).mutation(async ({ input, ctx }) => {
 		const service = new NotesServiceDO(ctx.env);
-		return await service.revertToVersion(input.id, input.version);
+		return await service.revertToVersion(input.id, input.version, ctx.userId);
 	}),
 
 	deleteNote: publicProcedure.input(idInput).mutation(async ({ input, ctx }) => {
@@ -32,11 +32,16 @@ export const notesRouter = router({
 		return await service.deleteNote(input.id, ctx.userId);
 	}),
 
+	toggleShare: publicProcedure.input(idInput).mutation(async ({ input, ctx }) => {
+		const service = new NotesServiceDO(ctx.env);
+		return await service.toggleShare(input.id, ctx.userId);
+	}),
+
 	// --- Queries ---
 
 	getNote: publicProcedure.input(idInput).query(async ({ input, ctx }) => {
 		const service = new NotesServiceDO(ctx.env);
-		return await service.getNote(input.id);
+		return await service.getNote(input.id, ctx.userId);
 	}),
 
 	listNotes: publicProcedure.query(async ({ ctx }) => {
@@ -56,24 +61,6 @@ export const notesRouter = router({
 
 	// --- Subscriptions ---
 
-	subscribeToNote: publicProcedure.input(idInput).subscription(async ({ input, ctx }) => {
-		return observable<NoteCurrent>((emit) => {
-			const service = new NotesServiceDO(ctx.env);
-
-			// Get initial state
-			service.getNote(input.id).then((current) => {
-				if (current) {
-					emit.next(current);
-				}
-			});
-
-			const unsubscribe = pubsub.subscribe(input.id, (note) => {
-				emit.next(note);
-			});
-
-			return () => {
-				unsubscribe();
-			};
-		});
-	}),
+	// Removed subscribeToNote as it's not used (we use raw WebSockets)
 });
+

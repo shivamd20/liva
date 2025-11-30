@@ -44,9 +44,17 @@ export class NoteDurableObject extends DurableObject {
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 collaborators TEXT NOT NULL,
-                user_id TEXT NOT NULL
+                user_id TEXT NOT NULL,
+                access TEXT NOT NULL DEFAULT 'private'
             );
         `);
+
+        // Attempt to add 'access' column if it doesn't exist (migration)
+        try {
+            this.sql.exec("ALTER TABLE note_current ADD COLUMN access TEXT NOT NULL DEFAULT 'private'");
+        } catch (e) {
+            // Ignore error if column already exists
+        }
 
         // Table for note version history
         this.sql.exec(`
@@ -79,6 +87,22 @@ export class NoteDurableObject extends DurableObject {
                 return new Response("Expected Upgrade: websocket", { status: 426 });
             }
 
+            // Auth Check
+            const userId = request.headers.get("X-Liva-User-Id");
+            const current = this.getCurrentFromDB();
+
+            if (!current) {
+                 return new Response("Note not found", { status: 404 });
+            }
+
+            const isPublic = current.access === 'public';
+            const isOwner = userId && current.userId === userId;
+            const isCollaborator = userId && current.collaborators.includes(userId);
+
+            if (!isPublic && !isOwner && !isCollaborator) {
+                return new Response("Unauthorized", { status: 403 });
+            }
+
             const webSocketPair = new WebSocketPair();
             const [client, server] = Object.values(webSocketPair);
 
@@ -89,7 +113,6 @@ export class NoteDurableObject extends DurableObject {
             this.sessions.set(server, session);
 
             // Send current note state immediately upon connection
-            const current = this.getCurrentFromDB();
             if (current) {
                 server.send(JSON.stringify({
                     type: "initial",
@@ -152,6 +175,35 @@ export class NoteDurableObject extends DurableObject {
                 // Broadcast to all clients
                 this.broadcastEphemeral(session.id, msg.data);
             }
+        } else if (msg.type === "update_event") {
+            const session = this.sessions.get(ws);
+            if (session) {
+                this.handleUpdateEvent(ws, msg.data);
+            }
+        }
+    }
+
+    /**
+     * Handle update event from WebSocket
+     */
+    private async handleUpdateEvent(ws: WebSocket, data: { title?: string; blob: NoteBlob }) {
+        try {
+            const current = this.getCurrentFromDB();
+            if (!current) return;
+
+            // Basic permissions check (should match fetch handler)
+            // We rely on initial connection auth, but re-checking here is safer if we passed userId in session
+            // For now, we assume if they are connected, they are authorized to update 
+            // (since we check permissions on connect)
+            
+            await this.updateNote({
+                title: data.title,
+                blob: data.blob,
+                expectedVersion: current.version // Optimistic locking
+            });
+        } catch (error) {
+            console.error("Error handling WebSocket update:", error);
+            // Optionally send error back to client
         }
     }
 
@@ -216,6 +268,7 @@ export class NoteDurableObject extends DurableObject {
             updatedAt: row.updated_at,
             collaborators: JSON.parse(row.collaborators),
             userId: row.user_id,
+            access: row.access as 'private' | 'public',
         };
     }
 
@@ -228,6 +281,7 @@ export class NoteDurableObject extends DurableObject {
         blob: NoteBlob;
         collaborators?: string[];
         userId: string;
+        access?: 'private' | 'public';
     }): Promise<NoteCurrent> {
         const existing = this.getCurrentFromDB();
         if (existing) {
@@ -236,11 +290,12 @@ export class NoteDurableObject extends DurableObject {
 
         const timestamp = Date.now();
         const initialVersion = 1;
+        const access = params.access ?? 'private';
 
         // Insert current note
         this.sql.exec(
-            `INSERT INTO note_current (id, version, title, blob, created_at, updated_at, collaborators, user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO note_current (id, version, title, blob, created_at, updated_at, collaborators, user_id, access)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             params.id,
             initialVersion,
             params.title ?? null,
@@ -248,7 +303,8 @@ export class NoteDurableObject extends DurableObject {
             timestamp,
             timestamp,
             JSON.stringify(params.collaborators ?? []),
-            params.userId
+            params.userId,
+            access
         );
 
         // Insert initial version into history
@@ -271,6 +327,7 @@ export class NoteDurableObject extends DurableObject {
             updatedAt: timestamp,
             collaborators: params.collaborators ?? [],
             userId: params.userId,
+            access: access,
         };
 
         this.broadcastUpdate(current, "create");
@@ -326,6 +383,38 @@ export class NoteDurableObject extends DurableObject {
             version: nextVersion,
             title: newTitle,
             blob: structuredClone(params.blob),
+            updatedAt: timestamp,
+        };
+
+        this.broadcastUpdate(newCurrent, "update");
+        return newCurrent;
+    }
+
+    /**
+     * Update access level
+     */
+    async updateAccess(access: 'private' | 'public'): Promise<NoteCurrent> {
+        const current = this.getCurrentFromDB();
+        if (!current) {
+            throw new Error("Note not found");
+        }
+
+        if (current.access === access) {
+            return current;
+        }
+
+        const timestamp = Date.now();
+        
+        this.sql.exec(
+            `UPDATE note_current SET access = ?, updated_at = ? WHERE id = ?`,
+            access,
+            timestamp,
+            current.id
+        );
+
+        const newCurrent: NoteCurrent = {
+            ...current,
+            access,
             updatedAt: timestamp,
         };
 

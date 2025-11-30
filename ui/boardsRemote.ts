@@ -14,6 +14,8 @@ const noteToBoard = (note: NoteCurrent): Board => {
     excalidrawElements: blob.excalidrawElements || [],
     createdAt: note.createdAt,
     updatedAt: note.updatedAt,
+    userId: note.userId,
+    access: note.access,
   };
 };
 
@@ -85,6 +87,16 @@ class WebSocketManager {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'ephemeral',
+        data
+      }));
+    }
+  }
+
+  sendUpdate(id: string, data: any) {
+    const ws = this.connections.get(id);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'update_event',
         data
       }));
     }
@@ -255,5 +267,17 @@ export const boardsRemote: BoardsAPI = {
 
   sendEphemeral: (id: string, data: any) => {
     wsManager.sendEphemeral(id, data);
+  },
+
+  toggleShare: async (id: string): Promise<Board> => {
+    const note = await trpcClient.toggleShare.mutate({ id });
+    return noteToBoard(note as NoteCurrent);
+  },
+
+  updateViaWS: (board: Board) => {
+    wsManager.sendUpdate(board.id, {
+        title: board.title,
+        blob: boardToBlob(board),
+    });
   }
 };

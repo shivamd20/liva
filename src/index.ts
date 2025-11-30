@@ -40,6 +40,16 @@ export default {
 				return new Response("Note ID required", { status: 400 });
 			}
 
+			// Resolve user session for WebSocket access control
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed for WebSocket", e);
+			}
+
 			// Forward to the NoteDurableObject for this note
 			let doId: DurableObjectId;
 			if (noteId.length === 64 && /^[0-9a-f]{64}$/.test(noteId)) {
@@ -57,6 +67,10 @@ export default {
 			const wsUrl = new URL(request.url);
 			wsUrl.pathname = "/websocket";
 			const wsRequest = new Request(wsUrl.toString(), request);
+
+			if (userId) {
+				wsRequest.headers.set("X-Liva-User-Id", userId);
+			}
 
 			return stub.fetch(wsRequest);
 		}

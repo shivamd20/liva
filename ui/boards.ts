@@ -13,4 +13,6 @@ export interface BoardsAPI {
   subscribeToChanges: (id: string, callback: BoardChangeCallback) => UnsubscribeFunction;
   subscribeToEphemeral: (id: string, callback: EphemeralCallback) => UnsubscribeFunction;
   sendEphemeral: (id: string, data: any) => void;
+  toggleShare: (id: string) => Promise<Board>;
+  updateViaWS: (board: Board) => void;
 }

@@ -14,6 +14,8 @@ import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
 import { useQueryClient } from '@tanstack/react-query';
 import { getUserProfile } from '../utils/userIdentity';
+import { useSession } from '../lib/auth-client';
+import { toast } from 'sonner';
 
 interface BoardEditorProps {
   board: Board;
@@ -27,6 +29,7 @@ interface BoardEditorProps {
 
 export function BoardEditor({
   board,
+  // onChange is now unused in favor of updateViaWS, but kept for props interface
   onChange,
   menuItems,
   syncEnabled = true,
@@ -38,16 +41,25 @@ export function BoardEditor({
   const queryClient = useQueryClient();
   const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
   const [userProfile] = useState(() => getUserProfile());
+  const { data: session } = useSession();
+  const userId = session?.user?.id;
+  const isOwner = userId && userId === board.userId;
+
+  console.log({
+    board,userId,isOwner
+  });
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
   const handleLocalChange = useCallback(
     (elements: OrderedExcalidrawElement[]) => {
-      onChange({
+      const updatedBoard = {
         ...board,
         excalidrawElements: elements,
-      });
+      };
+      // Use WebSocket update for faster latency
+      boardsAPI.updateViaWS(updatedBoard);
     },
-    [board, onChange]
+    [board, boardsAPI]
   );
 
   // Handle remote changes by updating cache directly (don't call onChange which triggers API)
@@ -178,14 +190,21 @@ export function BoardEditor({
         onChange={(elements) => {
           debouncedLocalChange(elements);
         }}
-        isCollaborating={syncEnabled}
+        isCollaborating={board.access === 'public'}
         renderTopRightUI={() => (
-          <LiveCollaborationTrigger
-            isCollaborating={syncEnabled}
-            onSelect={() => {
-               // No-op for now or toggle syncEnabled if we lift that state up
-            }}
-          />
+          isOwner ? (
+            <LiveCollaborationTrigger
+              isCollaborating={board.access === 'public'}
+              onSelect={async () => {
+                const updated = await boardsAPI.toggleShare(board.id);
+                if (updated.access === 'public') {
+                    toast.success("Public access enabled");
+                } else {
+                    toast.success("Public access disabled");
+                }
+              }}
+            />
+          ) : null
         )}
         onPointerUpdate={onPointerUpdate}
         onPointerDown={onPointerDown}

@@ -8,4 +8,6 @@ export interface Board {
   createdAt: number;
   updatedAt: number;
   excalidrawElements?: OrderedExcalidrawElement[];
+  userId: string;
+  access: 'private' | 'public';
 }

@@ -117,6 +117,20 @@ export class NotesServiceDO {
 		const stub = this.getStub(input.id);
 		const indexStub = this.getIndexStub();
 
+		// Check permissions before updating
+		const existing = await stub.getNote();
+		if (!existing) {
+			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+		}
+
+		const isOwner = existing.userId === userId;
+		const isCollaborator = existing.collaborators.includes(userId);
+		const isPublic = existing.access === 'public';
+
+		if (!isOwner && !isCollaborator && !isPublic) {
+			throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this note" });
+		}
+
 		try {
 			const current = (await stub.updateNote({
 				title: input.title,
@@ -124,11 +138,6 @@ export class NotesServiceDO {
 				expectedVersion: input.expectedVersion,
 				meta: input.meta ?? null,
 			})) as NoteCurrent;
-
-			// Validate ownership
-			if (current.userId !== userId) {
-				throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this note" });
-			}
 
 			// Update index
 			await indexStub.upsertNote({
@@ -155,9 +164,23 @@ export class NotesServiceDO {
 		}
 	}
 
-	async revertToVersion(id: string, version: number) {
+	async revertToVersion(id: string, version: number, userId: string) {
 		const stub = this.getStub(id);
 		const indexStub = this.getIndexStub();
+
+		// Check permissions
+		const existing = await stub.getNote();
+		if (!existing) {
+			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+		}
+
+		const isOwner = existing.userId === userId;
+		const isCollaborator = existing.collaborators.includes(userId);
+		const isPublic = existing.access === 'public';
+
+		if (!isOwner && !isCollaborator && !isPublic) {
+			throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this note" });
+		}
 
 		try {
 			const current = (await stub.revertToVersion(version)) as NoteCurrent;
@@ -196,6 +219,7 @@ export class NotesServiceDO {
 		if (!note) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
 		}
+		// Strict deletion policy: Only owner can delete
 		if (note.userId !== userId) {
 			throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to delete this note" });
 		}
@@ -209,9 +233,42 @@ export class NotesServiceDO {
 		}
 	}
 
-	async getNote(id: string) {
+	async getNote(id: string, userId: string) {
 		const stub = this.getStub(id);
-		return await stub.getNote();
+		const note = (await stub.getNote()) as NoteCurrent | null;
+		
+		if (note) {
+			const isOwner = note.userId === userId;
+			const isCollaborator = note.collaborators.includes(userId);
+			const isPublic = note.access === 'public';
+
+			if (!isOwner && !isCollaborator && !isPublic) {
+				throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to view this note" });
+			}
+		}
+		
+		return note;
+	}
+
+	async toggleShare(id: string, userId: string) {
+		const stub = this.getStub(id);
+		
+		const note = (await stub.getNote()) as NoteCurrent | null;
+		if (!note) {
+			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+		}
+
+		if (note.userId !== userId) {
+			throw new TRPCError({ code: "FORBIDDEN", message: "Only owner can change sharing settings" });
+		}
+
+		const newAccess = note.access === 'public' ? 'private' : 'public';
+		// We cast because the Stub types might not be fully inferred in this context without full generation, 
+		// but NoteDurableObject has updateAccess.
+		const updated = (await stub.updateAccess(newAccess)) as NoteCurrent;
+
+		pubsub.emit(id, updated);
+		return updated;
 	}
 
 	async listNotes(userId?: string) {
