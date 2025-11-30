@@ -94,12 +94,20 @@ export function HomeBoard() {
                                 </button>
                             </div>
                          ) : (
-                             <button 
-                                onClick={() => signIn.social({ provider: 'google' })} 
-                                className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-                             >
-                                Sign In
-                             </button>
+                            <div className="flex items-center gap-4">
+                                <button 
+                                    onClick={() => signIn.anonymous()} 
+                                    className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                                >
+                                    Continue as Guest
+                                </button>
+                                <button 
+                                    onClick={() => signIn.social({ provider: 'google' })} 
+                                    className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+                                >
+                                    Sign In
+                                </button>
+                            </div>
                          )}
                     </div>
                 </div>
