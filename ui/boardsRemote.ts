@@ -1,5 +1,5 @@
 import { Board } from './types';
-import { BoardsAPI, BoardChangeCallback, UnsubscribeFunction } from './boards';
+import { BoardsAPI, BoardChangeCallback, EphemeralCallback, UnsubscribeFunction } from './boards';
 import { trpcClient } from './trpcClient';
 import type { NoteCurrent } from '../src/notes/types';
 
@@ -26,6 +26,8 @@ const boardToBlob = (board: Board) => ({
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
   private callbacks: Map<string, Set<BoardChangeCallback>> = new Map();
+  private ephemeralCallbacks: Map<string, Set<EphemeralCallback>> = new Map();
+  private sessionIds: Map<string, string> = new Map();
   private reconnectTimers: Map<string, number> = new Map();
 
   subscribe(id: string, callback: BoardChangeCallback): UnsubscribeFunction {
@@ -47,11 +49,45 @@ class WebSocketManager {
         callbacks.delete(callback);
 
         // Close connection if no more callbacks
-        if (callbacks.size === 0) {
+        const ephemeralCbs = this.ephemeralCallbacks.get(id);
+        if (callbacks.size === 0 && (!ephemeralCbs || ephemeralCbs.size === 0)) {
           this.disconnect(id);
         }
       }
     };
+  }
+
+  subscribeEphemeral(id: string, callback: EphemeralCallback): UnsubscribeFunction {
+    if (!this.ephemeralCallbacks.has(id)) {
+      this.ephemeralCallbacks.set(id, new Set());
+    }
+    this.ephemeralCallbacks.get(id)!.add(callback);
+
+    if (!this.connections.has(id)) {
+      this.connect(id);
+    }
+
+    return () => {
+      const callbacks = this.ephemeralCallbacks.get(id);
+      if (callbacks) {
+        callbacks.delete(callback);
+        
+        const normalCbs = this.callbacks.get(id);
+        if (callbacks.size === 0 && (!normalCbs || normalCbs.size === 0)) {
+          this.disconnect(id);
+        }
+      }
+    };
+  }
+
+  sendEphemeral(id: string, data: any) {
+    const ws = this.connections.get(id);
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'ephemeral',
+        data
+      }));
+    }
   }
 
   private connect(id: string) {
@@ -73,6 +109,10 @@ class WebSocketManager {
         const message = JSON.parse(event.data);
 
         if (message.type === 'initial' || message.type === 'update' || message.type === 'revert' || message.type === 'create') {
+          if (message.type === 'initial' && message.sessionId) {
+            this.sessionIds.set(id, message.sessionId);
+          }
+          
           const note = message.data as NoteCurrent;
           const board = noteToBoard(note);
 
@@ -80,6 +120,18 @@ class WebSocketManager {
           const callbacks = this.callbacks.get(id);
           if (callbacks) {
             callbacks.forEach(cb => cb(board));
+          }
+        } else if (message.type === 'ephemeral' || message.type === 'ephemeral_state') {
+          if (message.type === 'ephemeral') {
+            const mySessionId = this.sessionIds.get(id);
+            if (mySessionId && message.senderId === mySessionId) {
+              return; // Ignore own messages
+            }
+          }
+          
+          const callbacks = this.ephemeralCallbacks.get(id);
+          if (callbacks) {
+            callbacks.forEach(cb => cb(message));
           }
         }
       } catch (error) {
@@ -94,10 +146,12 @@ class WebSocketManager {
     ws.onclose = () => {
       console.log(`WebSocket closed for board ${id}`);
       this.connections.delete(id);
+      this.sessionIds.delete(id);
 
       // Attempt reconnection if there are still callbacks
       const callbacks = this.callbacks.get(id);
-      if (callbacks && callbacks.size > 0) {
+      const ephemeralCallbacks = this.ephemeralCallbacks.get(id);
+      if ((callbacks && callbacks.size > 0) || (ephemeralCallbacks && ephemeralCallbacks.size > 0)) {
         this.scheduleReconnect(id);
       }
     };
@@ -116,7 +170,8 @@ class WebSocketManager {
     const timer = window.setTimeout(() => {
       this.reconnectTimers.delete(id);
       const callbacks = this.callbacks.get(id);
-      if (callbacks && callbacks.size > 0) {
+      const ephemeralCallbacks = this.ephemeralCallbacks.get(id);
+      if ((callbacks && callbacks.size > 0) || (ephemeralCallbacks && ephemeralCallbacks.size > 0)) {
         this.connect(id);
       }
     }, 3000);
@@ -138,6 +193,7 @@ class WebSocketManager {
     }
 
     this.callbacks.delete(id);
+    this.ephemeralCallbacks.delete(id);
   }
 }
 
@@ -192,4 +248,12 @@ export const boardsRemote: BoardsAPI = {
   subscribeToChanges: (id: string, callback: BoardChangeCallback): UnsubscribeFunction => {
     return wsManager.subscribe(id, callback);
   },
+
+  subscribeToEphemeral: (id: string, callback: EphemeralCallback): UnsubscribeFunction => {
+    return wsManager.subscribeEphemeral(id, callback);
+  },
+
+  sendEphemeral: (id: string, data: any) => {
+    wsManager.sendEphemeral(id, data);
+  }
 };

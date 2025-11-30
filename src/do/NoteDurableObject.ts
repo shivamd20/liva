@@ -9,6 +9,7 @@ import type {
 interface WebSocketSession {
     id: string;
     ws: WebSocket;
+    ephemeral?: unknown;
 }
 
 /**
@@ -93,15 +94,41 @@ export class NoteDurableObject extends DurableObject {
                 server.send(JSON.stringify({
                     type: "initial",
                     data: current,
+                    sessionId: sessionId,
                 }));
             }
 
+            // Send existing ephemeral state from other clients
+            const ephemeralState: Record<string, unknown> = {};
+            for (const s of this.sessions.values()) {
+                if (s.id !== sessionId && s.ephemeral) {
+                    ephemeralState[s.id] = s.ephemeral;
+                }
+            }
+            if (Object.keys(ephemeralState).length > 0) {
+                server.send(JSON.stringify({
+                    type: "ephemeral_state",
+                    data: ephemeralState
+                }));
+            }
+
+            server.addEventListener("message", (event) => {
+                try {
+                    const msg = JSON.parse(event.data as string);
+                    this.handleMessage(server, msg);
+                } catch (error) {
+                    // Ignore malformed messages
+                }
+            });
+
             server.addEventListener("close", () => {
                 this.sessions.delete(server);
+                this.broadcastEphemeral(sessionId, null); // Notify others of disconnection/cleared state
             });
 
             server.addEventListener("error", () => {
                 this.sessions.delete(server);
+                this.broadcastEphemeral(sessionId, null);
             });
 
             return new Response(null, {
@@ -111,6 +138,41 @@ export class NoteDurableObject extends DurableObject {
         }
 
         return new Response("Not found", { status: 404 });
+    }
+
+    /**
+     * Handle incoming WebSocket messages
+     */
+    private handleMessage(ws: WebSocket, msg: any) {
+        if (msg.type === "ephemeral") {
+            const session = this.sessions.get(ws);
+            if (session) {
+                // Update ephemeral state
+                session.ephemeral = msg.data;
+                // Broadcast to all clients
+                this.broadcastEphemeral(session.id, msg.data);
+            }
+        }
+    }
+
+    /**
+     * Broadcast ephemeral state change
+     */
+    private broadcastEphemeral(senderId: string, data: unknown) {
+        const message = JSON.stringify({
+            type: "ephemeral",
+            senderId,
+            data,
+        });
+
+        this.sessions.forEach((session) => {
+            try {
+                session.ws.send(message);
+            } catch (error) {
+                // Remove failed connections
+                this.sessions.delete(session.ws);
+            }
+        });
     }
 
     /**
