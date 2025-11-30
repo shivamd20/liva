@@ -6,7 +6,7 @@ import { Board } from '../types';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
 import { exportToBlob } from "@excalidraw/excalidraw";
-import { signIn, signOut, useSession } from '../lib/auth-client';
+import { signOut, useSession } from '../lib/auth-client';
 
 export function HomeBoard() {
     const { data: boards = [], isLoading } = useBoards();
@@ -93,22 +93,7 @@ export function HomeBoard() {
                                     Sign Out
                                 </button>
                             </div>
-                         ) : (
-                            <div className="flex items-center gap-4">
-                                <button 
-                                    onClick={() => signIn.anonymous()} 
-                                    className="text-sm font-medium text-gray-600 hover:text-gray-900"
-                                >
-                                    Continue as Guest
-                                </button>
-                                <button 
-                                    onClick={() => signIn.social({ provider: 'google' })} 
-                                    className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-                                >
-                                    Sign In
-                                </button>
-                            </div>
-                         )}
+                         ) : null}
                     </div>
                 </div>
             </header>

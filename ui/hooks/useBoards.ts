@@ -1,21 +1,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { boards } from '../boardsConfig';
 import { Board } from '../types';
+import { useSession } from '../lib/auth-client';
 
 const BOARDS_QUERY_KEY = ['boards'];
 
 export function useBoards() {
+  const { data: session } = useSession();
   return useQuery({
     queryKey: BOARDS_QUERY_KEY,
-    queryFn: () => boards.getAll()
+    queryFn: () => boards.getAll(),
+    enabled: !!session?.user
   });
 }
 
 export function useBoard(id: string | undefined) {
+  const { data: session } = useSession();
   return useQuery({
     queryKey: ['board', id],
     queryFn: () => id ? boards.getById(id) : null,
-    enabled: !!id
+    enabled: !!id && !!session?.user
   });
 }
 

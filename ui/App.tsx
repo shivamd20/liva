@@ -2,10 +2,12 @@ import { Routes, Route, useParams, useNavigate } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
 import { HomeBoard } from './components/HomeBoard';
 import { NewBoardPage } from './components/NewBoardPage';
+import { AuthDialog } from './components/AuthDialog';
 import { MainMenu } from '@excalidraw/excalidraw';
 import { Board } from './types';
 import { useBoards, useBoard, useUpdateBoard, useDeleteBoard } from './hooks/useBoards';
 import { useCallback } from 'react';
+import { useSession } from './lib/auth-client';
 
 function BoardView({
   allBoards,
@@ -17,6 +19,7 @@ function BoardView({
   onDeleteBoard: (id: string) => void;
 }) {
   const { id } = useParams<{ id: string }>();
+  const { data: session } = useSession();
   const { data: board, isLoading } = useBoard(id);
   const updateBoard = useUpdateBoard();
   const navigate = useNavigate();
@@ -24,6 +27,10 @@ function BoardView({
   const handleBoardChange = useCallback((updated: Board) => {
     updateBoard.mutate(updated);
   }, [updateBoard]);
+
+  if (!session?.user) {
+    return <div className="h-screen w-full bg-gray-50" />; // Placeholder behind auth dialog
+  }
 
   if (isLoading) return <div>Loading...</div>;
   if (!board) return <div>Board not found</div>;
@@ -82,6 +89,7 @@ export function App() {
   const { data: allBoards = [] } = useBoards();
   const deleteBoard = useDeleteBoard();
   const navigate = useNavigate();
+  const { data: session, isPending: isAuthPending } = useSession();
 
   const handleNewBoard = () => {
     navigate('/board/new');
@@ -116,6 +124,10 @@ export function App() {
           }
         />
       </Routes>
+      <AuthDialog 
+        isOpen={!isAuthPending && !session?.user} 
+        onOpenChange={() => {}} 
+      />
     </div>
   );
 }
