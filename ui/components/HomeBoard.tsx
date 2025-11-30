@@ -53,7 +53,7 @@ export function HomeBoard() {
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-screen bg-gray-50">
+            <div className="flex w-screen items-center justify-center h-screen bg-gray-50">
                 <div className="animate-pulse flex flex-col items-center">
                     <div className="h-8 w-8 bg-indigo-100 rounded-full mb-4"></div>
                     <div className="h-4 w-32 bg-gray-200 rounded"></div>
