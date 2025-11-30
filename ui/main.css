@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --radius: 0.5rem;
+  }
+}
+
+@source "./**/*.{js,ts,jsx,tsx}";
+@source "./index.html";

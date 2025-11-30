@@ -1,0 +1,348 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard } from '../hooks/useBoards';
+import { Plus, File, Clock, MoreHorizontal, LayoutGrid, Pencil, Trash2, X } from 'lucide-react';
+import { Board } from '../types';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Dialog from '@radix-ui/react-dialog';
+import { exportToBlob } from "@excalidraw/excalidraw";
+import { signIn, signOut, useSession } from '../lib/auth-client';
+
+export function HomeBoard() {
+    const { data: boards = [], isLoading } = useBoards();
+    const createBoard = useCreateBoard();
+    const updateBoard = useUpdateBoard();
+    const deleteBoard = useDeleteBoard();
+    const navigate = useNavigate();
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [newBoardTitle, setNewBoardTitle] = useState('');
+    const { data: session, isPending: isAuthPending } = useSession();
+
+    const handleCreateSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newBoardTitle.trim()) return;
+
+        createBoard.mutate({ title: newBoardTitle.trim() }, {
+            onSuccess: (newBoard) => {
+                setIsCreateModalOpen(false);
+                setNewBoardTitle('');
+                navigate(`/board/${newBoard.id}`);
+            }
+        });
+    };
+
+    const handleRename = (board: Board) => {
+        const newTitle = window.prompt('Enter new board name:', board.title || 'Untitled');
+        if (newTitle !== null && newTitle !== board.title) {
+            updateBoard.mutate({ ...board, title: newTitle });
+        }
+    };
+
+    const handleDelete = (id: string) => {
+        if (window.confirm('Are you sure you want to delete this board?')) {
+            deleteBoard.mutate(id);
+        }
+    };
+
+    // Sort boards by last updated (most recent first)
+    const sortedBoards = [...boards].sort((a, b) => {
+        const dateA = a.updatedAt || a.createdAt || 0;
+        const dateB = b.updatedAt || b.createdAt || 0;
+        return dateB - dateA;
+    });
+
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center h-screen bg-gray-50">
+                <div className="animate-pulse flex flex-col items-center">
+                    <div className="h-8 w-8 bg-indigo-100 rounded-full mb-4"></div>
+                    <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen min-w-screen bg-gray-50">
+            {/* Header */}
+            <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4 sticky top-0 z-10">
+                <div className="max-w-7xl mx-auto flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-indigo-600 p-2 rounded-lg shadow-sm">
+                            <LayoutGrid className="w-5 h-5 text-white" />
+                        </div>
+                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Liva </h1>
+                    </div>
+                    <div className="flex items-center gap-4">
+                         {/* User Profile / Sign In */}
+                         {isAuthPending ? (
+                            <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
+                         ) : session?.user ? (
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs border border-indigo-200 overflow-hidden">
+                                    {session.user.image ? (
+                                        <img src={session.user.image} alt={session.user.name || 'User'} className="w-full h-full object-cover" />
+                                    ) : (
+                                        session.user.name ? session.user.name.charAt(0).toUpperCase() : 'U'
+                                    )}
+                                </div>
+                                <button 
+                                    onClick={() => signOut()} 
+                                    className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+                                >
+                                    Sign Out
+                                </button>
+                            </div>
+                         ) : (
+                             <button 
+                                onClick={() => signIn.social({ provider: 'google' })} 
+                                className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+                             >
+                                Sign In
+                             </button>
+                         )}
+                    </div>
+                </div>
+            </header>
+
+            {/* Main Content */}
+            <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                
+                {/* Recent Boards Section */}
+                <div className="mb-8">
+                    <div className="flex items-center justify-between mb-6">
+                        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Your Boards</h2>
+                        <span className="text-xs text-gray-400">{boards.length} boards</span>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+                        {/* Create New Card */}
+                        <Dialog.Root open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+                            <Dialog.Trigger asChild>
+                                <button 
+                                    className="group relative aspect-[4/3] flex flex-col bg-white rounded-xl border-2 border-dashed border-gray-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 cursor-pointer text-left overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                >
+                                    <div className="flex-1 flex items-center justify-center">
+                                        <div className="w-12 h-12 rounded-full bg-gray-100 group-hover:bg-white flex items-center justify-center transition-colors shadow-sm group-hover:shadow-md group-hover:scale-110 duration-300">
+                                            <Plus className="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors" />
+                                        </div>
+                                    </div>
+                                    <div className="px-4 py-3 border-t border-transparent group-hover:border-indigo-100 bg-gray-50 group-hover:bg-indigo-100/50 transition-colors">
+                                        <span className="block text-sm font-medium text-gray-900 group-hover:text-indigo-700">Create New Board</span>
+                                    </div>
+                                </button>
+                            </Dialog.Trigger>
+                            <Dialog.Portal>
+                                <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 animate-in fade-in duration-200" />
+                                <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+                                    <div className="flex justify-between items-center mb-4">
+                                        <Dialog.Title className="text-xl font-bold text-gray-900">Create New Board</Dialog.Title>
+                                        <Dialog.Close asChild>
+                                            <button className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
+                                                <X className="w-5 h-5" />
+                                            </button>
+                                        </Dialog.Close>
+                                    </div>
+                                    
+                                    <form onSubmit={handleCreateSubmit} className="space-y-4">
+                                        <div>
+                                            <label htmlFor="boardTitle" className="block text-sm font-medium text-gray-700 mb-1">
+                                                Board Title
+                                            </label>
+                                            <input
+                                                id="boardTitle"
+                                                type="text"
+                                                value={newBoardTitle}
+                                                onChange={(e) => setNewBoardTitle(e.target.value)}
+                                                placeholder="e.g., Project Roadmap"
+                                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                                                autoFocus
+                                            />
+                                        </div>
+                                        
+                                        <div className="flex justify-end gap-3 mt-6">
+                                            <Dialog.Close asChild>
+                                                <button 
+                                                    type="button"
+                                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </Dialog.Close>
+                                            <button 
+                                                type="submit"
+                                                disabled={!newBoardTitle.trim() || createBoard.isPending}
+                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                                            >
+                                                {createBoard.isPending ? 'Creating...' : 'Create Board'}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </Dialog.Content>
+                            </Dialog.Portal>
+                        </Dialog.Root>
+
+                        {/* Board Cards */}
+                        {sortedBoards.map((board) => (
+                            <BoardCard 
+                                key={board.id} 
+                                board={board} 
+                                onClick={() => navigate(`/board/${board.id}`)}
+                                onRename={() => handleRename(board)}
+                                onDelete={() => handleDelete(board.id)}
+                            />
+                        ))}
+                    </div>
+                </div>
+            </main>
+        </div>
+    );
+}
+
+function BoardThumbnail({ elements }: { elements?: any[] }) {
+    const [thumbnail, setThumbnail] = useState<string | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let isMounted = true;
+        
+        const generateThumbnail = async () => {
+            if (!elements || elements.length === 0) {
+                if (isMounted) {
+                    setThumbnail(null);
+                    setLoading(false);
+                }
+                return;
+            }
+
+            try {
+                const blob = await exportToBlob({
+                    elements: elements,
+                    appState: {
+                        exportWithDarkMode: false,
+                    },
+                    files: {},
+                    mimeType: "image/png",
+                    quality: 0.5,
+                });
+
+                if (isMounted && blob) {
+                    const url = URL.createObjectURL(blob);
+                    setThumbnail(url);
+                }
+            } catch (error) {
+                console.error("Failed to generate thumbnail", error);
+            } finally {
+                if (isMounted) setLoading(false);
+            }
+        };
+
+        generateThumbnail();
+
+        return () => {
+            isMounted = false;
+            if (thumbnail) URL.revokeObjectURL(thumbnail);
+        };
+    }, [elements]);
+
+    if (loading) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50">
+                <div className="w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    if (!thumbnail) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-gray-50 group-hover:bg-white transition-colors">
+                 <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:16px_16px]" />
+                 <File className="w-10 h-10 text-gray-300 group-hover:text-indigo-500 transition-all duration-300 group-hover:scale-110 relative z-10" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="w-full h-full flex items-center justify-center bg-white overflow-hidden">
+             <img 
+                src={thumbnail} 
+                alt="Board thumbnail" 
+                className="w-full h-full object-contain opacity-90 group-hover:opacity-100 transition-opacity duration-300 hover:scale-105"
+             />
+        </div>
+    );
+}
+
+function BoardCard({ board, onClick, onRename, onDelete }: { board: Board; onClick: () => void; onRename: () => void; onDelete: () => void }) {
+    // Format date
+    const formatDate = (timestamp: number) => {
+        if (!timestamp) return '';
+        return new Intl.DateTimeFormat('en-US', { 
+            month: 'short', 
+            day: 'numeric',
+            year: new Date(timestamp).getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+        }).format(new Date(timestamp));
+    };
+
+    return (
+        <div 
+            onClick={onClick}
+            className="group relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all duration-200 cursor-pointer flex flex-col aspect-[4/3] overflow-hidden"
+        >
+            {/* Thumbnail Placeholder */}
+            <div className="flex-1 relative overflow-hidden">
+                <BoardThumbnail elements={board.excalidrawElements} />
+            </div>
+
+            {/* Footer Info */}
+            <div className="px-4 py-3 border-t border-gray-100 bg-white relative z-10">
+                <div className="flex justify-between items-start">
+                    <h3 className="text-sm font-semibold text-gray-900 truncate mb-1 flex-1" title={board.title}>
+                        {board.title || 'Untitled'}
+                    </h3>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500 mt-1">
+                    <div className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{formatDate(board.updatedAt || board.createdAt)}</span>
+                    </div>
+                    
+                    <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                            <button 
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1 hover:bg-gray-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity -mr-1 focus:opacity-100 focus:outline-none"
+                            >
+                                <MoreHorizontal className="w-4 h-4 text-gray-500" />
+                            </button>
+                        </DropdownMenu.Trigger>
+
+                        <DropdownMenu.Portal>
+                            <DropdownMenu.Content 
+                                className="min-w-[160px] bg-white rounded-lg shadow-lg border border-gray-100 p-1 z-50 animate-in fade-in zoom-in-95 duration-100"
+                                sideOffset={5}
+                                align="end"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <DropdownMenu.Item 
+                                    onSelect={onRename}
+                                    className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-md cursor-pointer outline-none"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                    Rename
+                                </DropdownMenu.Item>
+                                <DropdownMenu.Item 
+                                    onSelect={onDelete}
+                                    className="flex items-center gap-2 px-2 py-2 text-sm text-red-600 hover:bg-red-50 rounded-md cursor-pointer outline-none"
+                                >
+                                    <Trash2 className="w-4 h-4" />
+                                    Delete
+                                </DropdownMenu.Item>
+                            </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                    </DropdownMenu.Root>
+                </div>
+            </div>
+        </div>
+    );
+}
