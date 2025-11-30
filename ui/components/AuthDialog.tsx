@@ -22,7 +22,7 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
         <Dialog.Root open={isOpen} onOpenChange={onOpenChange}>
             <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-                <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-0 w-full max-w-2xl z-50 animate-in zoom-in-95 duration-200 overflow-hidden border border-gray-100 focus:outline-none">
+                <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-0 w-[95vw] md:w-full max-w-2xl max-h-[90vh] overflow-y-auto z-50 animate-in zoom-in-95 duration-200 border border-gray-100 focus:outline-none">
                     
                     <div className="grid md:grid-cols-2">
                         {/* Left side - Guest */}
@@ -46,7 +46,7 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
                                 </div>
                                 <div className="flex items-start gap-2">
                                     <div className="w-1.5 h-1.5 rounded-full bg-yellow-500 mt-2" />
-                                    <p className="text-sm text-gray-600">Data lives only for the duration of your browser session</p>
+                                    <p className="text-sm text-gray-600">Data saved locally</p>
                                 </div>
                             </div>
 
