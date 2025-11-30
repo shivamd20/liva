@@ -3,11 +3,13 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
-		"deploy": "npm run build:ui && wrangler deploy",
+		"deploy": "wrangler deploy",
+		"build-and-deploy": "npm run build:ui && npm run deploy",
 		"dev": "wrangler dev",
 		"start": "wrangler dev",
 		"cf-typegen": "wrangler types",
 		"dev:ui": "vite --config ./ui/vite.config.js",
+		"build": "npm run build:ui",
 		"build:ui": "vite build --config ./ui/vite.config.js"
 	},
 	"devDependencies": {
