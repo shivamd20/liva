@@ -2,6 +2,7 @@ import { Routes, Route, useParams, useNavigate } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
 import { HomeBoard } from './components/HomeBoard';
 import { NewBoardPage } from './components/NewBoardPage';
+import { LandingPage } from './components/LandingPage';
 import { AuthDialog } from './components/AuthDialog';
 import { MainMenu } from '@excalidraw/excalidraw';
 import { Board } from './types';
@@ -44,8 +45,8 @@ function BoardView({
 
   const menuItems = (
     <>
-      <MainMenu.Item onSelect={() => navigate('/')}>
-        Return to Home
+      <MainMenu.Item onSelect={() => navigate('/board')}>
+        Return to Boards
       </MainMenu.Item>
       <MainMenu.Item onSelect={onNewBoard}>
         New Board
@@ -102,7 +103,7 @@ export function App() {
           const remaining = allBoards.filter(b => b.id !== id);
           navigate(`/board/${remaining[0].id}`);
         } else {
-          navigate('/');
+          navigate('/board');
         }
       }
     });
@@ -111,7 +112,8 @@ export function App() {
   return (
     <div className="flex h-screen bg-white">
       <Routes>
-        <Route path="/" element={<HomeBoard />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/board" element={<HomeBoard />} />
         <Route path="/board/new" element={<NewBoardPage />} />
         <Route
           path="/board/:id"

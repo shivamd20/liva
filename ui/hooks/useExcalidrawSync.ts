@@ -29,7 +29,7 @@ export function useExcalidrawSync({
   onLocalChange,
   onRemoteChange,
   subscribeToChanges,
-  debounceMs = 100,
+  debounceMs = 50,
   enabled = true,
 }: UseExcalidrawSyncOptions) {
   const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
