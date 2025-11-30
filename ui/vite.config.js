@@ -28,7 +28,7 @@ export default defineConfig({
         target: 'http://127.0.0.1:8787', // wrangler dev default port
         changeOrigin: true,
         ws: true,
-        rewriteWsOrigin: true
+        rewriteWsOrigin: false
       }
     }
   },
