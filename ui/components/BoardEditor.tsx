@@ -13,6 +13,7 @@ import { useExcalidrawSync } from '../hooks/useExcalidrawSync';
 import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
 import { useQueryClient } from '@tanstack/react-query';
+import { getUserProfile } from '../utils/userIdentity';
 
 interface BoardEditorProps {
   board: Board;
@@ -36,6 +37,7 @@ export function BoardEditor({
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const queryClient = useQueryClient();
   const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
+  const [userProfile] = useState(() => getUserProfile());
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
   const handleLocalChange = useCallback(
@@ -157,11 +159,12 @@ export function BoardEditor({
       payload: {
         pointer: payload.pointer,
         button: payload.button,
-        username: 'Me', // TODO: Use actual user info
-        color: { background: '#000000', stroke: '#000000' }, // TODO: Use actual user color
+        username: userProfile.username,
+        avatarUrl: userProfile.avatarUrl,
+        color: userProfile.color,
       }
     });
-  }, [board.id, syncEnabled, boardsAPI]);
+  }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
   return (
     <div className="flex-1 h-screen bg-white">
