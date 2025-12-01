@@ -1,4 +1,3 @@
-
 export interface UserProfile {
     id: string;
     username: string;
@@ -9,21 +8,32 @@ export interface UserProfile {
     };
 }
 
+// Better-auth session type (simplified)
+export interface Session {
+    user: {
+        id: string;
+        name?: string;
+        email?: string;
+        image?: string | null;
+        isAnonymous?: boolean | null;
+    };
+}
+
 const COLORS = [
-    '#F44336', '#E91E63', '#9C27B0', '#673AB7', '#3F51B5', 
-    '#2196F3', '#03A9F4', '#00BCD4', '#009688', '#4CAF50', 
-    '#8BC34A', '#CDDC39', '#FFEB3B', '#FFC107', '#FF9800', 
+    '#F44336', '#E91E63', '#9C27B0', '#673AB7', '#3F51B5',
+    '#2196F3', '#03A9F4', '#00BCD4', '#009688', '#4CAF50',
+    '#8BC34A', '#CDDC39', '#FFEB3B', '#FFC107', '#FF9800',
     '#FF5722', '#795548', '#607D8B'
 ];
 
 const ADJECTIVES = [
-    'Happy', 'Lucky', 'Sunny', 'Clever', 'Brave', 'Calm', 
+    'Happy', 'Lucky', 'Sunny', 'Clever', 'Brave', 'Calm',
     'Swift', 'Bright', 'Cool', 'Kind', 'Wild', 'Quiet',
     'Super', 'Hyper', 'Mega', 'Ultra', 'Rapid', 'Grand'
 ];
 
 const NOUNS = [
-    'Panda', 'Tiger', 'Eagle', 'Dolphin', 'Fox', 'Wolf', 
+    'Panda', 'Tiger', 'Eagle', 'Dolphin', 'Fox', 'Wolf',
     'Bear', 'Hawk', 'Lion', 'Owl', 'Cat', 'Dog',
     'Whale', 'Shark', 'Cobra', 'Viper', 'Raven', 'Crow'
 ];
@@ -69,9 +79,25 @@ export function getUserId(): string {
 
 /**
  * Get or create the full user profile
+ * If a session is provided and the user is not anonymous, use session data
+ * Otherwise, generate mock data for anonymous users
  * Stored in memory for the current session
  */
-export function getUserProfile(): UserProfile {
+export function getUserProfile(session?: Session | null): UserProfile {
+    // If we have a session with a non-anonymous user, use that data
+    if (session?.user && !session.user.isAnonymous) {
+        const user = session.user;
+        const color = generateRandomColor(); // Still generate a random color for consistency
+
+        return {
+            id: user.id,
+            username: user.name || user.email || 'User',
+            avatarUrl: user.image || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`,
+            color
+        };
+    }
+
+    // For anonymous users, use or generate mock data
     if (storedUserProfile) {
         return storedUserProfile;
     }
@@ -81,7 +107,7 @@ export function getUserProfile(): UserProfile {
     // Use the ID as seed for consistent avatar if we regenerated just the name, 
     // or just random seed. Let's use a random seed or username as seed.
     // Using username as seed ensures name matches avatar somewhat.
-    const seed = username.replace(' ', ''); 
+    const seed = username.replace(' ', '');
     const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${seed}`;
     const color = generateRandomColor();
 

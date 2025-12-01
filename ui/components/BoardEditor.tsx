@@ -9,7 +9,7 @@ import { Share2, Globe } from 'lucide-react';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
-import { ReactNode, useRef, useCallback, useEffect, useState } from 'react';
+import { ReactNode, useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { useExcalidrawSync } from '../hooks/useExcalidrawSync';
 import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
@@ -42,8 +42,8 @@ export function BoardEditor({
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const queryClient = useQueryClient();
   const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
-  const [userProfile] = useState(() => getUserProfile());
   const { data: session } = useSession();
+  const userProfile = useMemo(() => getUserProfile(session), [session]);
   const userId = session?.user?.id;
   const isOwner = !!(userId && userId === board.userId);
 
@@ -179,10 +179,10 @@ export function BoardEditor({
   }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
   return (
-    <div className="flex-1 h-screen bg-white" style={{ 
+    <div className="flex-1 h-screen bg-white" style={{
       '--color-primary': '#3B82F6',
-      '--color-primary-dark': '#2563EB', 
-      '--color-primary-light': '#93C5FD' 
+      '--color-primary-dark': '#2563EB',
+      '--color-primary-light': '#93C5FD'
     } as React.CSSProperties}>
       <Excalidraw
         excalidrawAPI={(api) => {
@@ -207,11 +207,10 @@ export function BoardEditor({
                   toast.success("Public access disabled");
                 }
               }}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg ${
-                board.access === 'public'
-                  ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
-                  : 'bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2]'
-              }`}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg ${board.access === 'public'
+                ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+                : 'bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2]'
+                }`}
             >
               {board.access === 'public' ? <Globe className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
               {board.access === 'public' ? 'Public' : 'Share'}
