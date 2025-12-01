@@ -10,7 +10,8 @@ export function useBoards() {
   return useQuery({
     queryKey: BOARDS_QUERY_KEY,
     queryFn: () => boards.getAll(),
-    enabled: !!session?.user
+    enabled: !!session?.user,
+    refetchOnMount: 'always'
   });
 }
 

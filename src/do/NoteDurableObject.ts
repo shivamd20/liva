@@ -355,38 +355,79 @@ VALUES(?, ?, ?, ?, ?)`,
             throw new Error("Version mismatch");
         }
 
-        const nextVersion = current.version + 1;
         const timestamp = Date.now();
         const newTitle = params.title ?? current.title;
+        const timeDiff = timestamp - current.updatedAt;
+        const debounceTime = 5000; // 5 seconds
 
-        // Update current note
-        this.sql.exec(
-            `UPDATE note_current 
-             SET version = ?, title = ?, blob = ?, updated_at = ? `,
-            nextVersion,
-            newTitle,
-            JSON.stringify(params.blob),
-            timestamp
-        );
+        let nextVersion: number;
+        let newCurrent: NoteCurrent;
 
-        // Insert new version into history
-        this.sql.exec(
-            `INSERT INTO note_history(version, blob, title, timestamp, meta)
+        if (timeDiff < debounceTime && current.version > 1) {
+            // Debounced update: replace the last history entry
+            nextVersion = current.version;
+
+            // Update current note (without changing version)
+            this.sql.exec(
+                `UPDATE note_current
+                 SET title = ?, blob = ?, updated_at = ?`,
+                newTitle,
+                JSON.stringify(params.blob),
+                timestamp
+            );
+
+            // Update the latest entry in history
+            this.sql.exec(
+                `UPDATE note_history
+                 SET blob = ?, title = ?, timestamp = ?, meta = ?
+                 WHERE version = ?`,
+                JSON.stringify(params.blob),
+                newTitle,
+                timestamp,
+                params.meta ? JSON.stringify(params.meta) : null,
+                nextVersion
+            );
+
+            newCurrent = {
+                ...current,
+                title: newTitle,
+                blob: structuredClone(params.blob),
+                updatedAt: timestamp,
+            };
+
+        } else {
+            // New history entry
+            nextVersion = current.version + 1;
+
+            // Update current note
+            this.sql.exec(
+                `UPDATE note_current
+                 SET version = ?, title = ?, blob = ?, updated_at = ?`,
+                nextVersion,
+                newTitle,
+                JSON.stringify(params.blob),
+                timestamp
+            );
+
+            // Insert new version into history
+            this.sql.exec(
+                `INSERT INTO note_history(version, blob, title, timestamp, meta)
 VALUES(?, ?, ?, ?, ?)`,
-            nextVersion,
-            JSON.stringify(params.blob),
-            newTitle,
-            timestamp,
-            params.meta ? JSON.stringify(params.meta) : null
-        );
+                nextVersion,
+                JSON.stringify(params.blob),
+                newTitle,
+                timestamp,
+                params.meta ? JSON.stringify(params.meta) : null
+            );
 
-        const newCurrent: NoteCurrent = {
-            ...current,
-            version: nextVersion,
-            title: newTitle,
-            blob: structuredClone(params.blob),
-            updatedAt: timestamp,
-        };
+            newCurrent = {
+                ...current,
+                version: nextVersion,
+                title: newTitle,
+                blob: structuredClone(params.blob),
+                updatedAt: timestamp,
+            };
+        }
 
         this.broadcastUpdate(newCurrent, "update");
         return newCurrent;
