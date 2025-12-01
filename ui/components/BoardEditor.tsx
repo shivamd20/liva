@@ -18,6 +18,7 @@ import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
 
+
 interface BoardEditorProps {
   board: Board;
   onChange: (board: Board) => void;
@@ -44,11 +45,9 @@ export function BoardEditor({
   const [userProfile] = useState(() => getUserProfile());
   const { data: session } = useSession();
   const userId = session?.user?.id;
-  const isOwner = userId && userId === board.userId;
+  const isOwner = !!(userId && userId === board.userId);
 
-  console.log({
-    board,userId,isOwner
-  });
+
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
   const handleLocalChange = useCallback(
@@ -101,7 +100,7 @@ export function BoardEditor({
     const handleEphemeral = (msg: any) => {
       if (msg.type === 'ephemeral') {
         const { senderId, data } = msg;
-        
+
         // data is null when user disconnects
         if (data === null) {
           setCollaborators(prev => {
@@ -126,7 +125,7 @@ export function BoardEditor({
               pointer: {
                 x: data.payload.pointer.x,
                 y: data.payload.pointer.y,
-                tool: "pointer" 
+                tool: "pointer"
               }
             });
             return next;
@@ -166,7 +165,7 @@ export function BoardEditor({
 
   const onPointerUpdate = useCallback((payload: { pointer: { x: number; y: number }, button: 'down' | 'up', pointersMap: any }) => {
     if (!syncEnabled) return;
-    
+
     boardsAPI.sendEphemeral(board.id, {
       type: 'pointer',
       payload: {
