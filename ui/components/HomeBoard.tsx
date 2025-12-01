@@ -8,6 +8,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { exportToBlob } from "@excalidraw/excalidraw";
 import { signOut, useSession } from '../lib/auth-client';
 import { HistoryModal } from './HistoryModal';
+import { queryClient } from '@/main';
 
 export function HomeBoard() {
     const { data: boards = [], isLoading } = useBoards();
@@ -175,6 +176,7 @@ export function HomeBoard() {
                                         <DropdownMenu.Item
                                             onSelect={async () => {
                                                 await signOut();
+                                                queryClient.invalidateQueries()
                                                 navigate('/');
                                             }}
                                             className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#06B6D4]/10 hover:text-[#3B82F6] rounded-md cursor-pointer outline-none transition-all"
