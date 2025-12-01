@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from '../hooks/useBoards';
-import { Plus, File, Clock, MoreHorizontal, LayoutGrid, Pencil, Trash2, X, Copy, AlertTriangle } from 'lucide-react';
+import { Plus, File, Clock, MoreHorizontal, LayoutGrid, Pencil, Trash2, X, Copy, AlertTriangle, LogOut } from 'lucide-react';
 import { Board } from '../types';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -144,24 +144,39 @@ export function HomeBoard() {
                          {isAuthPending ? (
                             <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
                          ) : session?.user ? (
-                            <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white font-bold text-xs border border-white/30 overflow-hidden">
-                                    {session.user.image ? (
-                                        <img src={session.user.image} alt={session.user.name || 'User'} className="w-full h-full object-cover" />
-                                    ) : (
-                                        session.user.name ? session.user.name.charAt(0).toUpperCase() : 'U'
-                                    )}
-                                </div>
-                                <button 
-                                    onClick={async () => {
-                                        await signOut();
-                                        navigate('/');
-                                    }} 
-                                    className="text-sm text-white/90 hover:text-white font-medium transition-colors"
-                                >
-                                    Sign Out
-                                </button>
-                            </div>
+                            <DropdownMenu.Root>
+                                <DropdownMenu.Trigger asChild>
+                                    <button className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white font-bold text-xs border border-white/30 overflow-hidden hover:ring-2 hover:ring-white/50 transition-all cursor-pointer focus:outline-none">
+                                        {session.user.image ? (
+                                            <img src={session.user.image} alt={session.user.name || 'User'} className="w-full h-full object-cover" />
+                                        ) : (
+                                            session.user.name ? session.user.name.charAt(0).toUpperCase() : 'U'
+                                        )}
+                                    </button>
+                                </DropdownMenu.Trigger>
+
+                                <DropdownMenu.Portal>
+                                    <DropdownMenu.Content 
+                                        className="min-w-[160px] bg-white rounded-lg shadow-lg border border-gray-100 p-1 z-50 animate-in fade-in zoom-in-95 duration-100"
+                                        sideOffset={5}
+                                        align="end"
+                                    >
+                                        <div className="px-2 py-2 text-xs text-gray-500 font-medium border-b border-gray-100 mb-1">
+                                            {session.user.name || 'User'}
+                                        </div>
+                                        <DropdownMenu.Item 
+                                            onSelect={async () => {
+                                                await signOut();
+                                                navigate('/');
+                                            }}
+                                            className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#06B6D4]/10 hover:text-[#3B82F6] rounded-md cursor-pointer outline-none transition-all"
+                                        >
+                                            <LogOut className="w-4 h-4" />
+                                            Sign Out
+                                        </DropdownMenu.Item>
+                                    </DropdownMenu.Content>
+                                </DropdownMenu.Portal>
+                            </DropdownMenu.Root>
                          ) : null}
                     </div>
                 </div>
