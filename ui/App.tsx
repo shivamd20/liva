@@ -131,7 +131,9 @@ export function App() {
       </Routes>
       <AuthDialog 
         isOpen={!isLandingPage && !isAuthPending && !session?.user} 
-        onOpenChange={() => {}} 
+        onOpenChange={(open) => {
+          if (!open) navigate('/');
+        }} 
       />
     </div>
   );

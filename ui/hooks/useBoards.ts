@@ -25,7 +25,7 @@ export function useBoard(id: string | undefined) {
 
 export function useCreateBoard() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: (params: { title?: string, id?: string }) => boards.create(params.title, params.id),
     onSuccess: (newBoard) => {
@@ -37,16 +37,16 @@ export function useCreateBoard() {
 
 export function useUpdateBoard() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: (board: Board) => boards.update(board),
     onMutate: async (board) => {
       // Cancel any outgoing refetches to prevent race conditions
       await queryClient.cancelQueries({ queryKey: ['board', board.id] });
-      
+
       // Optimistically update the cache
       queryClient.setQueryData(['board', board.id], board);
-      
+
       return { board };
     },
     onSuccess: () => {
@@ -58,11 +58,42 @@ export function useUpdateBoard() {
 
 export function useDeleteBoard() {
   const queryClient = useQueryClient();
-  
+
   return useMutation({
     mutationFn: (id: string) => boards.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+    }
+  });
+}
+
+export function useDuplicateBoard() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (params: { board: Board; title?: string }) => {
+      const { board, title } = params;
+      const newTitle = title || `${board.title} (Copy)`;
+
+      // Create a new board with the same content
+      const newBoard = await boards.create(newTitle);
+
+      // Update the new board with the content from the original board
+      await boards.update({
+        ...newBoard,
+        content: board.content,
+        excalidrawElements: board.excalidrawElements,
+      });
+
+      // Fetch the updated board to get the latest state
+      const updatedBoard = await boards.getById(newBoard.id);
+      return updatedBoard;
+    },
+    onSuccess: (newBoard) => {
+      if (newBoard) {
+        queryClient.setQueryData(['board', newBoard.id], newBoard);
+        queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      }
     }
   });
 }

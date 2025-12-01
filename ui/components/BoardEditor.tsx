@@ -5,6 +5,7 @@
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
+import { Share2, Globe } from 'lucide-react';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
@@ -16,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
-import { AccessButton } from './AccessButton';
+
 
 interface BoardEditorProps {
   board: Board;
@@ -178,7 +179,11 @@ export function BoardEditor({
   }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
   return (
-    <div className="flex-1 h-screen bg-white">
+    <div className="flex-1 h-screen bg-white" style={{ 
+      '--color-primary': '#3B82F6',
+      '--color-primary-dark': '#2563EB', 
+      '--color-primary-light': '#93C5FD' 
+    } as React.CSSProperties}>
       <Excalidraw
         excalidrawAPI={(api) => {
           excalidrawAPIRef.current = api;
@@ -191,21 +196,27 @@ export function BoardEditor({
         }}
         isCollaborating={board.access === 'public'}
         renderTopRightUI={() => (
-          <AccessButton
-            access={board.access}
-            isOwner={isOwner}
-            onToggle={async () => {
-              const updated = await boardsAPI.toggleShare(board.id);
-              // Invalidate and refetch the board details
-              await queryClient.invalidateQueries({ queryKey: ['board', board.id] });
-              if (updated.access === 'public') {
-                await navigator.clipboard.writeText(window.location.href);
-                toast.success("Public access enabled. Link copied to clipboard!");
-              } else {
-                toast.success("Public access disabled");
-              }
-            }}
-          />
+          isOwner ? (
+            <button
+              onClick={async () => {
+                const updated = await boardsAPI.toggleShare(board.id);
+                if (updated.access === 'public') {
+                  await navigator.clipboard.writeText(window.location.href);
+                  toast.success("Public access enabled. Link copied to clipboard!");
+                } else {
+                  toast.success("Public access disabled");
+                }
+              }}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg ${
+                board.access === 'public'
+                  ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
+                  : 'bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2]'
+              }`}
+            >
+              {board.access === 'public' ? <Globe className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+              {board.access === 'public' ? 'Public' : 'Share'}
+            </button>
+          ) : null
         )}
         onPointerUpdate={onPointerUpdate}
         onPointerDown={onPointerDown}
