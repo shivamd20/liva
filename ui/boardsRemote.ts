@@ -73,7 +73,7 @@ class WebSocketManager {
       const callbacks = this.ephemeralCallbacks.get(id);
       if (callbacks) {
         callbacks.delete(callback);
-        
+
         const normalCbs = this.callbacks.get(id);
         if (callbacks.size === 0 && (!normalCbs || normalCbs.size === 0)) {
           this.disconnect(id);
@@ -124,7 +124,7 @@ class WebSocketManager {
           if (message.type === 'initial' && message.sessionId) {
             this.sessionIds.set(id, message.sessionId);
           }
-          
+
           const note = message.data as NoteCurrent;
           const board = noteToBoard(note);
 
@@ -140,7 +140,7 @@ class WebSocketManager {
               return; // Ignore own messages
             }
           }
-          
+
           const callbacks = this.ephemeralCallbacks.get(id);
           if (callbacks) {
             callbacks.forEach(cb => cb(message));
@@ -276,8 +276,29 @@ export const boardsRemote: BoardsAPI = {
 
   updateViaWS: (board: Board) => {
     wsManager.sendUpdate(board.id, {
-        title: board.title,
-        blob: boardToBlob(board),
+      title: board.title,
+      blob: boardToBlob(board),
     });
+  },
+
+  getHistory: async (id: string, limit?: number, cursor?: number) => {
+    const result = await trpcClient.getHistory.query({ id, limit, cursor });
+    return {
+      items: result.items.map((item: any) => ({
+        version: item.version,
+        timestamp: item.timestamp,
+        title: item.title,
+        // We don't need full content for list, but might need it for preview if we want
+        // For now, let's keep it minimal or full depending on UI needs.
+        // The UI wants to render thumbnail, so we need elements.
+        excalidrawElements: item.blob.excalidrawElements || [],
+      })),
+      nextCursor: result.nextCursor,
+    };
+  },
+
+  revert: async (id: string, version: number): Promise<Board> => {
+    const note = await trpcClient.revertToVersion.mutate({ id, version });
+    return noteToBoard(note as NoteCurrent);
   }
 };

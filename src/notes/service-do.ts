@@ -236,7 +236,7 @@ export class NotesServiceDO {
 	async getNote(id: string, userId: string) {
 		const stub = this.getStub(id);
 		const note = (await stub.getNote()) as NoteCurrent | null;
-		
+
 		if (note) {
 			const isOwner = note.userId === userId;
 			const isCollaborator = note.collaborators.includes(userId);
@@ -246,13 +246,13 @@ export class NotesServiceDO {
 				throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to view this note" });
 			}
 		}
-		
+
 		return note;
 	}
 
 	async toggleShare(id: string, userId: string) {
 		const stub = this.getStub(id);
-		
+
 		const note = (await stub.getNote()) as NoteCurrent | null;
 		if (!note) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
@@ -276,9 +276,9 @@ export class NotesServiceDO {
 		return await indexStub.listNotes(userId);
 	}
 
-	async getHistory(id: string) {
+	async getHistory(id: string, limit?: number, cursor?: number, direction?: 'asc' | 'desc') {
 		const stub = this.getStub(id);
-		return await stub.getHistory();
+		return await stub.getHistory(limit, cursor, direction);
 	}
 
 	async getVersion(id: string, version: number) {

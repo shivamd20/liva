@@ -21,7 +21,7 @@ export class MyDurableObject extends DurableObject {
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
-		
+
 		try {
 			const auth = createAuth(env);
 			if (url.pathname.startsWith("/api/auth")) {
@@ -86,9 +86,9 @@ export default {
 					let userId = session?.user?.id;
 
 					// TODO: remove this
-					// if (!userId) {
-					// 	userId = request.headers.get('X-LIVA-USER-ID') || undefined;
-					// }
+					if (!userId) {
+						userId = request.headers.get('X-LIVA-USER-ID') || undefined;
+					}
 
 					if (!userId) {
 						throw new Error('User authentication required');

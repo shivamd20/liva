@@ -48,3 +48,15 @@ export const updateNoteInput = z.object({
 
 export const idInput = z.object({ id: z.string() });
 export const getVersionInput = z.object({ id: z.string(), version: z.number() });
+
+export const getHistoryInput = z.object({
+    id: z.string(),
+    limit: z.number().min(1).max(100).optional().default(50),
+    cursor: z.number().optional(), // version number to start after
+    direction: z.enum(['asc', 'desc']).optional().default('desc'),
+});
+
+export interface PaginatedHistoryResponse {
+    items: NoteVersion[];
+    nextCursor: number | null;
+}

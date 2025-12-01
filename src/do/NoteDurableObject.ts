@@ -1,9 +1,11 @@
+
 import { DurableObject } from "cloudflare:workers";
 import type {
     ID,
     NoteCurrent,
     NoteVersion,
     NoteBlob,
+    PaginatedHistoryResponse,
 } from "../notes/types";
 
 interface WebSocketSession {
@@ -36,18 +38,18 @@ export class NoteDurableObject extends DurableObject {
     private initializeTables(): void {
         // Table for current note state
         this.sql.exec(`
-            CREATE TABLE IF NOT EXISTS note_current (
-                id TEXT PRIMARY KEY,
-                version INTEGER NOT NULL,
-                title TEXT,
-                blob TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                collaborators TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                access TEXT NOT NULL DEFAULT 'private'
-            );
-        `);
+            CREATE TABLE IF NOT EXISTS note_current(
+    id TEXT PRIMARY KEY,
+    version INTEGER NOT NULL,
+    title TEXT,
+    blob TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    collaborators TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    access TEXT NOT NULL DEFAULT 'private'
+);
+`);
 
         // Attempt to add 'access' column if it doesn't exist (migration)
         try {
@@ -58,20 +60,20 @@ export class NoteDurableObject extends DurableObject {
 
         // Table for note version history
         this.sql.exec(`
-            CREATE TABLE IF NOT EXISTS note_history (
-                version INTEGER PRIMARY KEY,
-                blob TEXT NOT NULL,
-                title TEXT,
-                timestamp INTEGER NOT NULL,
-                meta TEXT
-            );
-        `);
+            CREATE TABLE IF NOT EXISTS note_history(
+    version INTEGER PRIMARY KEY,
+    blob TEXT NOT NULL,
+    title TEXT,
+    timestamp INTEGER NOT NULL,
+    meta TEXT
+);
+`);
 
         // Index for faster history queries
         this.sql.exec(`
             CREATE INDEX IF NOT EXISTS idx_history_version 
             ON note_history(version);
-        `);
+`);
     }
 
     /**
@@ -92,7 +94,7 @@ export class NoteDurableObject extends DurableObject {
             const current = this.getCurrentFromDB();
 
             if (!current) {
-                 return new Response("Note not found", { status: 404 });
+                return new Response("Note not found", { status: 404 });
             }
 
             const isPublic = current.access === 'public';
@@ -195,7 +197,7 @@ export class NoteDurableObject extends DurableObject {
             // We rely on initial connection auth, but re-checking here is safer if we passed userId in session
             // For now, we assume if they are connected, they are authorized to update 
             // (since we check permissions on connect)
-            
+
             await this.updateNote({
                 title: data.title,
                 blob: data.blob,
@@ -294,8 +296,8 @@ export class NoteDurableObject extends DurableObject {
 
         // Insert current note
         this.sql.exec(
-            `INSERT INTO note_current (id, version, title, blob, created_at, updated_at, collaborators, user_id, access)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO note_current(id, version, title, blob, created_at, updated_at, collaborators, user_id, access)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             params.id,
             initialVersion,
             params.title ?? null,
@@ -309,8 +311,8 @@ export class NoteDurableObject extends DurableObject {
 
         // Insert initial version into history
         this.sql.exec(
-            `INSERT INTO note_history (version, blob, title, timestamp, meta)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO note_history(version, blob, title, timestamp, meta)
+VALUES(?, ?, ?, ?, ?)`,
             initialVersion,
             JSON.stringify(params.blob),
             params.title ?? null,
@@ -360,7 +362,7 @@ export class NoteDurableObject extends DurableObject {
         // Update current note
         this.sql.exec(
             `UPDATE note_current 
-             SET version = ?, title = ?, blob = ?, updated_at = ?`,
+             SET version = ?, title = ?, blob = ?, updated_at = ? `,
             nextVersion,
             newTitle,
             JSON.stringify(params.blob),
@@ -369,8 +371,8 @@ export class NoteDurableObject extends DurableObject {
 
         // Insert new version into history
         this.sql.exec(
-            `INSERT INTO note_history (version, blob, title, timestamp, meta)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO note_history(version, blob, title, timestamp, meta)
+VALUES(?, ?, ?, ?, ?)`,
             nextVersion,
             JSON.stringify(params.blob),
             newTitle,
@@ -404,9 +406,9 @@ export class NoteDurableObject extends DurableObject {
         }
 
         const timestamp = Date.now();
-        
+
         this.sql.exec(
-            `UPDATE note_current SET access = ?, updated_at = ? WHERE id = ?`,
+            `UPDATE note_current SET access = ?, updated_at = ? WHERE id = ? `,
             access,
             timestamp,
             current.id
@@ -449,7 +451,7 @@ export class NoteDurableObject extends DurableObject {
         // Update current note
         this.sql.exec(
             `UPDATE note_current 
-             SET version = ?, title = ?, blob = ?, updated_at = ?`,
+             SET version = ?, title = ?, blob = ?, updated_at = ? `,
             nextVersion,
             revertedTitle,
             JSON.stringify(revertedBlob),
@@ -458,8 +460,8 @@ export class NoteDurableObject extends DurableObject {
 
         // Insert revert version into history
         this.sql.exec(
-            `INSERT INTO note_history (version, blob, title, timestamp, meta)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO note_history(version, blob, title, timestamp, meta)
+VALUES(?, ?, ?, ?, ?)`,
             nextVersion,
             JSON.stringify(revertedBlob),
             revertedTitle,
@@ -488,20 +490,58 @@ export class NoteDurableObject extends DurableObject {
     }
 
     /**
-     * Get complete history
-     */
-    async getHistory(): Promise<NoteVersion[]> {
-        const results = this.sql.exec(
-            "SELECT * FROM note_history ORDER BY version ASC"
-        ).toArray();
+ * Get paginated history
+ */
+    async getHistory(limit: number = 50, cursor?: number, direction: 'asc' | 'desc' = 'desc'): Promise<PaginatedHistoryResponse> {
+        let query = "SELECT * FROM note_history";
+        const params: any[] = [];
+        const conditions: string[] = [];
 
-        return results.map((row: any) => ({
+        if (cursor !== undefined) {
+            if (direction === 'desc') {
+                conditions.push("version < ?");
+            } else {
+                conditions.push("version > ?");
+            }
+            params.push(cursor);
+        }
+
+        if (conditions.length > 0) {
+            query += " WHERE " + conditions.join(" AND ");
+        }
+
+        query += ` ORDER BY version ${direction === 'asc' ? 'ASC' : 'DESC'} `;
+        query += " LIMIT ?";
+        params.push(limit + 1); // Fetch one extra to check for next page
+
+        const results = this.sql.exec(query, ...params).toArray();
+
+        let nextCursor: number | null = null;
+        if (results.length > limit) {
+            const nextItem = results.pop(); // Remove the extra item
+            // For desc, the cursor for the next page is the version of the last item returned
+            // Actually, standard cursor pagination usually uses the last item's ID/sort key as the cursor for the next page.
+            // If we requested limit 50 and got 51, there is a next page.
+            // The cursor for the next request should be the version of the last item in the *current* result set (the 50th item).
+            // Wait, if we are sorting by version DESC, and we have versions 100 down to 51.
+            // Next request should start after 51, so version < 51.
+            // So nextCursor should be 51.
+            const lastItem = results[results.length - 1] as any;
+            nextCursor = lastItem.version;
+        }
+
+        const items = results.map((row: any) => ({
             version: row.version,
             blob: JSON.parse(row.blob),
             title: row.title,
             timestamp: row.timestamp,
             meta: row.meta ? JSON.parse(row.meta) : null,
         }));
+
+        return {
+            items,
+            nextCursor
+        };
     }
 
     /**
