@@ -4,7 +4,7 @@
  * Clean component that delegates sync logic to useExcalidrawSync hook
  */
 import { Board } from '../types';
-import { Excalidraw, LiveCollaborationTrigger, MainMenu } from '@excalidraw/excalidraw';
+import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
@@ -16,6 +16,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
+import { AccessButton } from './AccessButton';
 
 interface BoardEditorProps {
   board: Board;
@@ -43,10 +44,10 @@ export function BoardEditor({
   const [userProfile] = useState(() => getUserProfile());
   const { data: session } = useSession();
   const userId = session?.user?.id;
-  const isOwner = userId && userId === board.userId;
+  const isOwner = !!(userId && userId === board.userId);
 
   console.log({
-    board,userId,isOwner
+    board, userId, isOwner
   });
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
@@ -100,7 +101,7 @@ export function BoardEditor({
     const handleEphemeral = (msg: any) => {
       if (msg.type === 'ephemeral') {
         const { senderId, data } = msg;
-        
+
         // data is null when user disconnects
         if (data === null) {
           setCollaborators(prev => {
@@ -125,7 +126,7 @@ export function BoardEditor({
               pointer: {
                 x: data.payload.pointer.x,
                 y: data.payload.pointer.y,
-                tool: "pointer" 
+                tool: "pointer"
               }
             });
             return next;
@@ -165,7 +166,7 @@ export function BoardEditor({
 
   const onPointerUpdate = useCallback((payload: { pointer: { x: number; y: number }, button: 'down' | 'up', pointersMap: any }) => {
     if (!syncEnabled) return;
-    
+
     boardsAPI.sendEphemeral(board.id, {
       type: 'pointer',
       payload: {
@@ -192,20 +193,19 @@ export function BoardEditor({
         }}
         isCollaborating={board.access === 'public'}
         renderTopRightUI={() => (
-          isOwner ? (
-            <LiveCollaborationTrigger
-              isCollaborating={board.access === 'public'}
-              onSelect={async () => {
-                const updated = await boardsAPI.toggleShare(board.id);
-                if (updated.access === 'public') {
-                  await navigator.clipboard.writeText(window.location.href);
-                  toast.success("Public access enabled. Link copied to clipboard!");
-                } else {
-                  toast.success("Public access disabled");
-                }
-              }}
-            />
-          ) : null
+          <AccessButton
+            access={board.access}
+            isOwner={isOwner}
+            onToggle={async () => {
+              const updated = await boardsAPI.toggleShare(board.id);
+              if (updated.access === 'public') {
+                await navigator.clipboard.writeText(window.location.href);
+                toast.success("Public access enabled. Link copied to clipboard!");
+              } else {
+                toast.success("Public access disabled");
+              }
+            }}
+          />
         )}
         onPointerUpdate={onPointerUpdate}
         onPointerDown={onPointerDown}
