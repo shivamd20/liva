@@ -452,7 +452,7 @@ function BoardThumbnail({ elements }: { elements?: any[] }) {
 
             try {
                 const blob = await exportToBlob({
-                    elements: elements,
+                    elements: elements.filter((x) => !x.isDeleted),
                     appState: {
                         exportWithDarkMode: false,
                     },
@@ -527,6 +527,7 @@ function BoardCard({ board, onClick, onRename, onDelete, onDuplicate }: { board:
             {/* Thumbnail Placeholder */}
             <div className="flex-1 relative overflow-hidden">
                 <BoardThumbnail elements={board.excalidrawElements} />
+               
             </div>
 
             {/* Footer Info */}
