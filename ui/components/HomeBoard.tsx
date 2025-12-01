@@ -188,8 +188,7 @@ export function HomeBoard() {
                 {/* Recent Boards Section */}
                 <div className="mb-8">
                     <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Your Boards</h2>
-                        <span className="text-xs text-gray-400">{boards.length} boards</span>
+                        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Your Boards ({boards.length})</h2>
                     </div>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
