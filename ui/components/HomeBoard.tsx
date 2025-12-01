@@ -99,7 +99,7 @@ export function HomeBoard() {
                     setIsDuplicateModalOpen(false);
                     setBoardToDuplicate(null);
                     setDuplicateTitle('');
-                    navigate(`/board/${newBoard.id}`);
+                 
                 }
             }
         });
