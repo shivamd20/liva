@@ -40,7 +40,7 @@ export function LandingPage() {
                             <div className="flex flex-col sm:flex-row gap-4 mb-8">
                                 <Link
                                     to={content.hero.primaryCta.link}
-                                    className="inline-flex justify-center items-center px-8 py-4 text-lg font-semibold text-white bg-gray-900 rounded-full hover:bg-gray-800 transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+                                    className="inline-flex justify-center items-center px-8 py-4 text-lg font-semibold text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-full transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
                                 >
                                     {content.hero.primaryCta.text}
                                 </Link>
@@ -66,7 +66,7 @@ export function LandingPage() {
                                 <div className="h-full w-px bg-gray-100 mx-2"></div>
                                 <div className="flex gap-2">
                                     <div className="w-8 h-8 rounded bg-gray-100"></div>
-                                    <div className="w-8 h-8 rounded bg-indigo-50"></div>
+                                    <div className="w-8 h-8 rounded bg-gradient-to-br from-[#3B82F6] to-[#06B6D4]"></div>
                                     <div className="w-8 h-8 rounded bg-gray-100"></div>
                                 </div>
                             </div>
@@ -76,7 +76,7 @@ export function LandingPage() {
                                 <div className="w-64 h-40 border-2 border-gray-800 rounded-lg transform -rotate-2 absolute top-20 left-20 flex items-center justify-center bg-white shadow-sm">
                                     <span className="font-handwriting text-xl text-gray-600">Architecture Diagram</span>
                                 </div>
-                                <div className="w-48 h-48 border-2 border-indigo-500 rounded-full absolute top-40 right-20 opacity-20"></div>
+                                <div className="w-48 h-48 border-2 border-[#3B82F6] rounded-full absolute top-40 right-20 opacity-20"></div>
                                 <div className="absolute bottom-32 left-40 w-32 h-32 bg-yellow-50 border-2 border-yellow-200 shadow-sm transform rotate-3 p-4 font-handwriting text-gray-600">
                                     Don't forget to update the schema!
                                 </div>
@@ -126,7 +126,7 @@ export function LandingPage() {
                              <div className="w-32 h-32 border-4 border-gray-300 rounded-full animate-ping"></div>
                          </div>
                          <div className="text-gray-400 font-medium">Realtime Sync Visualization</div>
-                         <MousePointer2 className="absolute top-10 left-10 w-6 h-6 text-indigo-500 animate-bounce" />
+                         <MousePointer2 className="absolute top-10 left-10 w-6 h-6 text-[#3B82F6] animate-bounce" />
                          <MousePointer2 className="absolute bottom-10 right-10 w-6 h-6 text-orange-500 animate-pulse" />
                     </div>
                 </div>
@@ -135,7 +135,7 @@ export function LandingPage() {
             {/* Section 3: How It Works */}
             <section className="py-24 border-b border-gray-100">
                 <div className="container mx-auto px-4 max-w-3xl text-center">
-                    <h2 className="text-sm font-semibold text-indigo-600 uppercase tracking-wide mb-4">
+                    <h2 className="text-sm font-semibold bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] bg-clip-text text-transparent uppercase tracking-wide mb-4">
                         Under the Hood
                     </h2>
                     <h3 className="text-3xl font-bold text-gray-900 mb-6">
@@ -154,8 +154,8 @@ export function LandingPage() {
                         {content.features.map((feature, i) => {
                             const Icon = Icons[feature.icon as keyof typeof Icons] || LayoutGrid;
                             return (
-                                <div key={i} className="p-8 rounded-2xl bg-gray-50 hover:bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-gray-100 group">
-                                    <div className="w-12 h-12 bg-white rounded-xl shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform text-indigo-600">
+                                <div key={i} className="p-8 rounded-2xl bg-gray-50 hover:bg-white hover:shadow-xl transition-all duration-300 border border-transparent hover:border-[#3B82F6]/20 group">
+                                    <div className="w-12 h-12 bg-gradient-to-br from-[#3B82F6] to-[#06B6D4] rounded-xl shadow-sm flex items-center justify-center mb-6 group-hover:scale-110 transition-transform text-white">
                                         <Icon size={24} />
                                     </div>
                                     <h4 className="text-xl font-bold text-gray-900 mb-3">
@@ -172,10 +172,12 @@ export function LandingPage() {
             </section>
 
             {/* Section 5: Comparison */}
-            <section className="py-24 bg-gray-900 text-white">
-                <div className="container mx-auto px-4 max-w-5xl">
+            <section className="py-24 bg-gradient-to-br from-gray-900 via-[#1e3a8a] to-gray-900 text-white relative overflow-hidden">
+                {/* Gradient overlay for depth */}
+                <div className="absolute inset-0 bg-gradient-to-r from-[#3B82F6]/10 to-[#06B6D4]/10 pointer-events-none"></div>
+                <div className="container mx-auto px-4 max-w-5xl relative z-10">
                     <div className="text-center mb-16">
-                        <h2 className="text-3xl sm:text-4xl font-bold mb-6">
+                        <h2 className="text-3xl sm:text-4xl font-bold mb-6 bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] bg-clip-text text-transparent">
                             {content.comparison.headline}
                         </h2>
                         <p className="text-xl text-gray-400 max-w-2xl mx-auto">
@@ -189,7 +191,7 @@ export function LandingPage() {
                                 <tr className="bg-gray-800/50">
                                     <th className="p-6 font-medium text-gray-400">Feature</th>
                                     <th className="p-6 font-medium text-gray-400">Excalidraw</th>
-                                    <th className="p-6 font-bold text-white bg-indigo-600/10 border-b border-indigo-500/20">Liva</th>
+                                    <th className="p-6 font-bold text-white bg-gradient-to-r from-[#3B82F6]/10 to-[#06B6D4]/10 border-b border-[#3B82F6]/20">Liva</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-800">
@@ -197,7 +199,7 @@ export function LandingPage() {
                                     <tr key={i} className="hover:bg-gray-800/30 transition-colors">
                                         <td className="p-6 text-gray-300 font-medium">{row.feature}</td>
                                         <td className="p-6 text-gray-500">{row.excalidraw}</td>
-                                        <td className="p-6 text-white bg-indigo-600/5 font-medium shadow-[inset_3px_0_0_0_#4f46e5]">{row.liva}</td>
+                                        <td className="p-6 text-white bg-gradient-to-r from-[#3B82F6]/5 to-[#06B6D4]/5 font-medium shadow-[inset_3px_0_0_0_#3B82F6]">{row.liva}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -222,7 +224,7 @@ export function LandingPage() {
                         href={content.forEngineers.cta.link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center text-indigo-600 font-semibold hover:text-indigo-700 text-lg group"
+                        className="inline-flex items-center bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] bg-clip-text text-transparent font-semibold hover:from-[#2563EB] hover:to-[#0891B2] text-lg group"
                     >
                         {content.forEngineers.cta.text}
                         <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
@@ -231,7 +233,7 @@ export function LandingPage() {
             </section>
 
             {/* Section 7: Deploy */}
-            <section id="deploy" className="py-24 bg-indigo-50">
+            <section id="deploy" className="py-24 bg-gradient-to-br from-[#3B82F6]/5 to-[#06B6D4]/5">
                 <div className="container mx-auto px-4 max-w-4xl text-center">
                     <h2 className="text-3xl font-bold text-gray-900 mb-4">
                         {content.deploy.headline}
@@ -248,7 +250,7 @@ export function LandingPage() {
                                 rel="noopener noreferrer"
                                 className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all ${
                                     i === 0 
-                                    ? "bg-orange-500 text-white hover:bg-orange-600 shadow-lg hover:shadow-xl"
+                                    ? "bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] text-white hover:from-[#2563EB] hover:to-[#0891B2] shadow-lg hover:shadow-xl"
                                     : "bg-white text-gray-900 border border-gray-200 hover:border-gray-400"
                                 }`}
                             >
@@ -292,15 +294,17 @@ export function LandingPage() {
             </section>
 
             {/* Section 9: Final CTA */}
-            <section className="py-32 bg-gray-900 text-center">
-                <div className="container mx-auto px-4">
-                    <h2 className="text-4xl sm:text-6xl font-bold text-white mb-12 tracking-tight">
+            <section className="py-32 bg-gradient-to-br from-gray-900 via-[#1e3a8a] to-gray-900 text-center relative overflow-hidden">
+                {/* Gradient overlay for depth */}
+                <div className="absolute inset-0 bg-gradient-to-r from-[#3B82F6]/10 to-[#06B6D4]/10 pointer-events-none"></div>
+                <div className="container mx-auto px-4 relative z-10">
+                    <h2 className="text-4xl sm:text-6xl font-bold mb-12 tracking-tight bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] bg-clip-text text-transparent">
                         {content.finalCta.headline}
                     </h2>
                     <div className="flex flex-col sm:flex-row justify-center gap-6 items-center">
                         <Link
                             to={content.finalCta.primaryButton.link}
-                            className="px-10 py-5 text-xl font-bold text-gray-900 bg-white rounded-full hover:bg-gray-100 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)] hover:shadow-[0_0_30px_rgba(255,255,255,0.5)] hover:-translate-y-1"
+                            className="px-10 py-5 text-xl font-bold text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-full transition-all shadow-[0_0_20px_rgba(59,130,246,0.3)] hover:shadow-[0_0_30px_rgba(59,130,246,0.5)] hover:-translate-y-1"
                         >
                             {content.finalCta.primaryButton.text}
                         </Link>

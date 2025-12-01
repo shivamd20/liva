@@ -131,13 +131,13 @@ export function HomeBoard() {
     return (
         <div className="min-h-screen min-w-screen bg-gray-50">
             {/* Header */}
-            <header className="bg-white border-b border-gray-200 px-4 sm:px-6 lg:px-8 py-4 sticky top-0 z-10">
+            <header className="bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] px-4 sm:px-6 lg:px-8 py-4 sticky top-0 z-10 shadow-lg">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="bg-indigo-600 p-2 rounded-lg shadow-sm">
+                        <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg shadow-sm">
                             <LayoutGrid className="w-5 h-5 text-white" />
                         </div>
-                        <h1 className="text-xl font-bold text-gray-900 tracking-tight">Liva </h1>
+                        <h1 className="text-xl font-bold text-white tracking-tight">Liva </h1>
                     </div>
                     <div className="flex items-center gap-4">
                          {/* User Profile / Sign In */}
@@ -145,7 +145,7 @@ export function HomeBoard() {
                             <div className="w-8 h-8 bg-gray-100 rounded-full animate-pulse" />
                          ) : session?.user ? (
                             <div className="flex items-center gap-3">
-                                <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs border border-indigo-200 overflow-hidden">
+                                <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center text-white font-bold text-xs border border-white/30 overflow-hidden">
                                     {session.user.image ? (
                                         <img src={session.user.image} alt={session.user.name || 'User'} className="w-full h-full object-cover" />
                                     ) : (
@@ -153,8 +153,11 @@ export function HomeBoard() {
                                     )}
                                 </div>
                                 <button 
-                                    onClick={() => signOut()} 
-                                    className="text-sm text-gray-600 hover:text-gray-900 font-medium"
+                                    onClick={async () => {
+                                        await signOut();
+                                        navigate('/');
+                                    }} 
+                                    className="text-sm text-white/90 hover:text-white font-medium transition-colors"
                                 >
                                     Sign Out
                                 </button>
@@ -179,15 +182,15 @@ export function HomeBoard() {
                         <Dialog.Root open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
                             <Dialog.Trigger asChild>
                                 <button 
-                                    className="group relative aspect-[4/3] flex flex-col bg-white rounded-xl border-2 border-dashed border-gray-300 hover:border-indigo-500 hover:bg-indigo-50 transition-all duration-200 cursor-pointer text-left overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                    className="group relative aspect-[4/3] flex flex-col bg-white rounded-xl border-2 border-dashed border-gray-300 hover:border-transparent hover:bg-gradient-to-br hover:from-[#3B82F6] hover:to-[#06B6D4] transition-all duration-200 cursor-pointer text-left overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#3B82F6]"
                                 >
                                     <div className="flex-1 flex items-center justify-center">
                                         <div className="w-12 h-12 rounded-full bg-gray-100 group-hover:bg-white flex items-center justify-center transition-colors shadow-sm group-hover:shadow-md group-hover:scale-110 duration-300">
-                                            <Plus className="w-6 h-6 text-gray-400 group-hover:text-indigo-600 transition-colors" />
+                                            <Plus className="w-6 h-6 text-gray-400 group-hover:text-[#3B82F6] transition-colors" />
                                         </div>
                                     </div>
-                                    <div className="px-4 py-3 border-t border-transparent group-hover:border-indigo-100 bg-gray-50 group-hover:bg-indigo-100/50 transition-colors">
-                                        <span className="block text-sm font-medium text-gray-900 group-hover:text-indigo-700">Create New Board</span>
+                                    <div className="px-4 py-3 border-t border-transparent group-hover:border-white/30 bg-gray-50 group-hover:bg-white/20 transition-colors">
+                                        <span className="block text-sm font-medium text-gray-900 group-hover:text-white">Create New Board</span>
                                     </div>
                                 </button>
                             </Dialog.Trigger>
@@ -231,7 +234,7 @@ export function HomeBoard() {
                                             <button 
                                                 type="submit"
                                                 disabled={!newBoardTitle.trim() || createBoard.isPending}
-                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                                                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
                                             >
                                                 {createBoard.isPending ? 'Creating...' : 'Create Board'}
                                             </button>
@@ -325,7 +328,7 @@ export function HomeBoard() {
                                             <button 
                                                 type="submit"
                                                 disabled={!renameTitle.trim() || updateBoard.isPending}
-                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
                                             >
                                                 {updateBoard.isPending ? 'Renaming...' : 'Rename Board'}
                                             </button>
@@ -381,7 +384,7 @@ export function HomeBoard() {
                                             <button 
                                                 type="submit"
                                                 disabled={!duplicateTitle.trim() || duplicateBoard.isPending}
-                                                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                                                className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
                                             >
                                                 {duplicateBoard.isPending ? (
                                                     <>Duplicating...</>
@@ -465,7 +468,7 @@ function BoardThumbnail({ elements }: { elements?: any[] }) {
     if (loading) {
         return (
             <div className="w-full h-full flex items-center justify-center bg-gray-50">
-                <div className="w-6 h-6 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+                <div className="w-6 h-6 border-2 border-[#06B6D4]/30 border-t-[#3B82F6] rounded-full animate-spin"></div>
             </div>
         );
     }
@@ -473,8 +476,8 @@ function BoardThumbnail({ elements }: { elements?: any[] }) {
     if (!thumbnail) {
         return (
             <div className="w-full h-full flex items-center justify-center bg-gray-50 group-hover:bg-white transition-colors">
-                 <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#4f46e5_1px,transparent_1px)] [background-size:16px_16px]" />
-                 <File className="w-10 h-10 text-gray-300 group-hover:text-indigo-500 transition-all duration-300 group-hover:scale-110 relative z-10" />
+                 <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#3B82F6_1px,transparent_1px)] [background-size:16px_16px]" />
+                 <File className="w-10 h-10 text-gray-300 group-hover:text-[#3B82F6] transition-all duration-300 group-hover:scale-110 relative z-10" />
             </div>
         );
     }
@@ -504,7 +507,7 @@ function BoardCard({ board, onClick, onRename, onDelete, onDuplicate }: { board:
     return (
         <div 
             onClick={onClick}
-            className="group relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-lg hover:border-indigo-300 transition-all duration-200 cursor-pointer flex flex-col aspect-[4/3] overflow-hidden"
+            className="group relative bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-xl hover:border-transparent hover:ring-2 hover:ring-[#3B82F6] transition-all duration-200 cursor-pointer flex flex-col aspect-[4/3] overflow-hidden"
         >
             {/* Thumbnail Placeholder */}
             <div className="flex-1 relative overflow-hidden">
@@ -544,14 +547,14 @@ function BoardCard({ board, onClick, onRename, onDelete, onDuplicate }: { board:
                                 
                                 <DropdownMenu.Item 
                                     onSelect={onRename}
-                                    className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-md cursor-pointer outline-none"
+                                    className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#06B6D4]/10 hover:text-[#3B82F6] rounded-md cursor-pointer outline-none transition-all"
                                 >
                                     <Pencil className="w-4 h-4" />
                                     Rename
                                 </DropdownMenu.Item>
                                   <DropdownMenu.Item 
                                     onSelect={onDuplicate}
-                                    className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-700 rounded-md cursor-pointer outline-none"
+                                    className="flex items-center gap-2 px-2 py-2 text-sm text-gray-700 hover:bg-gradient-to-r hover:from-[#3B82F6]/10 hover:to-[#06B6D4]/10 hover:text-[#3B82F6] rounded-md cursor-pointer outline-none transition-all"
                                 >
                                     <Copy className="w-4 h-4" />
                                    Duplicate
