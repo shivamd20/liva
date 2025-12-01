@@ -8,7 +8,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { exportToBlob } from "@excalidraw/excalidraw";
 import { signOut, useSession } from '../lib/auth-client';
 import { HistoryModal } from './HistoryModal';
-import { queryClient } from '@/main';
+import { queryClient } from '../main';
 
 export function HomeBoard() {
     const { data: boards = [], isLoading } = useBoards();
