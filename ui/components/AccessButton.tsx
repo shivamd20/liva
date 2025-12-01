@@ -57,8 +57,9 @@ export function AccessButton({
                 onClick={handleClick}
                 disabled={!isOwner}
                 className={`
-          inline-flex items-center justify-center gap-2 px-4 rounded-full
-          h-8
+          inline-flex items-center justify-center gap-2 px-4 rounded-lg
+          h-9
+          my-auto
           text-sm font-semibold
           transition-all duration-300 ease-in-out
           shadow-sm hover:shadow-md
