@@ -46,9 +46,7 @@ export function BoardEditor({
   const userId = session?.user?.id;
   const isOwner = !!(userId && userId === board.userId);
 
-  console.log({
-    board, userId, isOwner
-  });
+
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
   const handleLocalChange = useCallback(
@@ -198,6 +196,8 @@ export function BoardEditor({
             isOwner={isOwner}
             onToggle={async () => {
               const updated = await boardsAPI.toggleShare(board.id);
+              // Invalidate and refetch the board details
+              await queryClient.invalidateQueries({ queryKey: ['board', board.id] });
               if (updated.access === 'public') {
                 await navigator.clipboard.writeText(window.location.href);
                 toast.success("Public access enabled. Link copied to clipboard!");
