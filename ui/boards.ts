@@ -15,4 +15,6 @@ export interface BoardsAPI {
   sendEphemeral: (id: string, data: any) => void;
   toggleShare: (id: string) => Promise<Board>;
   updateViaWS: (board: Board) => void;
+  getHistory: (id: string, limit?: number, cursor?: number) => Promise<{ items: any[], nextCursor: number | null }>;
+  revert: (id: string, version: number) => Promise<Board>;
 }

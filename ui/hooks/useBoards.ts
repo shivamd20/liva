@@ -67,6 +67,7 @@ export function useDeleteBoard() {
   });
 }
 
+
 export function useDuplicateBoard() {
   const queryClient = useQueryClient();
 
@@ -97,3 +98,34 @@ export function useDuplicateBoard() {
     }
   });
 }
+
+import { useInfiniteQuery } from '@tanstack/react-query';
+
+export function useHistory(id: string | undefined) {
+  const { data: session } = useSession();
+
+  return useInfiniteQuery({
+    queryKey: ['history', id],
+    queryFn: async ({ pageParam }) => {
+      if (!id) return { items: [], nextCursor: null };
+      return boards.getHistory(id, 20, pageParam as number | undefined);
+    },
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: !!id && !!session?.user
+  });
+}
+
+export function useRevertBoard() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { id: string, version: number }) => boards.revert(params.id, params.version),
+    onSuccess: (updatedBoard) => {
+      queryClient.setQueryData(['board', updatedBoard.id], updatedBoard);
+      queryClient.invalidateQueries({ queryKey: ['history', updatedBoard.id] });
+      queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+    }
+  });
+}
+

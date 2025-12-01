@@ -4,6 +4,7 @@ import { NotesServiceDO, pubsub } from "./service-do";
 import {
 	createNoteInput,
 	getVersionInput,
+	getHistoryInput,
 	idInput,
 	updateNoteInput,
 	type NoteCurrent,
@@ -49,9 +50,9 @@ export const notesRouter = router({
 		return await service.listNotes(ctx.userId);
 	}),
 
-	getHistory: publicProcedure.input(idInput).query(async ({ input, ctx }) => {
+	getHistory: publicProcedure.input(getHistoryInput).query(async ({ input, ctx }) => {
 		const service = new NotesServiceDO(ctx.env);
-		return await service.getHistory(input.id);
+		return await service.getHistory(input.id, input.limit, input.cursor, input.direction);
 	}),
 
 	getVersion: publicProcedure.input(getVersionInput).query(async ({ input, ctx }) => {
