@@ -1,0 +1,68 @@
+<svg width="120" height="120" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!-- Hanging circle -->
+  <circle
+    cx="32"
+    cy="10"
+    r="3"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2"
+  />
+
+  <!-- Strings from circle to frame -->
+  <line
+    x1="29"
+    y1="12.5"
+    x2="18"
+    y2="20"
+    stroke="#ffffff"
+    stroke-width="2"
+    stroke-linecap="round"
+  />
+  <line
+    x1="35"
+    y1="12.5"
+    x2="46"
+    y2="20"
+    stroke="#ffffff"
+    stroke-width="2"
+    stroke-linecap="round"
+  />
+
+  <!-- Outer frame -->
+  <rect
+    x="14"
+    y="20"
+    width="36"
+    height="26"
+    rx="2"
+    ry="2"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2"
+  />
+
+  <!-- Inner board/screen -->
+  <rect
+    x="18"
+    y="24"
+    width="28"
+    height="16"
+    rx="1"
+    ry="1"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2"
+  />
+
+  <!-- Bottom stand/platform -->
+  <rect
+    x="26"
+    y="40"
+    width="12"
+    height="3"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="2"
+  />
+</svg>

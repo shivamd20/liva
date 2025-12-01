@@ -7,6 +7,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Dialog from '@radix-ui/react-dialog';
 import { exportToBlob } from "@excalidraw/excalidraw";
 import { signOut, useSession } from '../lib/auth-client';
+import logo from './logos/logov1.svg';
 
 export function HomeBoard() {
     const { data: boards = [], isLoading } = useBoards();
@@ -133,10 +134,9 @@ export function HomeBoard() {
             {/* Header */}
             <header className="bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] px-4 sm:px-6 lg:px-8 py-4 sticky top-0 z-10 shadow-lg">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-white/20 backdrop-blur-sm p-2 rounded-lg shadow-sm">
-                            <LayoutGrid className="w-5 h-5 text-white" />
-                        </div>
+                    <div className="flex items-center justify-center  space-x-1 ">
+                           <img src={logo} alt="Logo" width={34} height={34} />
+                        
                         <h1 className="text-xl font-bold text-white tracking-tight">Liva </h1>
                     </div>
                     <div className="flex items-center gap-4">
