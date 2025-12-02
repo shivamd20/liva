@@ -11,6 +11,7 @@ import {
     MousePointer2
 } from 'lucide-react';
 import content from '../landingPage.json';
+import { Button } from '@/ui/components/ui/button';
 
 const Icons = {
     LayoutGrid,
@@ -44,12 +45,14 @@ export function LandingPage() {
                                 >
                                     {content.hero.primaryCta.text}
                                 </Link>
-                                <a
-                                    href={content.hero.secondaryCta.link}
-                                    className="inline-flex justify-center items-center px-8 py-4 text-lg font-semibold text-gray-600 bg-white border-2 border-gray-200 rounded-full hover:border-gray-400 hover:text-gray-900 transition-all"
-                                >
-                                    {content.hero.secondaryCta.text}
-                                </a>
+                                <Button variant="secondary" asChild>
+                                    <a
+                                        href={content.hero.secondaryCta.link}
+                                        className="text-lg"
+                                    >
+                                        {content.hero.secondaryCta.text}
+                                    </a>
+                                </Button>
                             </div>
                             <p className="text-sm text-gray-400 font-medium">
                                 {content.hero.microcopy}

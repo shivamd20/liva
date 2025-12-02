@@ -36,7 +36,10 @@
         "types": [
             "./worker-configuration.d.ts",
             "vite/client"
-        ]
+        ],
+           "paths": {
+      "@/*": ["./*"]
+    }
     },
     "exclude": []
 }
