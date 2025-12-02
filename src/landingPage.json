@@ -1,0 +1,207 @@
+{
+    "hero": {
+        "headline": "A realtime whiteboard that feels effortless.",
+        "subheadline": "Create boards instantly. Share with a link. Collaborate with anyone in real time.",
+        "primaryCta": {
+            "text": "Get Started",
+            "link": "/board"
+        },
+        "secondaryCta": {
+            "text": "Deploy Your Own Version",
+            "link": "https://deploy.workers.cloudflare.com/?url=https://github.com/shivamd20/liva"
+        },
+        "microcopy": "No signup needed. Works with guests. Open source."
+    },
+    "whyThisExists": {
+        "headline": "Built for ideas that move fast.",
+        "features": [
+            "Instant board creation",
+            "Zero friction sharing",
+            "Beautiful realtime sync",
+            "Perfect for sketches, diagrams, planning, meetings",
+            "Guest mode, no account needed"
+        ]
+    },
+    "howItWorks": {
+        "headline": "Real time without the overhead.",
+        "copy": "Every board has its own state coordinator powered by Cloudflare Durable Objects. This gives Liva smooth consistency, replayable updates, and low cost scaling."
+    },
+    "features": [
+        {
+            "title": "Realtime collaboration",
+            "description": "Smooth cursor sync, crisp stroke rendering, no jitter.",
+            "icon": "Zap"
+        },
+        {
+            "title": "Link sharing",
+            "description": "Anyone can join instantly. No accounts, no friction.",
+            "icon": "Link"
+        },
+        {
+            "title": "Organization",
+            "description": "Create, name, pin, star, archive boards.",
+            "icon": "Folder"
+        },
+        {
+            "title": "Safe place",
+            "description": "Private boards by default. Guest mode available. E2EE coming.",
+            "icon": "Shield"
+        },
+        {
+            "title": "Open source",
+            "description": "Fork it, modify it, extend it.",
+            "icon": "Github"
+        },
+        {
+            "title": "Self host via Cloudflare",
+            "description": "Deploy in seconds. Own your data.",
+            "icon": "Cloud"
+        }
+    ],
+    "comparison": {
+        "headline": "If you love Excalidraw, you’ll feel right at home.",
+        "subheadline": "Liva is built on the familiar Excalidraw aesthetic, but gives you premium features like cloud sync and multiple boards for free.",
+        "table": [
+            {
+                "feature": "Multiple Boards",
+                "excalidraw": "Paid",
+                "liva": "Free"
+            },
+            {
+                "feature": "Cloud Sync",
+                "excalidraw": "Paid",
+                "liva": "Free"
+            },
+            {
+                "feature": "Multiplayer Live Editing",
+                "excalidraw": "Paid",
+                "liva": "Free"
+            },
+            {
+                "feature": "Self hosting",
+                "excalidraw": "Complex",
+                "liva": "One click on Cloudflare"
+            },
+            {
+                "feature": "Pointer-to-pointer sync",
+                "excalidraw": "Good",
+                "liva": "Ultra smooth (DO-backed)"
+            },
+            {
+                "feature": "Open source",
+                "excalidraw": "Partial (UI Only)",
+                "liva": "100% (UI + Sync Backend)"
+            }
+        ]
+    },
+    "forEngineers": {
+        "headline": "Built by an engineer for engineers.",
+        "copy": "Clean architecture. Durable Objects for consistency. Lightweight front end. No vendor lock. Clone it, audit it, run it.",
+        "cta": {
+            "text": "View GitHub Repo",
+            "link": "https://github.com/shivamd20/liva"
+        }
+    },
+    "deploy": {
+        "headline": "Host your own Liva.",
+        "subheadline": "Deploy to Cloudflare in seconds. Keep everything on your infra.",
+        "buttons": [
+            {
+                "text": "Deploy to Cloudflare",
+                "link": "https://deploy.workers.cloudflare.com/?url=https://github.com/shivamd20/liva"
+            },
+            {
+                "text": "One-click Template Repo",
+                "link": "https://github.com/shivamd20/liva"
+            }
+        ]
+    },
+    "founder": {
+        "headline": "Made by Shivam",
+        "subcopy": "Building realtime tools in public. Focused on clarity, performance, and scale.",
+        "image": "https://media.licdn.com/dms/image/v2/D4D03AQEchvzvpS6FIA/profile-displayphoto-shrink_800_800/B4DZObnzB2HMAc-/0/1733482723331?e=1766016000&v=beta&t=B4X6Fc4mMgn1xvAwiXOAWPFC3Z4nTwjESFIJcp9Z8sM",
+        "links": [
+            {
+                "text": "GitHub",
+                "url": "https://github.com/shivamd20"
+            },
+            {
+                "text": "X",
+                "url": "https://x.com/final_const"
+            },
+            {
+                "text": "LinkedIn",
+                "url": "https://www.linkedin.com/in/shvm-in/"
+            }
+        ]
+    },
+    "finalCta": {
+        "headline": "Start sketching.",
+        "primaryButton": {
+            "text": "Get Started",
+            "link": "/board"
+        },
+        "secondaryButton": {
+            "text": "View GitHub",
+            "link": "https://github.com/shivamd20/liva"
+        }
+    },
+    "socialLinks": {
+        "github": "https://github.com/shivamd20",
+        "twitter": "https://x.com/final_const",
+        "linkedin": "https://www.linkedin.com/in/shvm-in/"
+    },
+    "navigation": {
+        "product": [
+            {
+                "name": "Features",
+                "href": "#features"
+            },
+            {
+                "name": "Use Cases",
+                "href": "#use-cases"
+            },
+            {
+                "name": "Architecture",
+                "href": "#architecture"
+            }
+        ],
+        "resources": [
+            {
+                "name": "GitHub",
+                "href": "https://github.com/shivamd20/liva"
+            }
+        ],
+        "company": [
+            {
+                "name": "Contact",
+                "href": "https://calendar.app.google/uxqDsCepVjkX6MXj6"
+            }
+        ]
+    },
+    "navbar": {
+        "links": [
+            {
+                "name": "Features",
+                "href": "#features"
+            },
+            {
+                "name": "Use Cases",
+                "href": "#use-cases"
+            },
+            {
+                "name": "GitHub",
+                "href": "https://github.com/shivamd20/liva",
+                "external": true
+            }
+        ],
+        "ctaButton": {
+            "text": "Get Started",
+            "href": "/board"
+        },
+        "secondaryButton": {
+            "text": "Book a Call",
+            "href": "https://calendar.app.google/uxqDsCepVjkX6MXj6"
+        }
+    }
+}
