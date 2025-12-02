@@ -25,12 +25,13 @@ export default function Navbar() {
           <div
             className={`relative flex items-center justify-between rounded-2xl transition-all duration-500 ease-out ${scrolled
               ? "bg-background/70 backdrop-blur-2xl border border-border/50 shadow-lg shadow-black/[0.03] px-6 py-3"
-              : "bg-transparent px-2 py-2"
+              : "bg-background/45 backdrop-blur-xl border border-border/40 shadow-md shadow-black/[0.02] px-4 py-2"
               }`}
             style={{
-              boxShadow: scrolled ? "0 0 0 1px rgba(255,255,255,0.05) inset, 0 4px 24px -4px rgba(0,0,0,0.08)" : "none",
+              boxShadow: scrolled ? "0 0 0 1px rgba(255,255,255,0.05) inset, 0 4px 24px -4px rgba(0,0,0,0.08)" : "0 0 0 1px rgba(255,255,255,0.04) inset, 0 2px 16px -6px rgba(0,0,0,0.06)",
             }}
           >
+            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/10 to-white/5 opacity-70" />
             {/* Logo */}
             <Link to="/" className="flex items-center gap-3 group">
               <div className="relative w-9 h-9 flex items-center justify-center">
@@ -66,7 +67,7 @@ export default function Navbar() {
                   />
                 </svg>
               </div>
-              <span className="text-lg font-semibold tracking-tight text-foreground">Liva</span>
+              <span className="text-lg font-semibold tracking-tight text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]">Liva</span>
               <span className="hidden sm:inline-flex badge-beta text-[10px] py-0.5 px-2">Beta</span>
             </Link>
 
@@ -74,7 +75,7 @@ export default function Navbar() {
             <div className="hidden md:flex items-center gap-1">
               {navLinks.map((link) => {
                 const classes =
-                  "relative px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 rounded-lg hover:bg-foreground/[0.04] group";
+                  "relative px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 rounded-lg hover:bg-foreground/[0.04] group drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]";
                 const content = (
                   <span className="relative z-10 flex items-center gap-1.5">
                     {link.name}
@@ -130,7 +131,7 @@ export default function Navbar() {
               </a>
               <Link
                 to={content.navbar.ctaButton.href}
-                className="group relative px-5 py-2.5 text-sm font-semibold text-primary-foreground rounded-xl overflow-hidden transition-all duration-300"
+                className="group relative px-5 py-2.5 text-sm font-semibold text-primary-foreground rounded-xl overflow-hidden transition-all duration-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]"
               >
                 <div className="absolute inset-0 bg-foreground rounded-xl transition-transform duration-300 group-hover:scale-105" />
                 <span className="relative z-10 flex items-center gap-2">
