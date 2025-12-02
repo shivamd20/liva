@@ -1,9 +1,9 @@
 export default {
   darkMode: ['class'],
   content: [
-    './ui/index.html',
-    './ui/**/*.{js,ts,jsx,tsx}',
-    '!./ui/node_modules/**',
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    '!./src/node_modules/**',
   ],
   theme: {
     extend: {

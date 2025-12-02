@@ -4,12 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 
 export default defineConfig({
-  root: './ui',
   envDir: '.',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': path.resolve(process.cwd(), '.'),
+      '@': path.resolve(process.cwd(), 'src'),
     },
   },
   server: {
@@ -29,6 +28,6 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: '../public',
+    outDir: 'public',
   },
 })

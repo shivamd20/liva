@@ -11,7 +11,7 @@ import {
     MousePointer2
 } from 'lucide-react';
 import content from '../landingPage.json';
-import { Button } from '@/ui/components/ui/button';
+import { Button } from '@/components/ui/button';
 
 const Icons = {
     LayoutGrid,
