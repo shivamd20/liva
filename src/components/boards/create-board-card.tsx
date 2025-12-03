@@ -5,7 +5,7 @@ interface CreateBoardCardProps {
 export default function CreateBoardCard({ onClick }: CreateBoardCardProps) {
   return (
     <button
-      className="group relative w-full aspect-[4/3] rounded-2xl border-2 border-dashed border-border/60 hover:border-accent/50 bg-foreground/[0.02] hover:bg-accent/[0.04] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background overflow-hidden"
+      className="group relative w-full aspect-[16/10] rounded-2xl border-2 border-dashed border-border/60 hover:border-accent/50 bg-foreground/[0.02] hover:bg-accent/[0.04] transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background overflow-hidden"
       aria-label="Create new board"
       onClick={onClick}
     >
