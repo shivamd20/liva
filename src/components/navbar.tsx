@@ -18,7 +18,7 @@ export default function Navbar() {
     { name: "Features", href: "#features" },
     { name: "Use Cases", href: "#use-cases" },
     { name: "Architecture", href: "#architecture" },
-    { name: "GitHub", href: "https://github.com/liva-app/liva", external: true },
+    { name: "GitHub", href: "https://github.com/shivamd20/liva", external: true },
   ]
 
   return (

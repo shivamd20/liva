@@ -29,9 +29,8 @@ export default function DataOwnership() {
         <div ref={ref} className="grid md:grid-cols-3 gap-8 mb-16">
           {/* E2E Encryption */}
           <div
-            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${
-              isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-            }`}
+            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+              }`}
           >
             <div className="w-14 h-14 rounded-2xl bg-background/10 flex items-center justify-center mb-6">
               <Lock className="w-7 h-7 text-background" />
@@ -45,9 +44,8 @@ export default function DataOwnership() {
 
           {/* Self-host */}
           <div
-            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${
-              isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-            }`}
+            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+              }`}
             style={{ transitionDelay: "100ms" }}
           >
             <div className="w-14 h-14 rounded-2xl bg-background/10 flex items-center justify-center mb-6">
@@ -69,9 +67,8 @@ export default function DataOwnership() {
 
           {/* Open Source */}
           <div
-            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${
-              isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-            }`}
+            className={`p-8 rounded-2xl bg-background/5 border border-background/10 transition-all duration-700 ${isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+              }`}
             style={{ transitionDelay: "200ms" }}
           >
             <div className="w-14 h-14 rounded-2xl bg-background/10 flex items-center justify-center mb-6">
@@ -82,7 +79,7 @@ export default function DataOwnership() {
               Every line of code is public. Audit it, fork it, contribute to it. Zero black boxes, zero trust required.
             </p>
             <a
-              href="https://github.com/liva-app/liva"
+              href="https://github.com/shivamd20/liva"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-sm font-semibold text-background hover:text-background/80 transition-colors"
@@ -93,9 +90,8 @@ export default function DataOwnership() {
         </div>
 
         <div
-          className={`rounded-2xl bg-background/5 border border-background/10 p-8 md:p-12 transition-all duration-700 ${
-            isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
-          }`}
+          className={`rounded-2xl bg-background/5 border border-background/10 p-8 md:p-12 transition-all duration-700 ${isInView ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"
+            }`}
           style={{ transitionDelay: "300ms" }}
         >
           <div className="flex flex-col lg:flex-row gap-12 items-center">
