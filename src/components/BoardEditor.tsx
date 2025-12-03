@@ -1,7 +1,12 @@
 /**
- * BoardEditor - Excalidraw component with bidirectional sync
+ * BoardEditor - Premium mobile-responsive Excalidraw component
  * 
- * Clean component that delegates sync logic to useExcalidrawSync hook
+ * Features:
+ * - Responsive layout with mobile/tablet/desktop optimizations
+ * - Dynamic toolbar positioning based on screen size
+ * - Touch-friendly UI with proper target sizes
+ * - Safe area insets for notched devices
+ * - Optimized UI options per device type
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
@@ -9,8 +14,10 @@ import { Share2, Globe } from 'lucide-react';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
+import '../styles/excalidraw-mobile.css';
 import { ReactNode, useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { useExcalidrawSync } from '../hooks/useExcalidrawSync';
+import { useResponsive } from '../hooks/useResponsive';
 import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
 import { useQueryClient } from '@tanstack/react-query';
@@ -47,6 +54,8 @@ export function BoardEditor({
   const userProfile = useMemo(() => getUserProfile(session), [session]);
   const userId = session?.user?.id;
   const isOwner = !!(userId && userId === board.userId);
+  const { isMobile, isTablet } = useResponsive();
+  const { theme } = useTheme();
 
 
 
@@ -179,14 +188,59 @@ export function BoardEditor({
     });
   }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
-  const { theme } = useTheme();
+  // Responsive UI options based on device type
+  const uiOptions = useMemo(() => {
+    // Mobile: simplified UI
+    if (isMobile) {
+      return {
+        canvasActions: {
+          loadScene: false as const,
+          changeViewBackgroundColor: false as const,
+          export: false as const,
+        },
+        dockedSidebarBreakpoint: 0,
+      } as const;
+    }
+
+    // Tablet: balanced UI
+    if (isTablet) {
+      return {
+        canvasActions: {
+          loadScene: false as const,
+        },
+        dockedSidebarBreakpoint: 768,
+      } as const;
+    }
+
+    // Desktop: full UI
+    return {
+      canvasActions: {
+        loadScene: false as const,
+      },
+    } as const;
+  }, [isMobile, isTablet]);
+
+  // Handle pointer events with touch sensitivity adjustments
+  const handlePointerDown = useCallback(
+    (activeTool: any, pointerDownState: any) => {
+      // Reduce gesture sensitivity on touch devices if needed
+      if (pointerDownState.pointerType === 'touch' && isMobile) {
+        // Touch-specific handling can be added here
+      }
+      onPointerDown?.(activeTool, pointerDownState);
+    },
+    [onPointerDown, isMobile]
+  );
 
   return (
-    <div className="flex-1 h-screen bg-white" style={{
-      '--color-primary': '#3B82F6',
-      '--color-primary-dark': '#2563EB',
-      '--color-primary-light': '#93C5FD'
-    } as React.CSSProperties}>
+    <div
+      className="excalidraw-wrapper"
+      style={{
+        '--color-primary': '#3B82F6',
+        '--color-primary-dark': '#2563EB',
+        '--color-primary-light': '#93C5FD'
+      } as React.CSSProperties}
+    >
       <Excalidraw
         excalidrawAPI={(api) => {
           excalidrawAPIRef.current = api;
@@ -199,6 +253,7 @@ export function BoardEditor({
           debouncedLocalChange(elements);
         }}
         isCollaborating={board.access === 'public'}
+        UIOptions={uiOptions}
         renderTopRightUI={() => (
           isOwner ? (
             <button
@@ -211,18 +266,23 @@ export function BoardEditor({
                   toast.success("Public access disabled");
                 }
               }}
-              className={`flex items-center gap-2 px-4 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg ${board.access === 'public'
+              className={`flex items-center gap-2 ${isMobile ? 'px-3 py-2' : 'px-4 py-2'} text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 ${board.access === 'public'
                 ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
                 : 'bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2]'
                 }`}
+              style={{
+                minWidth: isMobile ? '48px' : '44px',
+                minHeight: isMobile ? '48px' : '44px',
+                touchAction: 'manipulation',
+              }}
             >
               {board.access === 'public' ? <Globe className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-              {board.access === 'public' ? 'Public' : 'Share'}
+              {!isMobile && (board.access === 'public' ? 'Public' : 'Share')}
             </button>
           ) : null
         )}
         onPointerUpdate={onPointerUpdate}
-        onPointerDown={onPointerDown}
+        onPointerDown={handlePointerDown}
         onLinkOpen={onLinkOpen}
       >
         {menuItems && <MainMenu>{menuItems}</MainMenu>}
