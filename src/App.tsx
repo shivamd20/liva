@@ -9,6 +9,7 @@ import { useBoards, useBoard, useUpdateBoard, useDeleteBoard } from './hooks/use
 import { useCallback } from 'react';
 import { useSession } from './lib/auth-client';
 import BoardsPage from './components/boards/boards-page';
+import { useTheme } from 'next-themes';
 
 function BoardView({
   allBoards,
@@ -43,6 +44,12 @@ function BoardView({
     }
   };
 
+  const { theme, setTheme } = useTheme();
+
+  const handleSwitchTheme = () => {
+    setTheme(theme === 'dark' ? 'light' : 'dark');
+  };
+
   const menuItems = (
     <>
       <MainMenu.Item onSelect={() => navigate('/board')}>
@@ -53,6 +60,9 @@ function BoardView({
       </MainMenu.Item>
       <MainMenu.Item onSelect={handleRenameBoard}>
         Rename Current Board
+      </MainMenu.Item>
+      <MainMenu.Item onSelect={handleSwitchTheme}>
+        Switch to {theme === 'dark' ? 'light' : 'dark'} mode
       </MainMenu.Item>
       {allBoards.length > 1 && id && (
         <>
@@ -120,6 +130,8 @@ export function App() {
         <Route path="/boards" element={<BoardsPage />} />
         <Route path="/board" element={<BoardsPage />} />
         <Route path="/board/new" element={<NewBoardPage />} />
+        <Route path="/templates" element={<> Work in progress </>} />
+        <Route path="/templates" element={<> Work in progress </>} />
         <Route
           path="/board/:id"
           element={
