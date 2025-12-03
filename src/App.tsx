@@ -54,18 +54,6 @@ function BoardView({
       <MainMenu.Item onSelect={handleRenameBoard}>
         Rename Current Board
       </MainMenu.Item>
-      <MainMenu.Separator />
-      <MainMenu.Group title="Boards">
-        {allBoards.map(b => (
-          <MainMenu.Item
-            key={b.id}
-            onSelect={() => navigate(`/board/${b.id}`)}
-          >
-            {b.title || 'Untitled board'}
-            {b.id === id && ' (current)'}
-          </MainMenu.Item>
-        ))}
-      </MainMenu.Group>
       {allBoards.length > 1 && id && (
         <>
           <MainMenu.Separator />
@@ -80,6 +68,19 @@ function BoardView({
           </MainMenu.Item>
         </>
       )}
+      <MainMenu.Separator />
+      <MainMenu.Group title="Boards">
+        {allBoards.map(b => (
+          <MainMenu.Item
+            key={b.id}
+            onSelect={() => navigate(`/board/${b.id}`)}
+          >
+            {b.title || 'Untitled board'}
+            {b.id === id && ' (current)'}
+          </MainMenu.Item>
+        ))}
+      </MainMenu.Group>
+
     </>
   );
 

@@ -17,6 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
+import { useTheme } from 'next-themes';
 
 
 interface BoardEditorProps {
@@ -178,6 +179,8 @@ export function BoardEditor({
     });
   }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
+  const { theme } = useTheme();
+
   return (
     <div className="flex-1 h-screen bg-white" style={{
       '--color-primary': '#3B82F6',
@@ -188,6 +191,7 @@ export function BoardEditor({
         excalidrawAPI={(api) => {
           excalidrawAPIRef.current = api;
         }}
+        theme={theme}
         initialData={{
           elements: board.excalidrawElements || [],
         }}
