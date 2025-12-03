@@ -13,6 +13,7 @@
 		"build:ui": "vite build --config ./vite.config.ts"
 	},
 	"devDependencies": {
+		"@types/node": "^24.10.1",
 		"@types/react": "^19.2.7",
 		"@types/react-dom": "^19.2.3",
 		"autoprefixer": "^10.4.22",
@@ -35,6 +36,7 @@
 		"better-auth": "^1.4.3",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
+		"cmdk": "^1.1.1",
 		"dotenv": "^17.2.3",
 		"drizzle-orm": "^0.44.7",
 		"lucide-react": "^0.555.0",
