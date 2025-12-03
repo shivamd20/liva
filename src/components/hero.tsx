@@ -54,7 +54,7 @@ export default function Hero() {
               className="group h-14 px-8 text-base font-semibold rounded-full bg-foreground text-background hover:bg-foreground/90 transition-all duration-300 shadow-lg shadow-foreground/10"
               asChild
             >
-              <a href="/board">
+              <a href="/boards">
                 <Play className="w-4 h-4 mr-2 fill-current" />
                 Try it now
                 <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
@@ -63,7 +63,7 @@ export default function Hero() {
             <Button
               size="lg"
               variant="outline"
-              className="h-14 px-8 text-base font-medium rounded-full border-2 border-border bg-background/80 hover:text-green-500 backdrop-blur-sm hover:bg-secondary transition-all duration-300"
+              className="h-14 px-8 text-base font-medium rounded-full border-2 border-border bg-background/80 backdrop-blur-sm hover:bg-secondary transition-all duration-300"
               asChild
             >
               <a href="https://calendar.app.google/uxqDsCepVjkX6MXj6" target="_blank" rel="noopener noreferrer">

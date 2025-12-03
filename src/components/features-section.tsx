@@ -1,3 +1,5 @@
+"use client"
+
 import { useInView } from "@/hooks/use-in-view"
 import { Check, Sparkles } from "lucide-react"
 

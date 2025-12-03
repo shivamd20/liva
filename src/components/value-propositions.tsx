@@ -1,3 +1,5 @@
+"use client"
+
 import { useInView } from "@/hooks/use-in-view"
 
 const pillars = [

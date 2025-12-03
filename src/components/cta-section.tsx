@@ -1,3 +1,5 @@
+"use client"
+
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Play } from "lucide-react"
 
@@ -37,7 +39,7 @@ export default function CTASection() {
           <Button
             size="lg"
             variant="outline"
-            className="h-14 px-8 text-base font-medium rounded-full border-2 border-border bg-background hover: transition-all duration-300"
+            className="h-14 px-8 text-base font-medium rounded-full border-2 border-border bg-background hover:bg-secondary transition-all duration-300"
             asChild
           >
             <a href="https://calendar.app.google/uxqDsCepVjkX6MXj6" target="_blank" rel="noopener noreferrer">

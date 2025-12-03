@@ -1,3 +1,5 @@
+"use client"
+
 import { useInView } from "@/hooks/use-in-view"
 import { Shield, Server, GitBranch, Lock } from "lucide-react"
 

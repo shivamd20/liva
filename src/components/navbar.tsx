@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
-import content from '../landingPage.json'
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -14,7 +13,12 @@ export default function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  const navLinks = content.navbar.links
+  const navLinks = [
+    { name: "Features", href: "#features" },
+    { name: "Use Cases", href: "#use-cases" },
+    { name: "Architecture", href: "#architecture" },
+    { name: "GitHub", href: "https://github.com/liva-app/liva", external: true },
+  ]
 
   return (
     <>
@@ -25,13 +29,12 @@ export default function Navbar() {
           <div
             className={`relative flex items-center justify-between rounded-2xl transition-all duration-500 ease-out ${scrolled
               ? "bg-background/70 backdrop-blur-2xl border border-border/50 shadow-lg shadow-black/[0.03] px-6 py-3"
-              : "bg-background/45 backdrop-blur-xl border border-border/40 shadow-md shadow-black/[0.02] px-4 py-2"
+              : "bg-transparent px-2 py-2"
               }`}
             style={{
-              boxShadow: scrolled ? "0 0 0 1px rgba(255,255,255,0.05) inset, 0 4px 24px -4px rgba(0,0,0,0.08)" : "0 0 0 1px rgba(255,255,255,0.04) inset, 0 2px 16px -6px rgba(0,0,0,0.06)",
+              boxShadow: scrolled ? "0 0 0 1px rgba(255,255,255,0.05) inset, 0 4px 24px -4px rgba(0,0,0,0.08)" : "none",
             }}
           >
-            <div className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-b from-white/10 to-white/5 opacity-70" />
             {/* Logo */}
             <Link to="/" className="flex items-center gap-3 group">
               <div className="relative w-9 h-9 flex items-center justify-center">
@@ -67,16 +70,20 @@ export default function Navbar() {
                   />
                 </svg>
               </div>
-              <span className="text-lg font-semibold tracking-tight text-foreground drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]">Liva</span>
+              <span className="text-lg font-semibold tracking-tight text-foreground">Liva</span>
               <span className="hidden sm:inline-flex badge-beta text-[10px] py-0.5 px-2">Beta</span>
             </Link>
 
             {/* Desktop Navigation */}
             <div className="hidden md:flex items-center gap-1">
-              {navLinks.map((link) => {
-                const classes =
-                  "relative px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 rounded-lg hover:bg-foreground/[0.04] group drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]";
-                const content = (
+              {navLinks.map((link) => (
+                <Link
+                  key={link.name}
+                  to={link.href}
+                  target={link.external ? "_blank" : undefined}
+                  rel={link.external ? "noopener noreferrer" : undefined}
+                  className="relative px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 rounded-lg hover:bg-foreground/[0.04] group"
+                >
                   <span className="relative z-10 flex items-center gap-1.5">
                     {link.name}
                     {link.external && (
@@ -97,45 +104,27 @@ export default function Navbar() {
                       </svg>
                     )}
                   </span>
-                );
-                if (link.external || link.href.startsWith("#")) {
-                  return (
-                    <a
-                      key={link.name}
-                      href={link.href}
-                      target={link.external ? "_blank" : undefined}
-                      rel={link.external ? "noopener noreferrer" : undefined}
-                      className={classes}
-                    >
-                      {content}
-                    </a>
-                  );
-                }
-                return (
-                  <Link key={link.name} to={link.href} className={classes}>
-                    {content}
-                  </Link>
-                );
-              })}
+                </Link>
+              ))}
             </div>
 
             {/* CTA Buttons */}
             <div className="hidden md:flex items-center gap-3">
-              <a
-                href={content.navbar.secondaryButton.href}
+              <Link
+                to="https://calendar.app.google/uxqDsCepVjkX6MXj6"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors duration-200 rounded-lg hover:bg-foreground/[0.04]"
               >
-                {content.navbar.secondaryButton.text}
-              </a>
+                Book a Call
+              </Link>
               <Link
-                to={content.navbar.ctaButton.href}
-                className="group relative px-5 py-2.5 text-sm font-semibold text-primary-foreground rounded-xl overflow-hidden transition-all duration-300 drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]"
+                to="/boards"
+                className="group relative px-5 py-2.5 text-sm font-semibold text-primary-foreground rounded-xl overflow-hidden transition-all duration-300"
               >
                 <div className="absolute inset-0 bg-foreground rounded-xl transition-transform duration-300 group-hover:scale-105" />
                 <span className="relative z-10 flex items-center gap-2">
-                  {content.navbar.ctaButton.text}
+                  Get Started
                   <svg
                     width="14"
                     height="14"
@@ -155,7 +144,7 @@ export default function Navbar() {
               </Link>
             </div>
 
-
+            {/* Mobile menu button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="md:hidden relative w-10 h-10 flex items-center justify-center rounded-xl hover:bg-foreground/[0.04] transition-colors"
@@ -189,70 +178,47 @@ export default function Navbar() {
           className={`absolute top-24 left-6 right-6 bg-card/95 backdrop-blur-2xl rounded-2xl border border-border/50 shadow-2xl transition-all duration-500 ease-out ${mobileMenuOpen ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-4"}`}
         >
           <div className="p-6 space-y-2">
-            {navLinks.map((link, index) => {
-              const classes =
-                "flex items-center justify-between px-4 py-3 text-base font-medium text-foreground hover:bg-foreground/[0.04] rounded-xl transition-colors";
-              const style = { transitionDelay: mobileMenuOpen ? `${index * 50}ms` : "0ms" } as const;
-              const content = (
-                <>
-                  <span>{link.name}</span>
-                  {link.external && (
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="text-muted-foreground">
-                      <path
-                        d="M5 11L11 5M11 5H6M11 5V10"
-                        stroke="currentColor"
-                        strokeWidth="1.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  )}
-                </>
-              );
-              if (link.external || link.href.startsWith("#")) {
-                return (
-                  <a
-                    key={link.name}
-                    href={link.href}
-                    target={link.external ? "_blank" : undefined}
-                    rel={link.external ? "noopener noreferrer" : undefined}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={classes}
-                    style={style}
-                  >
-                    {content}
-                  </a>
-                );
-              }
-              return (
-                <Link
-                  key={link.name}
-                  to={link.href}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={classes}
-                  style={style}
-                >
-                  {content}
-                </Link>
-              );
-            })}
+            {navLinks.map((link, index) => (
+              <Link
+                key={link.name}
+                to={link.href}
+                target={link.external ? "_blank" : undefined}
+                rel={link.external ? "noopener noreferrer" : undefined}
+                onClick={() => setMobileMenuOpen(false)}
+                className="flex items-center justify-between px-4 py-3 text-base font-medium text-foreground hover:bg-foreground/[0.04] rounded-xl transition-colors"
+                style={{ transitionDelay: mobileMenuOpen ? `${index * 50}ms` : "0ms" }}
+              >
+                <span>{link.name}</span>
+                {link.external && (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" className="text-muted-foreground">
+                    <path
+                      d="M5 11L11 5M11 5H6M11 5V10"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </Link>
+            ))}
           </div>
           <div className="border-t border-border/50 p-6 space-y-3">
-            <a
-              href={content.navbar.secondaryButton.href}
+            <Link
+              to="https://calendar.app.google/uxqDsCepVjkX6MXj6"
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-center w-full px-5 py-3 text-base font-medium text-foreground border border-border rounded-xl hover:bg-foreground/[0.04] transition-colors"
             >
-              {content.navbar.secondaryButton.text}
-            </a>
+              Book a Call
+            </Link>
             <Link
-              to={content.navbar.ctaButton.href}
+              to="/boards"
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-center gap-2 w-full px-5 py-3 text-base font-semibold text-primary-foreground bg-foreground rounded-xl hover:bg-foreground/90 transition-colors"
             >
-              {content.navbar.ctaButton.text}
+              Get Started
             </Link>
           </div>
         </div>

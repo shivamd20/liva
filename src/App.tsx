@@ -1,6 +1,5 @@
 import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
-import { HomeBoard } from './components/HomeBoard';
 import { NewBoardPage } from './components/NewBoardPage';
 import { LandingPage } from './components/LandingPage';
 import { AuthDialog } from './components/AuthDialog';
@@ -9,6 +8,7 @@ import { Board } from './types';
 import { useBoards, useBoard, useUpdateBoard, useDeleteBoard } from './hooks/useBoards';
 import { useCallback } from 'react';
 import { useSession } from './lib/auth-client';
+import BoardsPage from './components/boards/boards-page';
 
 function BoardView({
   allBoards,
@@ -113,10 +113,11 @@ export function App() {
   const isLandingPage = location.pathname === '/';
 
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex h-screen min-w-screen bg-background w-screen ">
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/board" element={<HomeBoard />} />
+        <Route path="/boards" element={<BoardsPage />} />
+        <Route path="/board" element={<BoardsPage />} />
         <Route path="/board/new" element={<NewBoardPage />} />
         <Route
           path="/board/:id"
@@ -129,11 +130,11 @@ export function App() {
           }
         />
       </Routes>
-      <AuthDialog 
-        isOpen={!isLandingPage && !isAuthPending && !session?.user} 
+      <AuthDialog
+        isOpen={!isLandingPage && !isAuthPending && !session?.user}
         onOpenChange={(open) => {
           if (!open) navigate('/');
-        }} 
+        }}
       />
     </div>
   );
