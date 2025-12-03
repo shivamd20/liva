@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { Link } from "react-router-dom"
+import { ModeToggle } from "./ui/mode-toggle"
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false)
@@ -110,6 +111,7 @@ export default function Navbar() {
 
             {/* CTA Buttons */}
             <div className="hidden md:flex items-center gap-3">
+              <ModeToggle />
               <Link
                 to="https://calendar.app.google/uxqDsCepVjkX6MXj6"
                 target="_blank"
@@ -204,6 +206,9 @@ export default function Navbar() {
             ))}
           </div>
           <div className="border-t border-border/50 p-6 space-y-3">
+            <div className="flex items-center justify-center mb-3">
+              <ModeToggle />
+            </div>
             <Link
               to="https://calendar.app.google/uxqDsCepVjkX6MXj6"
               target="_blank"

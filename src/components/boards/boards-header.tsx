@@ -6,6 +6,7 @@ import { useSession, signOut } from "../../lib/auth-client"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { LogOut } from "lucide-react"
 import { queryClient } from "../../main"
+import { ModeToggle } from "../ui/mode-toggle"
 
 interface BoardsHeaderProps {
   searchQuery: string
@@ -124,21 +125,8 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
               />
             </div>
 
-            {/* Settings */}
-            <button
-              className="w-10 h-10 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04] transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50"
-              aria-label="Settings"
-            >
-              <svg width="18" height="18" viewBox="0 0 20 20" fill="none">
-                <circle cx="10" cy="10" r="2.5" stroke="currentColor" strokeWidth="1.5" />
-                <path
-                  d="M10 2V4M10 16V18M18 10H16M4 10H2M15.66 4.34L14.24 5.76M5.76 14.24L4.34 15.66M15.66 15.66L14.24 14.24M5.76 5.76L4.34 4.34"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+            {/* Theme Toggle */}
+            <ModeToggle />
 
             {/* Avatar */}
             {isAuthPending ? (

@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { exportToBlob } from "@excalidraw/excalidraw";
 import { File } from 'lucide-react';
+import { useTheme } from 'next-themes';
 
 export function BoardThumbnail({ elements }: { elements?: any[] }) {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const { theme, resolvedTheme } = useTheme();
 
     useEffect(() => {
         let isMounted = true;
@@ -19,14 +21,18 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
             }
 
             try {
+                // Use dark mode if theme is dark or system preference is dark
+                const isDarkMode = resolvedTheme === 'dark' || theme === 'dark';
+
                 const blob = await exportToBlob({
                     elements: elements.filter((x) => !x.isDeleted),
                     appState: {
-                        exportWithDarkMode: false,
+                        exportWithDarkMode: isDarkMode,
                     },
                     files: {},
                     mimeType: "image/png",
                     quality: 0.5,
+
                 });
 
                 if (isMounted && blob) {
@@ -46,7 +52,7 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
             isMounted = false;
             if (thumbnail) URL.revokeObjectURL(thumbnail);
         };
-    }, [elements]);
+    }, [elements, theme, resolvedTheme]);
 
     if (loading) {
         return (
