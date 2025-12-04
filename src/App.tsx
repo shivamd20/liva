@@ -12,6 +12,7 @@ import BoardsPage from './components/boards/boards-page';
 import { useTheme } from 'next-themes';
 import { CommandMenuProvider } from '@/lib/command-menu-context';
 import { CommandMenu } from '@/components/command-menu';
+import { TestAI } from './components/TestAI';
 
 import { useDuplicateBoard } from './hooks/useBoards';
 import { HistoryModal } from './components/HistoryModal';
@@ -266,6 +267,7 @@ function AppContent() {
         <Route path="/board/new" element={<NewBoardPage />} />
         <Route path="/templates" element={<> Work in progress </>} />
         <Route path="/templates" element={<> Work in progress </>} />
+        <Route path="/test-ai" element={<TestAI />} />
         <Route
           path="/board/:id"
           element={

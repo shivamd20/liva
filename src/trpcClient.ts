@@ -1,6 +1,6 @@
 /// <reference types="./vite-env.d.ts" />
 import { createTRPCClient, httpBatchLink } from '@trpc/client';
-import type { AppRouter } from '../src/trpc';
+import type { AppRouter } from '../server/trpc';
 import { getUserId } from './utils/userIdentity';
 import { authClient } from './lib/auth-client';
 
