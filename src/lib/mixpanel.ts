@@ -2,7 +2,7 @@ import mixpanel, { Config, Dict } from 'mixpanel-browser';
 
 const MIXPANEL_TOKEN = import.meta.env.VITE_MIXPANEL_TOKEN || 'YOUR_MIXPANEL_TOKEN';
 
-const isProduction = import.meta.env.PROD;
+const isProduction = true; // TODO for later
 
 const config: Partial<Config> = {
     debug: !isProduction,
