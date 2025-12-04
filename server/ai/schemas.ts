@@ -4,55 +4,55 @@ import { z } from "zod";
 
 const BaseElementSchema = z.object({
     id: z.string(),
-    x: z.number(),
-    y: z.number(),
+    x: z.coerce.number(),
+    y: z.coerce.number(),
     strokeColor: z.string().optional(),
     backgroundColor: z.string().optional(),
     fillStyle: z.string().optional(),
-    strokeWidth: z.number().optional(),
+    strokeWidth: z.coerce.number().optional(),
     strokeStyle: z.enum(["solid", "dashed", "dotted"]).optional(),
-    roughness: z.number().optional(),
-    opacity: z.number().optional(),
-    width: z.number(),
-    height: z.number(),
-    angle: z.number().optional(),
-    seed: z.number().optional(),
-    version: z.number().optional(),
-    versionNonce: z.number().optional(),
+    roughness: z.coerce.number().optional(),
+    opacity: z.coerce.number().optional(),
+    width: z.coerce.number(),
+    height: z.coerce.number(),
+    angle: z.coerce.number().optional(),
+    seed: z.coerce.number().optional(),
+    version: z.coerce.number().optional(),
+    versionNonce: z.coerce.number().optional(),
     isDeleted: z.boolean().optional(),
     groupIds: z.array(z.string()).optional(),
     frameId: z.string().nullable().optional(),
     boundElements: z.array(z.object({ id: z.string(), type: z.string() })).nullable().optional(),
-    updated: z.number().optional(),
+    updated: z.coerce.number().optional(),
     link: z.string().nullable().optional(),
     locked: z.boolean().optional(),
-    customData: z.record(z.unknown()).optional(),
+    customData: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const ExcalidrawElementSchema = BaseElementSchema.merge(z.object({
     type: z.string(), // generic type, refined below if needed
     // Specific fields for different types
     text: z.string().optional(),
-    fontSize: z.number().optional(),
-    fontFamily: z.number().optional(),
+    fontSize: z.coerce.number().optional(),
+    fontFamily: z.coerce.number().optional(),
     textAlign: z.enum(["left", "center", "right"]).optional(),
     verticalAlign: z.enum(["top", "middle", "bottom"]).optional(),
-    baseline: z.number().optional(),
+    baseline: z.coerce.number().optional(),
     containerId: z.string().nullable().optional(),
     originalText: z.string().optional(),
 
     // Linear elements (arrow, line)
-    points: z.array(z.array(z.number())).optional(),
-    lastCommittedPoint: z.array(z.number()).nullable().optional(),
-    startBinding: z.object({ elementId: z.string(), focus: z.number(), gap: z.number() }).nullable().optional(),
-    endBinding: z.object({ elementId: z.string(), focus: z.number(), gap: z.number() }).nullable().optional(),
+    points: z.array(z.array(z.coerce.number())).optional(),
+    lastCommittedPoint: z.array(z.coerce.number()).nullable().optional(),
+    startBinding: z.object({ elementId: z.string(), focus: z.coerce.number(), gap: z.coerce.number() }).nullable().optional(),
+    endBinding: z.object({ elementId: z.string(), focus: z.coerce.number(), gap: z.coerce.number() }).nullable().optional(),
     startArrowhead: z.string().nullable().optional(),
     endArrowhead: z.string().nullable().optional(),
 
     // Image
     fileId: z.string().nullable().optional(),
     status: z.enum(["pending", "saved", "error"]).optional(),
-    scale: z.array(z.number()).optional(),
+    scale: z.array(z.coerce.number()).optional(),
 }));
 
 export type ExcalidrawElement = z.infer<typeof ExcalidrawElementSchema>;
@@ -86,14 +86,14 @@ export type AITransformQuery = z.infer<typeof AITransformQuerySchema>;
 
 export const MoveElementSchema = z.object({
     id: z.string(),
-    dx: z.number().min(-1000).max(1000),
-    dy: z.number().min(-1000).max(1000),
+    dx: z.coerce.number().min(-1000).max(1000),
+    dy: z.coerce.number().min(-1000).max(1000),
 });
 
 export const ResizeElementSchema = z.object({
     id: z.string(),
-    width: z.number().min(10).max(5000),
-    height: z.number().min(10).max(5000),
+    width: z.coerce.number().min(10).max(5000),
+    height: z.coerce.number().min(10).max(5000),
 });
 
 export const UpdateElementStyleSchema = z.object({
@@ -101,21 +101,21 @@ export const UpdateElementStyleSchema = z.object({
     strokeColor: z.string().optional(),
     backgroundColor: z.string().optional(),
     fillStyle: z.enum(["hachure", "cross-hatch", "solid"]).optional(),
-    strokeWidth: z.number().min(0.1).max(50).optional(),
+    strokeWidth: z.coerce.number().min(0.1).max(50).optional(),
 });
 
 export const UpdateTextSchema = z.object({
     id: z.string(),
     text: z.string(),
-    fontSize: z.number().min(4).max(200).optional(),
+    fontSize: z.coerce.number().min(4).max(200).optional(),
 });
 
 export const CreateElementSchema = z.object({
     type: z.enum(["rectangle", "ellipse", "diamond", "arrow", "line", "text"]),
-    x: z.number(),
-    y: z.number(),
-    width: z.number().optional(),
-    height: z.number().optional(),
+    x: z.coerce.number(),
+    y: z.coerce.number(),
+    width: z.coerce.number().optional(),
+    height: z.coerce.number().optional(),
     text: z.string().optional(), // for text type
     strokeColor: z.string().optional(),
     backgroundColor: z.string().optional(),

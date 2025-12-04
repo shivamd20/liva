@@ -39,6 +39,14 @@ function zodToJsonSchema(schema: z.ZodType<any>): any {
         };
     }
 
+    if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+        return zodToJsonSchema(schema.unwrap());
+    }
+
+    if (schema instanceof z.ZodDefault) {
+        return zodToJsonSchema(schema.removeDefault());
+    }
+
     return { type: "string" }; // Fallback
 }
 
@@ -109,11 +117,6 @@ export async function runAI(
                     function_declarations: tools
                 }
             ],
-            tool_config: {
-                function_calling_config: {
-                    mode: "AUTO"
-                }
-            }
         };
 
         const response = await fetch(url, {
