@@ -10,7 +10,7 @@
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
-import { Share2, Globe } from 'lucide-react';
+import { Share2, Globe, Sparkles } from 'lucide-react';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
@@ -25,7 +25,8 @@ import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
 import { useTheme } from 'next-themes';
-
+import { useCommandMenu } from '../lib/command-menu-context';
+import { trpcClient } from '../trpcClient';
 
 interface BoardEditorProps {
   board: Board;
@@ -56,6 +57,7 @@ export function BoardEditor({
   const isOwner = !!(userId && userId === board.userId);
   const { isMobile, isTablet } = useResponsive();
   const { theme } = useTheme();
+  const { registerCommand, unregisterCommand } = useCommandMenu();
 
 
 
@@ -219,6 +221,56 @@ export function BoardEditor({
       },
     } as const;
   }, [isMobile, isTablet]);
+
+  const handleAskAI = useCallback(async () => {
+    const instruction = window.prompt("What would you like to do with this board?");
+    if (!instruction) return;
+
+    const toastId = toast.loading("AI is thinking...");
+
+    try {
+      const elements = excalidrawAPIRef.current?.getSceneElements();
+      if (!elements) throw new Error("Could not get board elements");
+
+      const result = await trpcClient.ai.transformWithAI.mutate({
+        query: instruction,
+        elements: elements as any,
+        constraints: {
+          allowDelete: true,
+          allowNewElements: true,
+        }
+      });
+
+      if (result && result.updatedElements) {
+        const updatedBoard = {
+          ...board,
+          excalidrawElements: result.updatedElements as unknown as OrderedExcalidrawElement[]
+        };
+        boardsAPI.updateViaWS(updatedBoard);
+        toast.success("Board updated by AI", { id: toastId });
+      } else {
+        toast.error("AI returned no changes", { id: toastId });
+      }
+
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to process AI request", { id: toastId });
+    }
+  }, [board, boardsAPI]);
+
+  useEffect(() => {
+    const command = {
+      id: 'ask-ai',
+      title: 'Ask AI',
+      icon: <Sparkles className="w-4 h-4" />,
+      action: handleAskAI,
+      section: 'AI Tools',
+      shortcut: ['Meta', 'J']
+    };
+
+    registerCommand(command);
+    return () => unregisterCommand(command.id);
+  }, [registerCommand, unregisterCommand, handleAskAI]);
 
   // Handle pointer events with touch sensitivity adjustments
   const handlePointerDown = useCallback(
