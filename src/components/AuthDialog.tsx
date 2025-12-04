@@ -3,6 +3,7 @@ import { User, ShieldCheck, X } from 'lucide-react';
 import { signIn } from '../lib/auth-client';
 
 import { useNavigate } from 'react-router-dom';
+import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 
 interface AuthDialogProps {
     isOpen: boolean;
@@ -12,14 +13,18 @@ interface AuthDialogProps {
 export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
     const navigate = useNavigate();
 
+
+
     const handleGuest = async () => {
+        mixpanelService.track(MixpanelEvents.AUTH_LOGIN, { method: 'guest' });
         await signIn.anonymous();
         onOpenChange(false);
         navigate('/board');
     };
 
     const handleGoogle = async () => {
-        await signIn.social({ 
+        mixpanelService.track(MixpanelEvents.AUTH_LOGIN, { method: 'google' });
+        await signIn.social({
             provider: 'google',
             callbackURL: '/board'
         });
@@ -31,10 +36,10 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
             <Dialog.Portal>
                 <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
                 <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-0 w-[95vw] md:w-full max-w-2xl max-h-[90vh] overflow-y-auto z-50 animate-in zoom-in-95 duration-200 border border-gray-100 focus:outline-none">
-                    
+
                     {/* Close Button */}
                     <Dialog.Close asChild>
-                        <button 
+                        <button
                             className="absolute top-4 right-4 z-10 p-2 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:ring-offset-2"
                             aria-label="Close"
                         >
@@ -52,7 +57,7 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
                             <p className="text-gray-500 mb-6 text-sm text-center md:text-left">
                                 Try out Liva instantly without creating an account. Perfect for quick sketches and ideas.
                             </p>
-                            
+
                             <div className="space-y-3 mb-8">
                                 <div className="flex items-start gap-2">
                                     <div className="w-1.5 h-1.5 rounded-full bg-green-500 mt-2" />
@@ -68,7 +73,7 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
                                 </div>
                             </div>
 
-                            <button 
+                            <button
                                 onClick={handleGuest}
                                 className="w-full py-2.5 px-4 bg-white border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-gray-200"
                             >
@@ -101,7 +106,7 @@ export function AuthDialog({ isOpen, onOpenChange }: AuthDialogProps) {
                                 </div>
                             </div>
 
-                            <button 
+                            <button
                                 onClick={handleGoogle}
                                 className="w-full py-2.5 px-4 bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] text-white font-medium rounded-lg transition-all shadow-md hover:shadow-lg focus:ring-2 focus:ring-offset-2 focus:ring-[#3B82F6]"
                             >

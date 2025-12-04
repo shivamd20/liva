@@ -17,6 +17,10 @@ export const queryClient = new QueryClient({
 })
 
 import { ThemeProvider } from "./components/theme-provider"
+import { initClarity } from './lib/clarity'
+
+initClarity()
+
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>

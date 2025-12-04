@@ -10,6 +10,7 @@ import * as Dialog from "@radix-ui/react-dialog"
 import { X, AlertTriangle, Copy, Plus } from "lucide-react"
 import { HistoryModal } from "../HistoryModal"
 import { useSession } from "../../lib/auth-client"
+import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
 
 export default function BoardsPage() {
   const { data: boards = [], isLoading } = useBoards()
@@ -84,6 +85,7 @@ export default function BoardsPage() {
       onSuccess: (newBoard) => {
         setIsCreateModalOpen(false)
         setNewBoardTitle("")
+        mixpanelService.track(MixpanelEvents.BOARD_CREATE, { boardId: newBoard.id });
         navigate(`/board/${newBoard.id}`)
       }
     })
@@ -104,6 +106,7 @@ export default function BoardsPage() {
         setIsRenameModalOpen(false)
         setBoardToRename(null)
         setRenameTitle("")
+        mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: boardToRename.id, newTitle: renameTitle.trim() });
       }
     })
   }
@@ -116,6 +119,7 @@ export default function BoardsPage() {
   const handleDeleteConfirm = () => {
     if (boardToDelete) {
       deleteBoard.mutate(boardToDelete.id)
+      mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: boardToDelete.id, source: 'Boards Page' });
       setIsDeleteModalOpen(false)
       setBoardToDelete(null)
     }
@@ -136,12 +140,14 @@ export default function BoardsPage() {
         setIsDuplicateModalOpen(false)
         setBoardToDuplicate(null)
         setDuplicateTitle("")
+        mixpanelService.track(MixpanelEvents.BOARD_DUPLICATE, { sourceId: boardToDuplicate.id });
       }
     })
   }
 
   const handleHistoryClick = (board: Board) => {
     setBoardForHistory({ id: board.id, title: board.title || "Untitled" })
+    mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id, source: 'Boards Page' });
     setIsHistoryModalOpen(true)
   }
 

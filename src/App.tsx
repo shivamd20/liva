@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { useCommandMenu } from '@/lib/command-menu-context';
 import { Copy, Trash, History, Share2, Globe, Edit2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
 
 function BoardView({
   allBoards,
@@ -43,6 +44,12 @@ function BoardView({
   const handleBoardChange = useCallback((updated: Board) => {
     updateBoard.mutate(updated);
   }, [updateBoard]);
+
+  useEffect(() => {
+    if (board) {
+      mixpanelService.track(MixpanelEvents.BOARD_OPEN, { boardId: board.id, title: board.title });
+    }
+  }, [board?.id]);
 
   // Register Board Commands
   useEffect(() => {
@@ -67,7 +74,10 @@ function BoardView({
         id: 'board-history',
         title: 'Board History',
         icon: <History className="w-4 h-4" />,
-        action: () => setIsHistoryOpen(true),
+        action: () => {
+          mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id });
+          setIsHistoryOpen(true);
+        },
         section: 'Current Board'
       },
       {
@@ -83,7 +93,10 @@ function BoardView({
         icon: <Trash className="w-4 h-4" />,
         action: () => {
           if (window.confirm('Delete this board?')) {
-            if (id) onDeleteBoard(id);
+            if (id) {
+              mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: id, source: 'Command Menu' });
+              onDeleteBoard(id);
+            }
           }
         },
         section: 'Current Board'
@@ -107,6 +120,7 @@ function BoardView({
   const handleRenameBoard = () => {
     const newTitle = window.prompt('Enter new board name:', board.title || 'Untitled');
     if (newTitle !== null) {
+      mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: board.id, newTitle });
       handleBoardChange({ ...board, title: newTitle });
     }
   };
@@ -119,6 +133,7 @@ function BoardView({
           if (newBoard) {
             navigate(`/board/${newBoard.id}`);
             toast.success("Board duplicated successfully");
+            mixpanelService.track(MixpanelEvents.BOARD_DUPLICATE, { sourceId: board.id, newId: newBoard.id });
           }
         }
       });
@@ -137,6 +152,7 @@ function BoardView({
       // Optimistically update local state or refetch is handled by react-query usually
       // But we might need to manually trigger update if not handled
       handleBoardChange(updated);
+      mixpanelService.track(MixpanelEvents.BOARD_SHARE_TOGGLE, { boardId: board.id, isPublic: updated.access === 'public' });
     } catch (error) {
       toast.error("Failed to toggle share settings");
     }
@@ -162,7 +178,10 @@ function BoardView({
       <MainMenu.Item onSelect={handleDuplicate}>
         Duplicate Board
       </MainMenu.Item>
-      <MainMenu.Item onSelect={() => setIsHistoryOpen(true)}>
+      <MainMenu.Item onSelect={() => {
+        mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id });
+        setIsHistoryOpen(true);
+      }}>
         History
       </MainMenu.Item>
       <MainMenu.Item onSelect={handleSwitchTheme}>
@@ -174,6 +193,7 @@ function BoardView({
           <MainMenu.Item
             onSelect={() => {
               if (window.confirm('Delete this board?')) {
+                mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: id, source: 'Main Menu' });
                 onDeleteBoard(id);
               }
             }}
@@ -238,7 +258,24 @@ function AppContent() {
     };
   }, [allBoards, registerCommand, unregisterCommand, navigate]);
 
+  // Initialize Mixpanel
+  useEffect(() => {
+    mixpanelService.init();
+    mixpanelService.track(MixpanelEvents.APP_OPEN);
+  }, []);
+
+  useEffect(() => {
+    if (session?.user) {
+      mixpanelService.identify(session.user.id, {
+        $name: session.user.name,
+        $email: session.user.email,
+        avatar: session.user.image,
+      });
+    }
+  }, [session?.user]);
+
   const handleNewBoard = () => {
+    mixpanelService.track(MixpanelEvents.NAV_NEW_BOARD);
     navigate('/board/new');
   };
 

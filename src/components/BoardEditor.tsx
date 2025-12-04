@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import { useTheme } from 'next-themes';
 import { useCommandMenu } from '../lib/command-menu-context';
 import { trpcClient } from '../trpcClient';
+import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 
 interface BoardEditorProps {
   board: Board;
@@ -227,6 +228,7 @@ export function BoardEditor({
     if (!instruction) return;
 
     const toastId = toast.loading("AI is thinking...");
+    mixpanelService.track(MixpanelEvents.AI_GENERATE_START, { boardId: board.id, queryLength: instruction.length });
 
     try {
       const elements = excalidrawAPIRef.current?.getSceneElements();
@@ -248,13 +250,16 @@ export function BoardEditor({
         };
         boardsAPI.updateViaWS(updatedBoard);
         toast.success("Board updated by AI", { id: toastId });
+        mixpanelService.track(MixpanelEvents.AI_GENERATE_SUCCESS, { boardId: board.id });
       } else {
         toast.error("AI returned no changes", { id: toastId });
+        mixpanelService.track(MixpanelEvents.AI_GENERATE_ERROR, { boardId: board.id, reason: 'No changes' });
       }
 
     } catch (error) {
       console.error(error);
       toast.error("Failed to process AI request", { id: toastId });
+      mixpanelService.track(MixpanelEvents.AI_GENERATE_ERROR, { boardId: board.id, error: String(error) });
     }
   }, [board, boardsAPI]);
 
@@ -297,7 +302,7 @@ export function BoardEditor({
         excalidrawAPI={(api) => {
           excalidrawAPIRef.current = api;
         }}
-        theme={theme}
+        theme={theme == 'dark' ? 'dark' : 'light'}
         initialData={{
           elements: board.excalidrawElements || [],
         }}
@@ -317,6 +322,7 @@ export function BoardEditor({
                 } else {
                   toast.success("Public access disabled");
                 }
+                mixpanelService.track(MixpanelEvents.BOARD_SHARE_TOGGLE, { boardId: board.id, isPublic: updated.access === 'public', source: 'Editor Button' });
               }}
               className={`flex items-center gap-2 ${isMobile ? 'px-3 py-2' : 'px-4 py-2'} text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 ${board.access === 'public'
                 ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'

@@ -13,6 +13,7 @@
 		"build:ui": "vite build --config ./vite.config.ts"
 	},
 	"devDependencies": {
+		"@types/mixpanel-browser": "^2.66.0",
 		"@types/node": "^24.10.1",
 		"@types/react": "^19.2.7",
 		"@types/react-dom": "^19.2.3",
@@ -25,6 +26,7 @@
 	},
 	"dependencies": {
 		"@excalidraw/excalidraw": "^0.18.0",
+		"@microsoft/clarity": "^1.0.2",
 		"@radix-ui/react-dialog": "^1.1.15",
 		"@radix-ui/react-dropdown-menu": "^2.1.16",
 		"@radix-ui/react-slot": "^1.2.4",
@@ -40,6 +42,7 @@
 		"dotenv": "^17.2.3",
 		"drizzle-orm": "^0.44.7",
 		"lucide-react": "^0.555.0",
+		"mixpanel-browser": "^2.72.0",
 		"next-themes": "^0.4.6",
 		"react": "^19.2.0",
 		"react-dom": "^19.2.0",
