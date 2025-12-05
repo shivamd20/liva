@@ -50,7 +50,14 @@ export function BoardEditor({
   boardsAPI = defaultBoardsAPI,
   onLinkOpen
 }: BoardEditorProps) {
+  const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
+
+  useEffect(() => {
+    if (excalidrawAPI) {
+      excalidrawAPIRef.current = excalidrawAPI;
+    }
+  }, [excalidrawAPI]);
   const queryClient = useQueryClient();
   const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
   const { data: session } = useSession();
@@ -300,9 +307,7 @@ export function BoardEditor({
       } as React.CSSProperties}
     >
       <Excalidraw
-        excalidrawAPI={(api) => {
-          excalidrawAPIRef.current = api;
-        }}
+        excalidrawAPI={(api) => setExcalidrawAPI(api)}
         theme={theme == 'dark' ? 'dark' : 'light'}
         initialData={{
           elements: board.excalidrawElements || [],
@@ -323,7 +328,7 @@ export function BoardEditor({
         onLinkOpen={onLinkOpen}
       >
         {menuItems && <MainMenu>{menuItems}</MainMenu>}
-        <BoardSidebar board={board} isOwner={isOwner} />
+        <BoardSidebar board={board} isOwner={isOwner} excalidrawAPI={excalidrawAPI} />
       </Excalidraw>
     </div>
   );
