@@ -22,6 +22,7 @@ import { useCommandMenu } from '@/lib/command-menu-context';
 import { Copy, Trash, History, Share2, Globe, Edit2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
+import { SpeechDemo } from './components/Speech';
 
 function BoardView({
   allBoards,
@@ -305,6 +306,7 @@ function AppContent() {
         <Route path="/templates" element={<> Work in progress </>} />
         <Route path="/templates" element={<> Work in progress </>} />
         <Route path="/test-ai" element={<TestAI />} />
+        <Route path="/speech" element={<SpeechDemo />} />
         <Route
           path="/board/:id"
           element={
