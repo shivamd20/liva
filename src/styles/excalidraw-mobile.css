@@ -115,3 +115,14 @@
 .excalidraw .ToolIcon_type_button:active {
   transform: scale(0.95);
 }
+
+/* Custom Sidebar Width Override */
+.layer-ui__wrapper .custom-sidebar {
+  width: 320px !important;
+}
+
+@media (min-width: 768px) {
+  .layer-ui__wrapper .custom-sidebar {
+    width: 360px !important;
+  }
+}

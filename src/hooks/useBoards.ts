@@ -130,3 +130,15 @@ export function useRevertBoard() {
   });
 }
 
+export function useToggleShare() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => boards.toggleShare(id),
+    onSuccess: (updatedBoard) => {
+      queryClient.setQueryData(['board', updatedBoard.id], updatedBoard);
+      queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+    }
+  });
+}
+

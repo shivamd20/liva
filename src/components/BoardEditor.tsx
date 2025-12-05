@@ -10,7 +10,8 @@
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
-import { Share2, Globe, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
+import { BoardSidebar, BoardSidebarTriggers } from './BoardSidebar';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
@@ -312,38 +313,14 @@ export function BoardEditor({
         isCollaborating={board.access === 'public'}
         UIOptions={uiOptions}
         renderTopRightUI={() => (
-          isOwner ? (
-            <button
-              onClick={async () => {
-                const updated = await boardsAPI.toggleShare(board.id);
-                if (updated.access === 'public') {
-                  await navigator.clipboard.writeText(window.location.href);
-                  toast.success("Public access enabled. Link copied to clipboard!");
-                } else {
-                  toast.success("Public access disabled");
-                }
-                mixpanelService.track(MixpanelEvents.BOARD_SHARE_TOGGLE, { boardId: board.id, isPublic: updated.access === 'public', source: 'Editor Button' });
-              }}
-              className={`flex items-center gap-2 ${isMobile ? 'px-3 py-2' : 'px-4 py-2'} text-sm font-bold text-white rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 ${board.access === 'public'
-                ? 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700'
-                : 'bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2]'
-                }`}
-              style={{
-                minWidth: isMobile ? '48px' : '44px',
-                minHeight: isMobile ? '48px' : '44px',
-                touchAction: 'manipulation',
-              }}
-            >
-              {board.access === 'public' ? <Globe className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
-              {!isMobile && (board.access === 'public' ? 'Public' : 'Share')}
-            </button>
-          ) : null
+          <BoardSidebarTriggers isMobile={isMobile} />
         )}
         onPointerUpdate={onPointerUpdate}
         onPointerDown={handlePointerDown}
         onLinkOpen={onLinkOpen}
       >
         {menuItems && <MainMenu>{menuItems}</MainMenu>}
+        <BoardSidebar board={board} isOwner={isOwner} />
       </Excalidraw>
     </div>
   );
