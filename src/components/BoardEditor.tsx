@@ -29,6 +29,7 @@ import { useTheme } from 'next-themes';
 import { useCommandMenu } from '../lib/command-menu-context';
 import { trpcClient } from '../trpcClient';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
+import { useSpeechToSpeech } from '../lib/use-speech-to-speech';
 
 interface BoardEditorProps {
   board: Board;
@@ -66,8 +67,22 @@ export function BoardEditor({
   const isOwner = !!(userId && userId === board.userId);
   const { isMobile, isTablet } = useResponsive();
   const { theme } = useTheme();
+
+  // ... imports
+
   const { registerCommand, unregisterCommand } = useCommandMenu();
 
+  const speechState = useSpeechToSpeech({
+    apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
+    systemInstruction: "You are a helpful assistant assisting with an Excalidraw board.",
+    onMessage: (text: string) => {
+      console.log('Gemini:', text);
+    },
+    onError: (err: Error) => {
+      console.error('Gemini Error:', err);
+      toast.error('Voice assistant error: ' + err.message);
+    }
+  });
 
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
@@ -328,7 +343,7 @@ export function BoardEditor({
         onLinkOpen={onLinkOpen}
       >
         {menuItems && <MainMenu>{menuItems}</MainMenu>}
-        <BoardSidebar board={board} isOwner={isOwner} excalidrawAPI={excalidrawAPI} />
+        <BoardSidebar board={board} isOwner={isOwner} speechState={speechState} />
       </Excalidraw>
     </div>
   );
