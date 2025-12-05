@@ -313,7 +313,10 @@ export function BoardEditor({
         isCollaborating={board.access === 'public'}
         UIOptions={uiOptions}
         renderTopRightUI={() => (
-          <BoardSidebarTriggers isMobile={isMobile} />
+          <BoardSidebarTriggers
+            isMobile={isMobile}
+            isShared={board.access === 'public'}
+          />
         )}
         onPointerUpdate={onPointerUpdate}
         onPointerDown={handlePointerDown}

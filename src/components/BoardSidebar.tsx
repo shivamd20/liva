@@ -178,15 +178,19 @@ export const BoardSidebar = ({ board, isOwner }: BoardSidebarProps) => {
     );
 };
 
-export const BoardSidebarTriggers = ({ isMobile }: { isMobile: boolean }) => {
+export const BoardSidebarTriggers = ({ isMobile, isShared }: { isMobile: boolean; isShared: boolean }) => {
     return (
         <div className="flex gap-2">
             <Sidebar.Trigger
                 name={SIDEBAR_NAME}
                 tab="share"
-                title="Share Board"
+                title={isShared ? "Board is Public" : "Share Board"}
             >
-                <Share2 className="w-4 h-4" />
+                {isShared ? (
+                    <Globe className="w-4 h-4 text-blue-500" />
+                ) : (
+                    <Share2 className="w-4 h-4" />
+                )}
             </Sidebar.Trigger>
 
             <Sidebar.Trigger
