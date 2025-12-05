@@ -77,6 +77,10 @@ export function getUserId(): string {
     return storedUserId;
 }
 
+
+const id = getUserId(); // Reuse or create ID
+const username = generateRandomName();
+
 /**
  * Get or create the full user profile
  * If a session is provided and the user is not anonymous, use session data
@@ -102,8 +106,7 @@ export function getUserProfile(session?: Session | null): UserProfile {
         return storedUserProfile;
     }
 
-    const id = getUserId(); // Reuse or create ID
-    const username = generateRandomName();
+
     // Use the ID as seed for consistent avatar if we regenerated just the name, 
     // or just random seed. Let's use a random seed or username as seed.
     // Using username as seed ensures name matches avatar somewhat.

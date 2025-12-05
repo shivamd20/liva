@@ -1,14 +1,38 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, memo } from 'react';
 import { exportToBlob } from "@excalidraw/excalidraw";
 import { File } from 'lucide-react';
 import { useTheme } from 'next-themes';
+import { thumbnailQueue } from '../utils/thumbnailQueue';
 
-export function BoardThumbnail({ elements }: { elements?: any[] }) {
+export const BoardThumbnail = memo(function BoardThumbnail({ elements }: { elements?: any[] }) {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const { theme, resolvedTheme } = useTheme();
+    const [isVisible, setIsVisible] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    // Intersection Observer to load only when visible
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0].isIntersecting) {
+                    setIsVisible(true);
+                    observer.disconnect();
+                }
+            },
+            { rootMargin: '100px' }
+        );
+
+        if (containerRef.current) {
+            observer.observe(containerRef.current);
+        }
+
+        return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
+        if (!isVisible) return;
+
         let isMounted = true;
 
         const generateThumbnail = async () => {
@@ -21,7 +45,6 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
             }
 
             try {
-                // Use dark mode if theme is dark or system preference is dark
                 const isDarkMode = resolvedTheme === 'dark' || theme === 'dark';
 
                 const blob = await exportToBlob({
@@ -32,7 +55,6 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
                     files: {},
                     mimeType: "image/png",
                     quality: 0.5,
-
                 });
 
                 if (isMounted && blob) {
@@ -46,25 +68,31 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
             }
         };
 
-        generateThumbnail();
+        thumbnailQueue.enqueue(generateThumbnail);
 
         return () => {
             isMounted = false;
+        };
+    }, [elements, theme, resolvedTheme, isVisible]);
+
+    // Cleanup object URL
+    useEffect(() => {
+        return () => {
             if (thumbnail) URL.revokeObjectURL(thumbnail);
         };
-    }, [elements, theme, resolvedTheme]);
+    }, [thumbnail]);
 
-    if (loading) {
+    if (loading || !isVisible) {
         return (
-            <div className="w-full h-full flex items-center justify-center bg-muted">
-                <div className="w-6 h-6 border-2 border-[#06B6D4]/30 border-t-[#3B82F6] rounded-full animate-spin"></div>
+            <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-muted">
+                {isVisible && <div className="w-6 h-6 border-2 border-[#06B6D4]/30 border-t-[#3B82F6] rounded-full animate-spin"></div>}
             </div>
         );
     }
 
     if (!thumbnail) {
         return (
-            <div className="w-full h-full flex items-center justify-center bg-muted group-hover:bg-muted/80 transition-colors">
+            <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-muted group-hover:bg-muted/80 transition-colors">
                 <div className="absolute inset-0 opacity-[0.03] dark:opacity-[0.08] bg-[radial-gradient(#3B82F6_1px,transparent_1px)] [background-size:16px_16px]" />
                 <File className="w-10 h-10 text-muted-foreground/40 group-hover:text-[#3B82F6] transition-all duration-300 group-hover:scale-110 relative z-10" />
             </div>
@@ -72,7 +100,7 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
     }
 
     return (
-        <div className="w-full h-full flex items-center justify-center bg-background overflow-hidden">
+        <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-background overflow-hidden">
             <img
                 src={thumbnail}
                 alt="Board thumbnail"
@@ -80,4 +108,4 @@ export function BoardThumbnail({ elements }: { elements?: any[] }) {
             />
         </div>
     );
-}
+});
