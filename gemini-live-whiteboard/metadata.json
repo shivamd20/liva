@@ -1,7 +1,0 @@
-{
-  "name": "Gemini Live Whiteboard",
-  "description": "A collaborative real-time voice and visual whiteboard powered by Gemini Live API. Draw concepts while talking to the AI.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
