@@ -59,7 +59,7 @@ export const ConversationTab = () => {
 
     return (
         <div className="flex flex-col h-full bg-background transition-colors duration-300">
-            <div className="px-6 py-5 border-b bg-sidebar-accent/10">
+            <div className="px-6 pb-5 border-b bg-sidebar-accent/10">
                 <h2 className="font-semibold text-lg tracking-tight flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-primary" />
                     Conversation
