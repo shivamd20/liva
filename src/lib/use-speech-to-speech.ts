@@ -8,6 +8,10 @@ export interface UseSpeechToSpeechParams {
     voiceName?: 'Zephyr' | 'Puck' | 'Charon' | 'Kore' | 'Fenrir';
     onMessage?: (text: string) => void;
     onError?: (error: Error) => void;
+    /** Optional canvas ref to stream frames to AI for visual understanding */
+    canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+    /** Frames per second for canvas streaming (default: 2) */
+    frameRate?: number;
 }
 
 export interface SpeechState {
@@ -28,7 +32,9 @@ export function useSpeechToSpeech({
     systemInstruction = 'You are a helpful assistant.',
     voiceName = 'Zephyr',
     onMessage,
-    onError
+    onError,
+    canvasRef,
+    frameRate = 2
 }: UseSpeechToSpeechParams): SpeechState {
     const [connected, setConnected] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
@@ -46,7 +52,8 @@ export function useSpeechToSpeech({
     const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
     const outputNodeRef = useRef<GainNode | null>(null);
 
-    // Refs for state accessed in callbacks to avoid stale closures
+    // Frame capture interval for canvas streaming
+    const frameIntervalRef = useRef<number | null>(null);
     const isMutedRef = useRef(isMuted);
     const isPausedRef = useRef(isPaused);
 
@@ -109,6 +116,21 @@ export function useSpeechToSpeech({
         return buffer;
     };
 
+    // Helper: Convert Blob to base64 for canvas frame streaming
+    const blobToBase64 = (blob: Blob): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result as string;
+                // Remove the data URL prefix (data:image/jpeg;base64,)
+                const base64Data = base64.split(',')[1];
+                resolve(base64Data);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    };
+
     const disconnect = useCallback(async () => {
         if (sessionPromiseRef.current) {
             sessionPromiseRef.current.then(session => {
@@ -138,6 +160,12 @@ export function useSpeechToSpeech({
         if (scriptProcessorRef.current) {
             scriptProcessorRef.current.disconnect();
             scriptProcessorRef.current = null;
+        }
+
+        // Clean up canvas frame streaming
+        if (frameIntervalRef.current) {
+            window.clearInterval(frameIntervalRef.current);
+            frameIntervalRef.current = null;
         }
 
         sourcesRef.current.forEach(source => source.stop());
@@ -212,6 +240,32 @@ export function useSpeechToSpeech({
 
                         source.connect(scriptProcessor);
                         scriptProcessor.connect(inputAudioContextRef.current.destination);
+
+                        // Setup Canvas Frame Streaming (if canvasRef is provided)
+                        if (canvasRef?.current) {
+                            frameIntervalRef.current = window.setInterval(() => {
+                                const canvas = canvasRef.current;
+                                if (!canvas || !sessionPromiseRef.current) return;
+
+                                canvas.toBlob(
+                                    async (blob) => {
+                                        if (blob) {
+                                            const base64Data = await blobToBase64(blob);
+                                            sessionPromiseRef.current?.then((session: any) => {
+                                                session.sendRealtimeInput({
+                                                    media: {
+                                                        data: base64Data,
+                                                        mimeType: 'image/jpeg'
+                                                    }
+                                                });
+                                            });
+                                        }
+                                    },
+                                    'image/jpeg',
+                                    0.6 // Quality
+                                );
+                            }, 1000 / frameRate);
+                        }
                     },
                     onmessage: async (message: LiveServerMessage) => {
                         if (onMessage && message.serverContent?.modelTurn?.parts?.[0]?.text) {
@@ -261,7 +315,7 @@ export function useSpeechToSpeech({
             if (onError) onError(err as Error);
             setConnected(false);
         }
-    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage]);
+    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage, canvasRef, frameRate]);
 
     const stop = useCallback(async () => {
         await disconnect();

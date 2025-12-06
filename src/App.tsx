@@ -23,6 +23,7 @@ import { Copy, Trash, History, Share2, Globe, Edit2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
 import { SpeechDemo } from './components/Speech';
+import { CanvasDrawDemo } from './components/CanvasDrawDemo';
 
 function BoardView({
   allBoards,
@@ -309,6 +310,7 @@ function AppContent() {
         <Route path="/templates" element={<> Work in progress </>} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
+        <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
         <Route
           path="/board/:id"
           element={
