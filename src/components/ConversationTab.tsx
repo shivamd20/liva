@@ -1,24 +1,37 @@
-import { Mic, MicOff, Pause, Play, Phone, PhoneOff, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Pause, Play, Phone, PhoneOff, Sparkles, Key, Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+// @ts-ignore
+import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
+import { useSpeechContext } from '../contexts/SpeechContext';
 
-export interface SpeechState {
-    start: () => void;
-    stop: () => void;
-    pause: () => void;
-    mute: () => void;
-    connected: boolean;
-    isMuted: boolean;
-    isPaused: boolean;
-    volume: number;
-}
+export const ConversationTab = () => {
+    const {
+        token,
+        setToken,
+        hasToken,
+        saveToken,
+        // @ts-ignore
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        clearToken,
+        start,
+        stop,
+        pause,
+        mute,
+        connected,
+        isMuted,
+        isPaused,
+        volume
+    } = useSpeechContext();
 
-interface ConversationTabProps {
-    speechState: SpeechState;
-}
+    const [isEditingToken, setIsEditingToken] = useState(false);
 
-export const ConversationTab = ({ speechState }: ConversationTabProps) => {
-    const { start, stop, pause, mute, connected, isMuted, isPaused, volume } = speechState;
+    const handleSaveToken = () => {
+        saveToken(token);
+        setIsEditingToken(false);
+    };
 
     // Simple visualizer bars
     const [bars, setBars] = useState<number[]>(new Array(5).fill(1));
@@ -94,14 +107,66 @@ export const ConversationTab = ({ speechState }: ConversationTabProps) => {
                 {/* Main Controls */}
                 <div className="flex flex-col items-center gap-6 w-full max-w-[280px]">
                     {!connected ? (
-                        <Button
-                            size="lg"
-                            className="w-full h-14 text-base font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 rounded-xl"
-                            onClick={handleConnectToggle}
-                        >
-                            <Phone className="w-5 h-5 mr-2" />
-                            Start Session
-                        </Button>
+                        !hasToken || isEditingToken ? (
+                            <div className="w-full space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                <div className="space-y-2">
+                                    <Label htmlFor="token" className="text-sm font-medium text-muted-foreground">Access Token</Label>
+                                    <Input
+                                        id="token"
+                                        type="password"
+                                        placeholder="Enter your Gemini API key"
+                                        value={token}
+                                        onChange={(e) => setToken(e.target.value)}
+                                        className="h-10 text-sm"
+                                    />
+                                </div>
+
+                                <Alert className="bg-yellow-50/50 border-yellow-100 dark:bg-yellow-950/10 dark:border-yellow-900/50 py-2">
+                                    <AlertDescription className="text-yellow-600/90 dark:text-yellow-400/80 text-xs">
+                                        Your token is stored locally in your browser and never sent to our servers.
+                                    </AlertDescription>
+                                </Alert>
+
+                                <div className="flex gap-2">
+                                    {hasToken && (
+                                        <Button
+                                            variant="ghost"
+                                            className="flex-1"
+                                            onClick={() => setIsEditingToken(false)}
+                                        >
+                                            Cancel
+                                        </Button>
+                                    )}
+                                    <Button
+                                        className="flex-1 bg-primary/90 hover:bg-primary"
+                                        onClick={handleSaveToken}
+                                        disabled={!token.trim()}
+                                    >
+                                        Save Token
+                                    </Button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="w-full space-y-4">
+                                <Button
+                                    size="lg"
+                                    className="w-full h-14 text-base font-medium shadow-lg hover:shadow-xl hover:-translate-y-0.5 transition-all duration-300 rounded-xl"
+                                    onClick={handleConnectToggle}
+                                >
+                                    <Phone className="w-5 h-5 mr-2" />
+                                    Start Session
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full text-xs text-muted-foreground hover:text-foreground"
+                                    onClick={() => setIsEditingToken(true)}
+                                >
+                                    <Settings className="w-3 h-3 mr-1.5" />
+                                    Change Access Token
+                                </Button>
+                            </div>
+                        )
                     ) : (
                         <div className="w-full space-y-6">
                             <div className="grid grid-cols-2 gap-4">
@@ -160,12 +225,19 @@ export const ConversationTab = ({ speechState }: ConversationTabProps) => {
                 </div>
 
                 <div className="text-center space-y-2 max-w-[240px]">
-                    <p className="text-xs text-muted-foreground/80 leading-relaxed font-medium">
-                        {connected
-                            ? "Voice is active. Speak clearly to interact."
-                            : 'Click "Start Session" to begin real-time voice interaction with your assistant.'
-                        }
-                    </p>
+                    {!hasToken && !connected && !isEditingToken && (
+                        <p className="text-xs text-muted-foreground/80 leading-relaxed font-medium">
+                            Please configure your access token to continue.
+                        </p>
+                    )}
+                    {(hasToken || connected) && (
+                        <p className="text-xs text-muted-foreground/80 leading-relaxed font-medium">
+                            {connected
+                                ? "Voice is active. Speak clearly to interact."
+                                : 'Click "Start Session" to begin real-time voice interaction with your assistant.'
+                            }
+                        </p>
+                    )}
                 </div>
             </div>
         </div>

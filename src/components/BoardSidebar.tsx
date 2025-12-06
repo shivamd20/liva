@@ -10,14 +10,13 @@ import { Input } from './ui/input';
 import { useToggleShare } from '../hooks/useBoards';
 // @ts-ignore
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { ConversationTab, SpeechState } from './ConversationTab';
+import { ConversationTab } from './ConversationTab';
 
 export const SIDEBAR_NAME = "custom-sidebar";
 
 interface BoardSidebarProps {
     board: Board;
     isOwner: boolean;
-    speechState: SpeechState;
 }
 
 const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
@@ -147,7 +146,7 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
 
 
 
-export const BoardSidebar = ({ board, isOwner, speechState }: BoardSidebarProps) => {
+export const BoardSidebar = ({ board, isOwner }: BoardSidebarProps) => {
     return (
         // @ts-ignore
         <Sidebar
@@ -160,7 +159,7 @@ export const BoardSidebar = ({ board, isOwner, speechState }: BoardSidebarProps)
                     <ShareTab board={board} isOwner={isOwner} />
                 </Sidebar.Tab>
                 <Sidebar.Tab tab="conversation">
-                    <ConversationTab speechState={speechState} />
+                    <ConversationTab />
                 </Sidebar.Tab>
             </Sidebar.Tabs>
         </Sidebar>

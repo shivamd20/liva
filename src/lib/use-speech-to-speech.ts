@@ -10,6 +10,18 @@ export interface UseSpeechToSpeechParams {
     onError?: (error: Error) => void;
 }
 
+export interface SpeechState {
+    start: (promptOverride?: string) => Promise<void>;
+    stop: () => Promise<void>;
+    pause: () => void;
+    mute: () => void;
+    system_prompt: string;
+    connected: boolean;
+    isMuted: boolean;
+    isPaused: boolean;
+    volume: number;
+}
+
 export function useSpeechToSpeech({
     apiKey,
     model = 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -17,7 +29,7 @@ export function useSpeechToSpeech({
     voiceName = 'Zephyr',
     onMessage,
     onError
-}: UseSpeechToSpeechParams) {
+}: UseSpeechToSpeechParams): SpeechState {
     const [connected, setConnected] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [isPaused, setIsPaused] = useState(false);

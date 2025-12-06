@@ -29,7 +29,8 @@ import { useTheme } from 'next-themes';
 import { useCommandMenu } from '../lib/command-menu-context';
 import { trpcClient } from '../trpcClient';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
-import { useSpeechToSpeech } from '../lib/use-speech-to-speech';
+import { SpeechProvider } from '../contexts/SpeechContext';
+
 
 interface BoardEditorProps {
   board: Board;
@@ -72,17 +73,7 @@ export function BoardEditor({
 
   const { registerCommand, unregisterCommand } = useCommandMenu();
 
-  const speechState = useSpeechToSpeech({
-    apiKey: import.meta.env.VITE_GEMINI_API_KEY || '',
-    systemInstruction: "You are a helpful assistant assisting with an Excalidraw board.",
-    onMessage: (text: string) => {
-      console.log('Gemini:', text);
-    },
-    onError: (err: Error) => {
-      console.error('Gemini Error:', err);
-      toast.error('Voice assistant error: ' + err.message);
-    }
-  });
+
 
 
   // Memoize callbacks to prevent unnecessary re-subscriptions
@@ -313,38 +304,40 @@ export function BoardEditor({
   );
 
   return (
-    <div
-      className="excalidraw-wrapper"
-      style={{
-        '--color-primary': '#3B82F6',
-        '--color-primary-dark': '#2563EB',
-        '--color-primary-light': '#93C5FD'
-      } as React.CSSProperties}
-    >
-      <Excalidraw
-        excalidrawAPI={(api) => setExcalidrawAPI(api)}
-        theme={theme == 'dark' ? 'dark' : 'light'}
-        initialData={{
-          elements: board.excalidrawElements || [],
-        }}
-        onChange={(elements) => {
-          debouncedLocalChange(elements);
-        }}
-        isCollaborating={board.access === 'public'}
-        UIOptions={uiOptions}
-        renderTopRightUI={() => (
-          <BoardSidebarTriggers
-            isMobile={isMobile}
-            isShared={board.access === 'public'}
-          />
-        )}
-        onPointerUpdate={onPointerUpdate}
-        onPointerDown={handlePointerDown}
-        onLinkOpen={onLinkOpen}
+    <SpeechProvider>
+      <div
+        className="excalidraw-wrapper"
+        style={{
+          '--color-primary': '#3B82F6',
+          '--color-primary-dark': '#2563EB',
+          '--color-primary-light': '#93C5FD'
+        } as React.CSSProperties}
       >
-        {menuItems && <MainMenu>{menuItems}</MainMenu>}
-        <BoardSidebar board={board} isOwner={isOwner} speechState={speechState} />
-      </Excalidraw>
-    </div>
+        <Excalidraw
+          excalidrawAPI={(api) => setExcalidrawAPI(api)}
+          theme={theme == 'dark' ? 'dark' : 'light'}
+          initialData={{
+            elements: board.excalidrawElements || [],
+          }}
+          onChange={(elements) => {
+            debouncedLocalChange(elements);
+          }}
+          isCollaborating={board.access === 'public'}
+          UIOptions={uiOptions}
+          renderTopRightUI={() => (
+            <BoardSidebarTriggers
+              isMobile={isMobile}
+              isShared={board.access === 'public'}
+            />
+          )}
+          onPointerUpdate={onPointerUpdate}
+          onPointerDown={handlePointerDown}
+          onLinkOpen={onLinkOpen}
+        >
+          {menuItems && <MainMenu>{menuItems}</MainMenu>}
+          <BoardSidebar board={board} isOwner={isOwner} />
+        </Excalidraw>
+      </div>
+    </SpeechProvider>
   );
 }
