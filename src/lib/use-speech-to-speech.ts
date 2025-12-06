@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 import { exportToCanvas } from '@excalidraw/excalidraw';
 import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
+import type { ConversationMessage, AudioMessage, TextMessage } from './conversation-types';
 
 export interface UseSpeechToSpeechParams {
     apiKey: string;
@@ -23,11 +24,49 @@ export interface SpeechState {
     stop: () => Promise<void>;
     pause: () => void;
     mute: () => void;
+    clearMessages: () => void;
     system_prompt: string;
     connected: boolean;
     isMuted: boolean;
     isPaused: boolean;
     volume: number;
+    messages: ConversationMessage[];
+}
+
+// Helper to generate unique IDs
+const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+// Helper: Convert Int16Array to WAV Blob for playback
+function int16ArrayToWavBlob(int16Data: Int16Array, sampleRate: number): Blob {
+    const buffer = new ArrayBuffer(44 + int16Data.length * 2);
+    const view = new DataView(buffer);
+
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+        for (let i = 0; i < str.length; i++) {
+            view.setUint8(offset + i, str.charCodeAt(i));
+        }
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + int16Data.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true); // Subchunk1Size
+    view.setUint16(20, 1, true); // AudioFormat (PCM)
+    view.setUint16(22, 1, true); // NumChannels
+    view.setUint32(24, sampleRate, true); // SampleRate
+    view.setUint32(28, sampleRate * 2, true); // ByteRate
+    view.setUint16(32, 2, true); // BlockAlign
+    view.setUint16(34, 16, true); // BitsPerSample
+    writeString(36, 'data');
+    view.setUint32(40, int16Data.length * 2, true);
+
+    // Audio data
+    const int16View = new Int16Array(buffer, 44);
+    int16View.set(int16Data);
+
+    return new Blob([buffer], { type: 'audio/wav' });
 }
 
 export function useSpeechToSpeech({
@@ -46,6 +85,7 @@ export function useSpeechToSpeech({
     const [isPaused, setIsPaused] = useState(false);
     const [volume, setVolume] = useState(0);
     const [currentSystemPrompt, setCurrentSystemPrompt] = useState(systemInstruction);
+    const [messages, setMessages] = useState<ConversationMessage[]>([]);
 
     // Audio Contexts & State
     const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -62,6 +102,15 @@ export function useSpeechToSpeech({
     const isMutedRef = useRef(isMuted);
     const isPausedRef = useRef(isPaused);
 
+    // Message buffering refs
+    const userAudioBufferRef = useRef<Int16Array[]>([]);
+    const aiAudioBufferRef = useRef<Int16Array[]>([]);
+    const aiTextBufferRef = useRef<string>('');
+    const userSilenceCountRef = useRef<number>(0);
+    const userIsSpeakingRef = useRef<boolean>(false);
+    const SILENCE_THRESHOLD = 0.02;
+    const SILENCE_CHUNKS_REQUIRED = 10; // ~640ms of silence to end user turn
+
     useEffect(() => {
         isMutedRef.current = isMuted;
     }, [isMuted]);
@@ -70,8 +119,8 @@ export function useSpeechToSpeech({
         isPausedRef.current = isPaused;
     }, [isPaused]);
 
-    // Helper: Create Blob for Audio Input
-    const createBlob = (data: Float32Array) => {
+    // Helper: Create Blob for Audio Input (also returns raw Int16 for buffering)
+    const createBlob = (data: Float32Array): { blob: { data: string; mimeType: string }; int16: Int16Array; rms: number } => {
         const l = data.length;
         const int16 = new Int16Array(l);
         // Simple volume calculation for visualizer
@@ -81,7 +130,8 @@ export function useSpeechToSpeech({
             int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
             sum += s * s;
         }
-        setVolume(Math.sqrt(sum / l));
+        const rms = Math.sqrt(sum / l);
+        setVolume(rms);
 
         // Create the blob manually as shown in documentation
         let binary = '';
@@ -93,12 +143,97 @@ export function useSpeechToSpeech({
         const b64 = btoa(binary);
 
         return {
-            data: b64,
-            mimeType: 'audio/pcm;rate=16000',
+            blob: {
+                data: b64,
+                mimeType: 'audio/pcm;rate=16000',
+            },
+            int16: int16.slice(), // Clone for buffering
+            rms
         };
     };
 
-    // Helper: Decode Audio Output
+    // Helper: Finalize user audio buffer into a message
+    const finalizeUserMessage = useCallback(() => {
+        if (userAudioBufferRef.current.length === 0) return;
+
+        const totalLength = userAudioBufferRef.current.reduce((acc, chunk) => acc + chunk.length, 0);
+        const combined = new Int16Array(totalLength);
+        let offset = 0;
+        for (const chunk of userAudioBufferRef.current) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+
+        const audioBlob = int16ArrayToWavBlob(combined, 16000);
+        const duration = totalLength / 16000;
+
+        const message: AudioMessage = {
+            id: generateId(),
+            timestamp: Date.now(),
+            type: 'user',
+            audioBlob,
+            duration
+        };
+
+        setMessages(prev => [...prev, message]);
+        userAudioBufferRef.current = [];
+        userSilenceCountRef.current = 0;
+        userIsSpeakingRef.current = false;
+    }, []);
+
+    // Helper: Finalize AI audio buffer into a message
+    const finalizeAIMessage = useCallback(() => {
+        if (aiAudioBufferRef.current.length === 0 && !aiTextBufferRef.current) return;
+
+        if (aiAudioBufferRef.current.length > 0) {
+            const totalLength = aiAudioBufferRef.current.reduce((acc, chunk) => acc + chunk.length, 0);
+            const combined = new Int16Array(totalLength);
+            let offset = 0;
+            for (const chunk of aiAudioBufferRef.current) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            const audioBlob = int16ArrayToWavBlob(combined, 24000);
+            const duration = totalLength / 24000;
+
+            const message: AudioMessage = {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'ai',
+                audioBlob,
+                duration,
+                transcription: aiTextBufferRef.current || undefined
+            };
+
+            setMessages(prev => [...prev, message]);
+        } else if (aiTextBufferRef.current) {
+            // Text-only message
+            const message: TextMessage = {
+                id: generateId(),
+                timestamp: Date.now(),
+                type: 'ai',
+                content: aiTextBufferRef.current
+            };
+            setMessages(prev => [...prev, message]);
+        }
+
+        aiAudioBufferRef.current = [];
+        aiTextBufferRef.current = '';
+    }, []);
+
+    // Helper: Decode base64 to Int16Array (for buffering AI audio)
+    const base64ToInt16Array = (base64String: string): Int16Array => {
+        const binaryString = atob(base64String);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+        return new Int16Array(bytes.buffer);
+    };
+
+    // Helper: Decode Audio Output for playback
     const decodeAudioData = async (
         base64String: string,
         ctx: AudioContext
@@ -137,6 +272,10 @@ export function useSpeechToSpeech({
     };
 
     const disconnect = useCallback(async () => {
+        // Finalize any pending messages before disconnecting
+        finalizeUserMessage();
+        finalizeAIMessage();
+
         if (sessionPromiseRef.current) {
             sessionPromiseRef.current.then(session => {
                 try {
@@ -180,6 +319,15 @@ export function useSpeechToSpeech({
         setIsPaused(false);
         setIsMuted(false);
         setVolume(0);
+    }, [finalizeUserMessage, finalizeAIMessage]);
+
+    const clearMessages = useCallback(() => {
+        setMessages([]);
+        userAudioBufferRef.current = [];
+        aiAudioBufferRef.current = [];
+        aiTextBufferRef.current = '';
+        userSilenceCountRef.current = 0;
+        userIsSpeakingRef.current = false;
     }, []);
 
     const start = useCallback(async (promptOverride?: string) => {
@@ -229,9 +377,6 @@ export function useSpeechToSpeech({
                         voiceConfig: { prebuiltVoiceConfig: { voiceName } },
                     },
                     systemInstruction: { parts: [{ text: effectiveInstruction }] },
-                    // proactivity: {
-                    //     proactiveAudio: true
-                    // }
                 },
                 callbacks: {
                     onopen: () => {
@@ -246,10 +391,27 @@ export function useSpeechToSpeech({
                         scriptProcessorRef.current = scriptProcessor;
 
                         scriptProcessor.onaudioprocess = (e) => {
-                            if (isMutedRef.current || isPausedRef.current) return; // Mute logic
+                            if (isMutedRef.current || isPausedRef.current) return;
 
                             const inputData = e.inputBuffer.getChannelData(0);
-                            const pcmBlob = createBlob(inputData);
+                            const { blob: pcmBlob, int16, rms } = createBlob(inputData);
+
+                            // Buffer user audio for message capture
+                            if (rms > SILENCE_THRESHOLD) {
+                                // User is speaking
+                                userIsSpeakingRef.current = true;
+                                userSilenceCountRef.current = 0;
+                                userAudioBufferRef.current.push(int16);
+                            } else if (userIsSpeakingRef.current) {
+                                // User might be pausing
+                                userAudioBufferRef.current.push(int16);
+                                userSilenceCountRef.current++;
+
+                                if (userSilenceCountRef.current >= SILENCE_CHUNKS_REQUIRED) {
+                                    // User stopped speaking, finalize the message
+                                    finalizeUserMessage();
+                                }
+                            }
 
                             sessionPromiseRef.current?.then((session: any) => {
                                 session.sendRealtimeInput({ media: pcmBlob });
@@ -309,21 +471,26 @@ export function useSpeechToSpeech({
                         }
                     },
                     onmessage: async (message: LiveServerMessage) => {
-                        // console.log("Received message from Gemini:", message);
-                        if (onMessage && message.serverContent?.modelTurn?.parts?.[0]?.text) {
-                            console.log("Received text message:", message.serverContent.modelTurn.parts[0].text);
-                            onMessage(message.serverContent.modelTurn.parts[0].text);
+                        // Handle text messages
+                        if (message.serverContent?.modelTurn?.parts?.[0]?.text) {
+                            const text = message.serverContent.modelTurn.parts[0].text;
+                            console.log("Received text message:", text);
+                            aiTextBufferRef.current += text;
+                            if (onMessage) onMessage(text);
                         }
 
-                        console.log("Received message:", message.serverContent?.modelTurn);
-
-                        message.serverContent?.modelTurn?.parts?.forEach((part: any) => {
-
-                            console.log("Received audio data:", part);
-                        });
-
+                        // Handle audio data
                         const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                         if (base64Audio && outputAudioContextRef.current && outputNodeRef.current) {
+                            // Buffer AI audio for message capture
+                            const int16Data = base64ToInt16Array(base64Audio);
+                            aiAudioBufferRef.current.push(int16Data);
+
+                            // Finalize any pending user message when AI starts responding
+                            if (userAudioBufferRef.current.length > 0) {
+                                finalizeUserMessage();
+                            }
+
                             const ctx = outputAudioContextRef.current;
                             const buffer = await decodeAudioData(base64Audio, ctx);
 
@@ -344,10 +511,18 @@ export function useSpeechToSpeech({
                             nextStartTimeRef.current += buffer.duration;
                         }
 
+                        // Check for turn completion
+                        if (message.serverContent?.turnComplete) {
+                            console.log("AI turn complete, finalizing message");
+                            finalizeAIMessage();
+                        }
+
                         if (message.serverContent?.interrupted) {
                             sourcesRef.current.forEach(s => s.stop());
                             sourcesRef.current.clear();
                             nextStartTimeRef.current = 0;
+                            // Finalize whatever AI audio we have so far
+                            finalizeAIMessage();
                         }
                     },
                     onclose: (e) => {
@@ -366,7 +541,7 @@ export function useSpeechToSpeech({
             if (onError) onError(err as Error);
             setConnected(false);
         }
-    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage, canvasRef, excalidrawAPIRef, frameRate]);
+    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage, canvasRef, excalidrawAPIRef, frameRate, finalizeUserMessage, finalizeAIMessage]);
 
     const stop = useCallback(async () => {
         await disconnect();
@@ -402,10 +577,12 @@ export function useSpeechToSpeech({
         stop,
         pause,
         mute,
+        clearMessages,
         system_prompt: currentSystemPrompt,
         connected,
         isMuted,
         isPaused,
-        volume
+        volume,
+        messages
     };
 }
