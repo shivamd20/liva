@@ -29,7 +29,7 @@ export const conversationRouter = t.router({
     append: t.procedure
         .input(z.object({
             conversationId: z.string(),
-            type: z.enum(["text_in", "audio_in"]),
+            type: z.enum(["text_in", "audio_in", "text_out", "audio_out"]),
             payload: z.string(), // Text or Base64 audio
             metadata: z.record(z.any(), z.any()).optional(),
         }))

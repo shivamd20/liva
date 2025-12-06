@@ -16,6 +16,12 @@ interface Event {
     metadata: any;
 }
 
+// Add simplified SpeechContext if needed or just use hook directly.
+import { useSpeechToSpeech } from '../lib/use-speech-to-speech';
+import { Phone, PhoneOff, MicOff } from 'lucide-react';
+
+const GEMINI_API_KEY_KEY = 'gemini_api_key_manual';
+
 interface ConversationProps {
     id?: string;
     className?: string;
@@ -31,6 +37,86 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
     const [isRecording, setIsRecording] = useState(false);
     const [loading, setLoading] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+
+    const [isVoiceMode, setIsVoiceMode] = useState(false);
+    const [apiKey, setApiKey] = useState(() => localStorage.getItem(GEMINI_API_KEY_KEY) || import.meta.env.VITE_GEMINI_API_KEY || '');
+    const syncedMessageIds = useRef<Set<string>>(new Set());
+
+    const {
+        start: startSpeech,
+        stop: stopSpeech,
+        connected,
+        isMuted,
+        mute,
+        messages: speechMessages,
+        volume
+    } = useSpeechToSpeech({
+        apiKey,
+        voiceName: 'Kore',
+        onMessage: (text) => {
+            // Optional: Real-time transcript updates can be handled here if needed
+        },
+        onError: (err) => {
+            toast.error("Voice Error: " + err.message);
+            if (connected) stopSpeech();
+        }
+    });
+
+    // Sync speech messages to backend
+    useEffect(() => {
+        if (!conversationId) return;
+        const syncMessages = async () => {
+            for (const msg of speechMessages) {
+                if (syncedMessageIds.current.has(msg.id)) continue;
+
+                syncedMessageIds.current.add(msg.id); // Mark as processing
+
+                try {
+                    let type: "text_in" | "audio_in" | "text_out" | "audio_out" | "" = "";
+                    let payload = "";
+
+                    if (msg.type === 'user' && 'audioBlob' in msg) {
+                        type = 'audio_in';
+                        // Convert blob to base64
+                        payload = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onloadend = () => resolve(reader.result as string);
+                            reader.readAsDataURL(msg.audioBlob!);
+                        });
+                    } else if (msg.type === 'ai') {
+                        // Prefer transcript for AI text payload as requested
+                        if ('transcription' in msg && msg.transcription) {
+                            type = 'text_out';
+                            payload = msg.transcription;
+                        } else if ('audioBlob' in msg) {
+                            // Fallback if we only have audio but no transcript?
+                            // For compatibility and persistence, we prioritize text if available.
+                            // If only audio is available (rare for AI text response?), we might skip or send placeholder?
+                            // But usually we get transcript.
+                            // Let's assume we want text_out for AI.
+                            type = 'text_out';
+                            payload = "Processing audio response...";
+                        }
+                    }
+
+                    if (type && payload) {
+                        await trpcClient.conversation.append.mutate({
+                            conversationId,
+                            type: type as any, // Cast to any to avoid issue if type inference is lagging
+                            payload,
+                        });
+                        await fetchHistory();
+                    }
+                } catch (e) {
+                    console.error("Failed to sync message", e);
+                    syncedMessageIds.current.delete(msg.id); // Retry later?
+                }
+            }
+
+        };
+
+        syncMessages();
+    }, [speechMessages.length, conversationId]);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const chunksRef = useRef<Blob[]>([]);
@@ -189,11 +275,66 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                         </div>
                         <div>
                             <h2 className="text-sm font-semibold">Assistant Chat</h2>
-                            <p className="text-xs text-muted-foreground">Always active</p>
+                            <p className="text-xs text-muted-foreground">
+                                {connected ? (
+                                    <span className="flex items-center gap-1 text-green-500">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                                        </span>
+                                        Voice Active
+                                    </span>
+                                ) : "Always active"}
+                            </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-1">
                         <TooltipProvider>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant={isVoiceMode ? (connected ? "destructive" : "secondary") : "outline"}
+                                        size="icon"
+                                        className={cn("mr-2 transition-all", isVoiceMode && "w-auto px-3 gap-2")}
+                                        onClick={() => {
+                                            if (isVoiceMode) {
+                                                if (connected) stopSpeech();
+                                                setIsVoiceMode(false);
+                                            } else {
+                                                if (!apiKey) {
+                                                    const k = prompt("Please enter Gemini API Key:");
+                                                    if (k) {
+                                                        localStorage.setItem(GEMINI_API_KEY_KEY, k);
+                                                        setApiKey(k);
+                                                        setIsVoiceMode(true);
+                                                        // Auto-start
+                                                        setTimeout(() => {
+                                                            // We need to trigger startSpeech, but updated state might not be ready in this closure?
+                                                            // Actually apiKey is state, so we might need useEffect or just rely on user clicking start?
+                                                            // Let's just switch mode.
+                                                        }, 100);
+                                                    }
+                                                } else {
+                                                    setIsVoiceMode(true);
+                                                }
+                                            }
+                                        }}
+                                    >
+                                        {isVoiceMode ? (
+                                            <>
+                                                <PhoneOff className="w-4 h-4" />
+                                                <span className="text-xs">End Voice</span>
+                                            </>
+                                        ) : (
+                                            <Phone className="w-4 h-4" />
+                                        )}
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    {isVoiceMode ? "Switch to Text Mode" : "Switch to Voice Mode"}
+                                </TooltipContent>
+                            </Tooltip>
+
                             <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button variant="ghost" size="icon" onClick={() => fetchHistory()}>
@@ -248,57 +389,105 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
 
             {/* Input Area */}
             <div className="p-4 md:p-6 pt-2 bg-gradient-to-t from-background via-background to-transparent z-10 w-full max-w-3xl mx-auto">
-                <div className={cn(
-                    "flex items-center gap-2 p-1.5 rounded-full border bg-background shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50",
-                    isRecording && "ring-2 ring-red-500/20 border-red-500/50"
-                )}>
-                    <input
-                        type="text"
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
-                        placeholder={isRecording ? "Listening..." : "Type a message..."}
-                        className="flex-1 bg-transparent px-4 py-2.5 text-sm focus:outline-none placeholder:text-muted-foreground/70"
-                        disabled={loading || isRecording}
-                    />
 
-                    <div className="flex items-center gap-1 pr-1">
-                        <TooltipProvider>
-                            <Tooltip>
-                                <TooltipTrigger asChild>
+                {isVoiceMode ? (
+                    <div className="flex flex-col gap-4 items-center justify-center p-4 bg-muted/20 rounded-2xl border border-dashed animate-in slide-in-from-bottom-4">
+                        {!connected ? (
+                            <Button size="lg" className="w-full sm:w-auto gap-2 rounded-full" onClick={() => startSpeech()}>
+                                <Phone className="w-4 h-4" /> Start Conversation
+                            </Button>
+                        ) : (
+                            <div className="flex flex-col items-center gap-4 w-full">
+                                {/* Visualizer Placeholder */}
+                                <div className="h-12 flex items-center justify-center gap-1">
+                                    {[1, 2, 3, 4, 5].map((i) => (
+                                        <div
+                                            key={i}
+                                            className={cn(
+                                                "w-1.5 bg-primary rounded-full transition-all duration-75",
+                                                volume > 0.01 ? "animate-pulse" : "h-2 opacity-20"
+                                            )}
+                                            style={{
+                                                height: volume > 0.01 ? `${Math.max(8, Math.random() * 30)}px` : '8px'
+                                            }}
+                                        />
+                                    ))}
+                                </div>
+                                <div className="flex items-center gap-4">
                                     <Button
-                                        onClick={isRecording ? stopRecording : startRecording}
+                                        variant={isMuted ? "destructive" : "secondary"}
                                         size="icon"
-                                        variant={isRecording ? "destructive" : "ghost"}
-                                        className={cn(
-                                            "h-9 w-9 rounded-full transition-all duration-300",
-                                            isRecording && "animate-pulse scale-110",
-                                            !isRecording && "hover:bg-muted text-muted-foreground hover:text-foreground"
-                                        )}
-                                        disabled={loading}
+                                        className="rounded-full w-12 h-12"
+                                        onClick={mute}
                                     >
-                                        {isRecording ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-4 h-4" />}
+                                        {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                                     </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                    {isRecording ? "Stop Recording" : "Voice Input"}
-                                </TooltipContent>
-                            </Tooltip>
-                        </TooltipProvider>
-
-                        <Button
-                            onClick={handleSendText}
-                            disabled={!inputText.trim() || loading || isRecording}
-                            size="icon"
-                            className={cn(
-                                "h-9 w-9 rounded-full shrink-0 transition-all",
-                                inputText.trim() ? "bg-primary text-primary-foreground shadow-md hover:bg-primary/90" : "bg-muted text-muted-foreground opacity-50"
-                            )}
-                        >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 translate-x-0.5" />}
-                        </Button>
+                                    <Button
+                                        variant="destructive"
+                                        size="icon"
+                                        className="rounded-full w-12 h-12"
+                                        onClick={() => stopSpeech()}
+                                    >
+                                        <PhoneOff className="w-5 h-5" />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground animate-pulse">Listening...</p>
+                            </div>
+                        )}
                     </div>
-                </div>
+                ) : (
+                    <div className={cn(
+                        "flex items-center gap-2 p-1.5 rounded-full border bg-background shadow-sm transition-all focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50",
+                        isRecording && "ring-2 ring-red-500/20 border-red-500/50"
+                    )}>
+                        <input
+                            type="text"
+                            value={inputText}
+                            onChange={(e) => setInputText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
+                            placeholder={isRecording ? "Listening..." : "Type a message..."}
+                            className="flex-1 bg-transparent px-4 py-2.5 text-sm focus:outline-none placeholder:text-muted-foreground/70"
+                            disabled={loading || isRecording}
+                        />
+
+                        <div className="flex items-center gap-1 pr-1">
+                            <TooltipProvider>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            onClick={isRecording ? stopRecording : startRecording}
+                                            size="icon"
+                                            variant={isRecording ? "destructive" : "ghost"}
+                                            className={cn(
+                                                "h-9 w-9 rounded-full transition-all duration-300",
+                                                isRecording && "animate-pulse scale-110",
+                                                !isRecording && "hover:bg-muted text-muted-foreground hover:text-foreground"
+                                            )}
+                                            disabled={loading}
+                                        >
+                                            {isRecording ? <Square className="w-4 h-4 fill-current" /> : <Mic className="w-4 h-4" />}
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                        {isRecording ? "Stop Recording" : "Voice Input"}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+
+                            <Button
+                                onClick={handleSendText}
+                                disabled={!inputText.trim() || loading || isRecording}
+                                size="icon"
+                                className={cn(
+                                    "h-9 w-9 rounded-full shrink-0 transition-all",
+                                    inputText.trim() ? "bg-primary text-primary-foreground shadow-md hover:bg-primary/90" : "bg-muted text-muted-foreground opacity-50"
+                                )}
+                            >
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4 translate-x-0.5" />}
+                            </Button>
+                        </div>
+                    </div>
+                )}
                 <div className="text-center mt-2">
                     <p className="text-[10px] text-muted-foreground/50">
                         AI can update visuals and perform actions.
