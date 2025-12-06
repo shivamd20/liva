@@ -11,7 +11,7 @@ export interface SpeechContextType extends SpeechHookState {
     clearToken: () => void;
 }
 
-const SpeechContext = createContext<SpeechContextType | null>(null);
+export const SpeechContext = createContext<SpeechContextType | null>(null);
 
 const STORAGE_KEY = 'gemini_access_token';
 

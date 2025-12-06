@@ -84,25 +84,38 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                             reader.readAsDataURL(msg.audioBlob!);
                         });
                     } else if (msg.type === 'ai') {
-                        // Prefer transcript for AI text payload as requested
+                        // Send text transcript if available
                         if ('transcription' in msg && msg.transcription) {
-                            type = 'text_out';
-                            payload = msg.transcription;
-                        } else if ('audioBlob' in msg) {
-                            // Fallback if we only have audio but no transcript?
-                            // For compatibility and persistence, we prioritize text if available.
-                            // If only audio is available (rare for AI text response?), we might skip or send placeholder?
-                            // But usually we get transcript.
-                            // Let's assume we want text_out for AI.
-                            type = 'text_out';
-                            payload = "Processing audio response...";
+                            await trpcClient.conversation.append.mutate({
+                                conversationId,
+                                type: 'text_out',
+                                payload: msg.transcription,
+                            });
                         }
+
+                        // Send audio if available
+                        if ('audioBlob' in msg && msg.audioBlob) {
+                            const audioPayload = await new Promise<string>((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result as string);
+                                reader.readAsDataURL(msg.audioBlob!);
+                            });
+
+                            await trpcClient.conversation.append.mutate({
+                                conversationId,
+                                type: 'audio_out',
+                                payload: audioPayload,
+                            });
+                        }
+
+                        await fetchHistory();
+                        continue; // Handled both separately
                     }
 
                     if (type && payload) {
                         await trpcClient.conversation.append.mutate({
                             conversationId,
-                            type: type as any, // Cast to any to avoid issue if type inference is lagging
+                            type: type as any,
                             payload,
                         });
                         await fetchHistory();
