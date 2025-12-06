@@ -308,7 +308,11 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                             <Sparkles className="w-4 h-4 text-primary" />
                         </div>
                         <div>
-                            <h2 className="text-sm font-semibold">Assistant Chat</h2>
+                            <h2 className="text-sm font-semibold">
+
+                                {/* TODO: supply name */}
+
+                            </h2>
                             <p className="text-xs text-muted-foreground">
                                 {connected ? (
                                     <span className="flex items-center gap-1 text-green-500">
@@ -318,7 +322,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                                         </span>
                                         Voice Active
                                     </span>
-                                ) : "Always active"}
+                                ) : ""}
                             </p>
                         </div>
                     </div>
@@ -333,10 +337,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                                         onClick={handleVoiceModeToggle}
                                     >
                                         {isVoiceMode ? (
-                                            <>
-                                                <PhoneOff className="w-4 h-4" />
-                                                <span className="text-xs">End Voice</span>
-                                            </>
+                                            <PhoneOff className="w-4 h-4" />
                                         ) : (
                                             <Phone className="w-4 h-4" />
                                         )}
@@ -359,7 +360,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                         <Button
                             variant="outline"
                             size="sm"
-                            className="text-xs h-8 ml-2"
+                            className="text-xs h-8 ml-2 hidden"
                             onClick={handleSummarize}
                         >
                             Summarize
@@ -524,7 +525,13 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                             onChange={(e) => setInputText(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSendText()}
                             placeholder={isRecording ? "Listening..." : "Type a message..."}
-                            className="flex-1 bg-transparent px-4 py-2.5 text-sm focus:outline-none placeholder:text-muted-foreground/70"
+                            style={{
+                                border: 'none',
+                                outline: 'none',
+                                boxShadow: 'none',
+                                background: 'transparent'
+                            }}
+                            className="flex-1 bg-transparent px-4 py-2.5 text-sm !border-none !shadow-none !outline-none !ring-0 focus:!ring-0 focus:!border-none focus:!outline-none placeholder:text-muted-foreground/70"
                             disabled={loading || isRecording}
                         />
 

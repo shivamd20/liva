@@ -1,6 +1,5 @@
-import { Sidebar } from '@excalidraw/excalidraw';
-import { Share2, MessageCircle, Copy, Check, Globe, Info, Loader2 } from 'lucide-react';
-import { useState } from 'react';
+import { Share2, MessageCircle, Copy, Check, Globe, Info, Loader2, X, Pin, PanelRightClose, PanelRightOpen, ArrowRightFromLine, ArrowLeftToLine } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { Board } from '../types';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
@@ -11,10 +10,15 @@ import { useToggleShare } from '../hooks/useBoards';
 // @ts-ignore
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 import { ConversationTab } from './ConversationTab';
+import { cn } from '../lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
-export const SIDEBAR_NAME = "custom-sidebar";
-
-interface BoardSidebarProps {
+interface PanelProps {
+    isOpen: boolean;
+    activeTab: 'share' | 'conversation' | null;
+    isPinned: boolean;
+    onTogglePin: () => void;
+    onClose: () => void;
     board: Board;
     isOwner: boolean;
 }
@@ -50,7 +54,7 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
     };
 
     return (
-        <div className="h-full flex flex-col">
+        <div className="h-full flex flex-col animate-in fade-in duration-300">
             <div className="px-5 py-4 border-b bg-muted/20">
                 <h2 className="font-semibold text-lg tracking-tight">Share Board</h2>
                 <p className="text-sm text-muted-foreground">Manage access and collaboration</p>
@@ -58,10 +62,12 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
 
             <div className="p-5 space-y-6">
                 <div className="flex flex-col items-center justify-center py-6 space-y-5 text-center">
-                    <div className={`p-4 rounded-full transition-colors duration-500 ${isPublic
-                        ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400'
-                        : 'bg-muted text-muted-foreground'
-                        }`}>
+                    <div className={cn(
+                        "p-4 rounded-full transition-colors duration-500",
+                        isPublic
+                            ? 'bg-blue-100 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400'
+                            : 'bg-muted text-muted-foreground'
+                    )}>
                         <Globe className="w-8 h-8" />
                     </div>
 
@@ -81,10 +87,12 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
                         <Button
                             onClick={onToggle}
                             disabled={isPending}
-                            className={`w-full max-w-[200px] h-10 shadow-sm transition-all duration-300 ${isPublic
-                                ? "bg-background border border-input hover:bg-muted text-foreground hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/50"
-                                : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 dark:shadow-blue-900/20"
-                                }`}
+                            className={cn(
+                                "w-full max-w-[200px] h-10 shadow-sm transition-all duration-300",
+                                isPublic
+                                    ? "bg-background border border-input hover:bg-muted text-foreground hover:text-red-600 hover:border-red-200 dark:hover:border-red-900/50"
+                                    : "bg-blue-600 hover:bg-blue-700 text-white shadow-blue-200 dark:shadow-blue-900/20"
+                            )}
                         >
                             {isPending ? (
                                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -93,10 +101,12 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
                             )}
                         </Button>
                     ) : (
-                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${isPublic
-                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-                            : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'
-                            }`}>
+                        <div className={cn(
+                            "px-3 py-1 rounded-full text-xs font-medium",
+                            isPublic
+                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400'
+                        )}>
                             {isPublic ? 'Public Access' : 'Private Access'}
                         </div>
                     )}
@@ -144,50 +154,72 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
     );
 };
 
+export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClose, board, isOwner }: PanelProps) => {
+    // If closed, we don't render content to save resources, or we can keep it mounted but hidden.
+    // Given the requirement for "slide over", usually it's better to keep it mounted and transform it off-screen,
+    // but for now, we'll handle layout in the parent and just render the container here.
 
+    // Actually, usually managing mounting is better for performance if the content is heavy (like 3D scenes),
+    // but for text/UI, keeping it mounted preserves state (like input text).
+    // Lets keep it mounted and use CSS transforms/visibility if needed, OR just let the parent handle conditional rendering.
+    // The parent (BoardEditor) will likely control the layout.
 
-export const BoardSidebar = ({ board, isOwner }: BoardSidebarProps) => {
+    if (!isOpen && !isPinned) return null;
+
     return (
-        // @ts-ignore
-        <Sidebar
-            name={SIDEBAR_NAME}
-            docked={false}
-        >
+        <div className="h-full w-full flex flex-col bg-background/95 backdrop-blur-xl border-l shadow-2xl relative overflow-hidden">
+            <div className="h-10 border-b flex items-center justify-between px-2 bg-muted/30 shrink-0">
+                <div className="flex items-center gap-2">
+                    {/* Header Controls - maybe tabs switcher here? */}
+                </div>
+                <div className="flex items-center gap-1">
+                    <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                    onClick={onTogglePin}
+                                >
+                                    {isPinned ? (
+                                        <ArrowRightFromLine className="h-4 w-4" />
+                                    ) : (
+                                        <ArrowLeftToLine className="h-4 w-4" />
+                                    )}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                {isPinned ? "Unpin Panel" : "Pin Panel"}
+                            </TooltipContent>
+                        </Tooltip>
 
-            <Sidebar.Tabs>
-                <Sidebar.Tab tab="share">
-                    <ShareTab board={board} isOwner={isOwner} />
-                </Sidebar.Tab>
-                <Sidebar.Tab tab="conversation">
-                    <ConversationTab conversationId={board.id} />
-                </Sidebar.Tab>
-            </Sidebar.Tabs>
-        </Sidebar>
-    );
-};
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                    onClick={onClose}
+                                >
+                                    <X className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Close</TooltipContent>
+                        </Tooltip>
+                    </TooltipProvider>
+                </div>
+            </div>
 
-export const BoardSidebarTriggers = ({ isMobile, isShared }: { isMobile: boolean; isShared: boolean }) => {
-    return (
-        <div className="flex gap-2">
-            <Sidebar.Trigger
-                name={SIDEBAR_NAME}
-                tab="share"
-                title={isShared ? "Board is Public" : "Share Board"}
-            >
-                {isShared ? (
-                    <Globe className="w-4 h-4 text-blue-500" />
-                ) : (
-                    <Share2 className="w-4 h-4" />
+            <div className="flex-1 overflow-hidden relative">
+                {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} />}
+                {activeTab === 'conversation' && (
+                    <div className="h-full flex flex-col">
+                        {/* We just need the content, wrapper styles can be minimal */}
+                        <ConversationTab conversationId={board.id} />
+                    </div>
                 )}
-            </Sidebar.Trigger>
-
-            <Sidebar.Trigger
-                name={SIDEBAR_NAME}
-                tab="conversation"
-                title="Conversations"
-            >
-                <MessageCircle className="w-4 h-4" />
-            </Sidebar.Trigger>
+            </div>
         </div>
     );
 };
