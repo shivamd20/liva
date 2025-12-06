@@ -151,15 +151,15 @@ export const BoardSidebar = ({ board, isOwner }: BoardSidebarProps) => {
         // @ts-ignore
         <Sidebar
             name={SIDEBAR_NAME}
+            docked={false}
         >
 
-            <Sidebar.Tabs >
-
+            <Sidebar.Tabs>
                 <Sidebar.Tab tab="share">
                     <ShareTab board={board} isOwner={isOwner} />
                 </Sidebar.Tab>
                 <Sidebar.Tab tab="conversation">
-                    <ConversationTab />
+                    <ConversationTab conversationId={board.id} />
                 </Sidebar.Tab>
             </Sidebar.Tabs>
         </Sidebar>

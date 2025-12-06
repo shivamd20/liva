@@ -310,7 +310,8 @@ export function BoardEditor({
         style={{
           '--color-primary': '#3B82F6',
           '--color-primary-dark': '#2563EB',
-          '--color-primary-light': '#93C5FD'
+          '--color-primary-light': '#93C5FD',
+          '--right-sidebar-width': '400px',
         } as React.CSSProperties}
       >
         <Excalidraw
@@ -335,9 +336,17 @@ export function BoardEditor({
           onLinkOpen={onLinkOpen}
         >
           {menuItems && <MainMenu>{menuItems}</MainMenu>}
-          <BoardSidebar board={board} isOwner={isOwner} />
+          <div style={{
+            '--color-primary': '#3B82F6',
+            '--color-primary-dark': '#2563EB',
+            '--color-primary-light': '#93C5FD',
+            '--right-sidebar-width': '400px',
+          } as React.CSSProperties}>
+            <BoardSidebar board={board} isOwner={isOwner} />
+          </div>
+
         </Excalidraw>
-      </div>
-    </SpeechProvider>
+      </div >
+    </SpeechProvider >
   );
 }

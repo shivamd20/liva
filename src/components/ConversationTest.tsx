@@ -1,12 +1,17 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useParams } from 'react-router-dom';
 import { trpcClient } from '../trpcClient';
-import { Mic, Send, Square, Play, Pause, RefreshCw, MoreVertical, Loader2, Sparkles, Volume2 } from 'lucide-react';
+import { Mic, Send, Square, Play, Pause, RefreshCw, Loader2, Sparkles, Volume2, Key, Settings, Phone, PhoneOff, MicOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { ScrollArea } from './ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+// @ts-ignore
+import { Alert, AlertDescription } from "./ui/alert";
+import { useSpeechContext, SpeechProvider, SpeechContext } from '../contexts/SpeechContext';
 
 interface Event {
     id: string;
@@ -16,19 +21,13 @@ interface Event {
     metadata: any;
 }
 
-// Add simplified SpeechContext if needed or just use hook directly.
-import { useSpeechToSpeech } from '../lib/use-speech-to-speech';
-import { Phone, PhoneOff, MicOff } from 'lucide-react';
-
-const GEMINI_API_KEY_KEY = 'gemini_api_key_manual';
-
 interface ConversationProps {
     id?: string;
     className?: string;
     minimal?: boolean;
 }
 
-export function ConversationTest({ id: propId, className, minimal = false }: ConversationProps) {
+function ConversationTestContent({ id: propId, className, minimal = false }: ConversationProps) {
     const { id: paramId } = useParams<{ id: string }>();
     const conversationId = propId || paramId;
 
@@ -39,7 +38,9 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
     const [isGenerating, setIsGenerating] = useState(false);
 
     const [isVoiceMode, setIsVoiceMode] = useState(false);
-    const [apiKey, setApiKey] = useState(() => localStorage.getItem(GEMINI_API_KEY_KEY) || import.meta.env.VITE_GEMINI_API_KEY || '');
+    const [isEditingToken, setIsEditingToken] = useState(false);
+    const [tokenInput, setTokenInput] = useState('');
+
     const syncedMessageIds = useRef<Set<string>>(new Set());
 
     const {
@@ -48,19 +49,23 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
         connected,
         isMuted,
         mute,
+        isPaused,
+        pause,
         messages: speechMessages,
-        volume
-    } = useSpeechToSpeech({
-        apiKey,
-        voiceName: 'Kore',
-        onMessage: (text) => {
-            // Optional: Real-time transcript updates can be handled here if needed
-        },
-        onError: (err) => {
-            toast.error("Voice Error: " + err.message);
-            if (connected) stopSpeech();
+        volume,
+        hasToken,
+        saveToken
+    } = useSpeechContext();
+
+    useEffect(() => {
+        if (connected) {
+            setIsVoiceMode(true);
         }
-    });
+    }, [connected]);
+
+
+
+
 
     // Sync speech messages to backend
     useEffect(() => {
@@ -125,7 +130,6 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                     syncedMessageIds.current.delete(msg.id); // Retry later?
                 }
             }
-
         };
 
         syncMessages();
@@ -258,6 +262,23 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
         }
     }
 
+    const handleSaveToken = () => {
+        if (tokenInput.trim()) {
+            saveToken(tokenInput.trim());
+            setIsEditingToken(false);
+            setTokenInput('');
+        }
+    };
+
+    const handleVoiceModeToggle = () => {
+        if (isVoiceMode) {
+            if (connected) stopSpeech();
+            setIsVoiceMode(false);
+        } else {
+            setIsVoiceMode(true);
+        }
+    };
+
     if (!conversationId) {
         return (
             <div className="flex h-full w-full items-center justify-center bg-muted/20 p-8">
@@ -309,29 +330,7 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                                         variant={isVoiceMode ? (connected ? "destructive" : "secondary") : "outline"}
                                         size="icon"
                                         className={cn("mr-2 transition-all", isVoiceMode && "w-auto px-3 gap-2")}
-                                        onClick={() => {
-                                            if (isVoiceMode) {
-                                                if (connected) stopSpeech();
-                                                setIsVoiceMode(false);
-                                            } else {
-                                                if (!apiKey) {
-                                                    const k = prompt("Please enter Gemini API Key:");
-                                                    if (k) {
-                                                        localStorage.setItem(GEMINI_API_KEY_KEY, k);
-                                                        setApiKey(k);
-                                                        setIsVoiceMode(true);
-                                                        // Auto-start
-                                                        setTimeout(() => {
-                                                            // We need to trigger startSpeech, but updated state might not be ready in this closure?
-                                                            // Actually apiKey is state, so we might need useEffect or just rely on user clicking start?
-                                                            // Let's just switch mode.
-                                                        }, 100);
-                                                    }
-                                                } else {
-                                                    setIsVoiceMode(true);
-                                                }
-                                            }
-                                        }}
+                                        onClick={handleVoiceModeToggle}
                                     >
                                         {isVoiceMode ? (
                                             <>
@@ -406,9 +405,67 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                 {isVoiceMode ? (
                     <div className="flex flex-col gap-4 items-center justify-center p-4 bg-muted/20 rounded-2xl border border-dashed animate-in slide-in-from-bottom-4">
                         {!connected ? (
-                            <Button size="lg" className="w-full sm:w-auto gap-2 rounded-full" onClick={() => startSpeech()}>
-                                <Phone className="w-4 h-4" /> Start Conversation
-                            </Button>
+                            !hasToken || isEditingToken ? (
+                                <div className="w-full space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200 show">
+                                    <div className="space-y-1.5">
+                                        <Label htmlFor="token" className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                                            <Key className="w-3 h-3" />
+                                            Access Token
+                                        </Label>
+                                        <Input
+                                            id="token"
+                                            type="password"
+                                            placeholder="Enter your Gemini API key"
+                                            value={tokenInput}
+                                            onChange={(e) => setTokenInput(e.target.value)}
+                                            className="h-9 text-sm bg-background/50"
+                                        />
+                                    </div>
+
+                                    <Alert className="bg-yellow-50/50 border-yellow-100 dark:bg-yellow-950/10 dark:border-yellow-900/50 py-1.5">
+                                        <AlertDescription className="text-yellow-600/90 dark:text-yellow-400/80 text-[10px]">
+                                            Stored locally in your browser, never sent to our servers.
+                                        </AlertDescription>
+                                    </Alert>
+
+                                    <div className="flex gap-2">
+                                        {hasToken && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="flex-1 h-8"
+                                                onClick={() => setIsEditingToken(false)}
+                                            >
+                                                Cancel
+                                            </Button>
+                                        )}
+                                        <Button
+                                            size="sm"
+                                            className="flex-1 h-8"
+                                            onClick={handleSaveToken}
+                                            disabled={!tokenInput.trim()}
+                                        >
+                                            Save Token
+                                        </Button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="space-y-3 w-full sm:w-auto text-center">
+                                    <Button size="lg" className="w-full sm:w-auto gap-2 rounded-full" onClick={() => startSpeech()}>
+                                        <Phone className="w-4 h-4" /> Start Conversation
+                                    </Button>
+
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-[10px] text-muted-foreground hover:text-foreground w-full"
+                                        onClick={() => setIsEditingToken(true)}
+                                    >
+                                        <Settings className="w-3 h-3 mr-1" />
+                                        Change Access Token
+                                    </Button>
+                                </div>
+                            )
                         ) : (
                             <div className="flex flex-col items-center gap-4 w-full">
                                 {/* Visualizer Placeholder */}
@@ -427,6 +484,14 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                                     ))}
                                 </div>
                                 <div className="flex items-center gap-4">
+                                    <Button
+                                        variant="secondary"
+                                        size="icon"
+                                        className="rounded-full w-12 h-12"
+                                        onClick={pause}
+                                    >
+                                        {isPaused ? <Play className="w-5 h-5" /> : <Pause className="w-5 h-5" />}
+                                    </Button>
                                     <Button
                                         variant={isMuted ? "destructive" : "secondary"}
                                         size="icon"
@@ -508,6 +573,18 @@ export function ConversationTest({ id: propId, className, minimal = false }: Con
                 </div>
             </div>
         </div>
+    );
+}
+
+export function ConversationTest(props: ConversationProps) {
+    const context = useContext(SpeechContext);
+    if (context) {
+        return <ConversationTestContent {...props} />;
+    }
+    return (
+        <SpeechProvider>
+            <ConversationTestContent {...props} />
+        </SpeechProvider>
     );
 }
 
