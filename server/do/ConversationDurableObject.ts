@@ -149,8 +149,8 @@ export class ConversationDurableObject extends DurableObject {
 
     // Helper utilities
     private getState(key: string): string | null {
-        const result = this.sql.exec("SELECT value FROM state WHERE key = ?", key).one();
-        return result ? result.value : null;
+        const result = this.sql.exec("SELECT value FROM state WHERE key = ?", key).toArray();
+        return result.length > 0 ? result[0].value : null;
     }
 
     private setState(key: string, value: string) {
