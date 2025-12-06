@@ -183,6 +183,7 @@ export function useSpeechToSpeech({
     }, []);
 
     const start = useCallback(async (promptOverride?: string) => {
+        console.log("Starting speech-to-speech session...");
         try {
             await disconnect(); // Ensure clean state
 
@@ -206,12 +207,20 @@ export function useSpeechToSpeech({
             outputNodeRef.current.connect(outputAudioContextRef.current.destination);
 
             // Get Media Stream
+            console.log("Requesting microphone access...");
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            console.log("Microphone access granted.");
             mediaStreamRef.current = stream;
+
+            if (!apiKey) {
+                console.error("No API key available");
+                throw new Error("API key is missing. Please check your settings.");
+            }
 
             const ai = new GoogleGenAI({ apiKey });
 
             // Connect to Gemini
+            console.log("Connecting to Gemini Live API...");
             sessionPromiseRef.current = ai.live.connect({
                 model,
                 config: {
@@ -220,9 +229,13 @@ export function useSpeechToSpeech({
                         voiceConfig: { prebuiltVoiceConfig: { voiceName } },
                     },
                     systemInstruction: { parts: [{ text: effectiveInstruction }] },
+                    // proactivity: {
+                    //     proactiveAudio: true
+                    // }
                 },
                 callbacks: {
                     onopen: () => {
+                        console.log("Gemini Live API connected.");
                         setConnected(true);
 
                         // Setup Input Processing
@@ -296,9 +309,18 @@ export function useSpeechToSpeech({
                         }
                     },
                     onmessage: async (message: LiveServerMessage) => {
+                        // console.log("Received message from Gemini:", message);
                         if (onMessage && message.serverContent?.modelTurn?.parts?.[0]?.text) {
+                            console.log("Received text message:", message.serverContent.modelTurn.parts[0].text);
                             onMessage(message.serverContent.modelTurn.parts[0].text);
                         }
+
+                        console.log("Received message:", message.serverContent?.modelTurn);
+
+                        message.serverContent?.modelTurn?.parts?.forEach((part: any) => {
+
+                            console.log("Received audio data:", part);
+                        });
 
                         const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
                         if (base64Audio && outputAudioContextRef.current && outputNodeRef.current) {
@@ -328,11 +350,12 @@ export function useSpeechToSpeech({
                             nextStartTimeRef.current = 0;
                         }
                     },
-                    onclose: () => {
+                    onclose: (e) => {
+                        console.log("Gemini Live API connection closed", e);
                         setConnected(false);
                     },
                     onerror: (err: any) => {
-                        console.error(err);
+                        console.error("Gemini Live API Error:", err);
                         if (onError) onError(new Error(err.message || "Unknown error"));
                     }
                 }
