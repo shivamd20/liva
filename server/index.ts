@@ -6,6 +6,7 @@ import { createAuth } from "./auth";
 // Export Durable Objects
 export { NoteDurableObject } from "./do/NoteDurableObject";
 export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
+export { ConversationDurableObject } from "./do/ConversationDurableObject";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {

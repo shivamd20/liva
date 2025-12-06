@@ -4,7 +4,7 @@
 declare namespace Cloudflare {
     interface GlobalProps {
         mainModule: typeof import("./src/index");
-        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject";
+        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject";
     }
     interface Env {
         BETTER_AUTH_SECRET: "CHANGE_ME_TO_A_RANDOM_SECRET";
@@ -14,6 +14,7 @@ declare namespace Cloudflare {
         MY_DURABLE_OBJECT: DurableObjectNamespace<import("./src/index").MyDurableObject>;
         NOTE_DURABLE_OBJECT: DurableObjectNamespace<import("./src/index").NoteDurableObject>;
         NOTE_INDEX_DURABLE_OBJECT: DurableObjectNamespace<import("./src/index").NoteIndexDurableObject>;
+        CONVERSATION_DURABLE_OBJECT: DurableObjectNamespace<import("./server/do/ConversationDurableObject").ConversationDurableObject>;
         liva_db: D1Database;
         AI: any;
         GEMINI_API_KEY: string;

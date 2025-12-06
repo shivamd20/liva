@@ -23,6 +23,12 @@
 				"NoteIndexDurableObject"
 			],
 			"tag": "v2"
+		},
+		{
+			"new_sqlite_classes": [
+				"ConversationDurableObject"
+			],
+			"tag": "v3"
 		}
 	],
 	"assets": {
@@ -46,6 +52,10 @@
 			{
 				"class_name": "NoteIndexDurableObject",
 				"name": "NOTE_INDEX_DURABLE_OBJECT"
+			},
+			{
+				"class_name": "ConversationDurableObject",
+				"name": "CONVERSATION_DURABLE_OBJECT"
 			}
 		]
 	},
