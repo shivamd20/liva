@@ -52,6 +52,8 @@ function BoardView({
     }
   }, [board?.id]);
 
+  const { theme, setTheme } = useTheme();
+
   // Register Board Commands
   useEffect(() => {
     if (!board) return;
@@ -159,7 +161,7 @@ function BoardView({
     }
   };
 
-  const { theme, setTheme } = useTheme();
+
 
   const handleSwitchTheme = () => {
     setTheme(theme === 'dark' ? 'light' : 'dark');
