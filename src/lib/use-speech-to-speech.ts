@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { exportToCanvas } from '@excalidraw/excalidraw';
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 
 export interface UseSpeechToSpeechParams {
     apiKey: string;
@@ -10,6 +12,8 @@ export interface UseSpeechToSpeechParams {
     onError?: (error: Error) => void;
     /** Optional canvas ref to stream frames to AI for visual understanding */
     canvasRef?: React.RefObject<HTMLCanvasElement | null>;
+    /** Optional Excalidraw API ref to stream frames to AI for visual understanding */
+    excalidrawAPIRef?: React.RefObject<ExcalidrawImperativeAPI | null>;
     /** Frames per second for canvas streaming (default: 2) */
     frameRate?: number;
 }
@@ -34,6 +38,7 @@ export function useSpeechToSpeech({
     onMessage,
     onError,
     canvasRef,
+    excalidrawAPIRef,
     frameRate = 2
 }: UseSpeechToSpeechParams): SpeechState {
     const [connected, setConnected] = useState(false);
@@ -241,11 +246,34 @@ export function useSpeechToSpeech({
                         source.connect(scriptProcessor);
                         scriptProcessor.connect(inputAudioContextRef.current.destination);
 
-                        // Setup Canvas Frame Streaming (if canvasRef is provided)
-                        if (canvasRef?.current) {
-                            frameIntervalRef.current = window.setInterval(() => {
-                                const canvas = canvasRef.current;
-                                if (!canvas || !sessionPromiseRef.current) return;
+                        // Setup Canvas Frame Streaming (supports both canvasRef and excalidrawAPIRef)
+                        if (canvasRef?.current || excalidrawAPIRef?.current) {
+                            frameIntervalRef.current = window.setInterval(async () => {
+                                if (!sessionPromiseRef.current) return;
+
+                                let canvas: HTMLCanvasElement | null = null;
+
+                                // Priority: excalidrawAPIRef > canvasRef
+                                if (excalidrawAPIRef?.current) {
+                                    const api = excalidrawAPIRef.current;
+                                    const elements = api.getSceneElements();
+                                    if (elements && elements.length > 0) {
+                                        try {
+                                            canvas = await exportToCanvas({
+                                                elements,
+                                                appState: api.getAppState(),
+                                                files: api.getFiles(),
+                                                getDimensions: () => ({ width: 512, height: 512 }),
+                                            });
+                                        } catch (err) {
+                                            console.error('Failed to export Excalidraw canvas:', err);
+                                        }
+                                    }
+                                } else if (canvasRef?.current) {
+                                    canvas = canvasRef.current;
+                                }
+
+                                if (!canvas) return;
 
                                 canvas.toBlob(
                                     async (blob) => {
@@ -315,7 +343,7 @@ export function useSpeechToSpeech({
             if (onError) onError(err as Error);
             setConnected(false);
         }
-    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage, canvasRef, frameRate]);
+    }, [apiKey, model, voiceName, currentSystemPrompt, disconnect, onError, onMessage, canvasRef, excalidrawAPIRef, frameRate]);
 
     const stop = useCallback(async () => {
         await disconnect();

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, RefObject } from 'react';
 import { useSpeechToSpeech, UseSpeechToSpeechParams, SpeechState as SpeechHookState } from '../lib/use-speech-to-speech';
+import type { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 
 // Extended state including token management
 export interface SpeechContextType extends SpeechHookState {
@@ -14,7 +15,12 @@ const SpeechContext = createContext<SpeechContextType | null>(null);
 
 const STORAGE_KEY = 'gemini_access_token';
 
-export const SpeechProvider = ({ children }: { children: ReactNode }) => {
+interface SpeechProviderProps {
+    children: ReactNode;
+    excalidrawAPIRef?: RefObject<ExcalidrawImperativeAPI | null>;
+}
+
+export const SpeechProvider = ({ children, excalidrawAPIRef }: SpeechProviderProps) => {
     const [token, setTokenState] = useState<string>('');
     const [hasToken, setHasToken] = useState(false);
 
@@ -44,7 +50,9 @@ export const SpeechProvider = ({ children }: { children: ReactNode }) => {
     // We pass the token as apiKey.
     const speechState = useSpeechToSpeech({
         apiKey: token,
-        systemInstruction: "You are a helpful assistant assisting with an Excalidraw board.",
+        systemInstruction: "You are a helpful assistant assisting with an Excalidraw board. You can see what the user is drawing in real-time.",
+        excalidrawAPIRef,
+        frameRate: 1, // 1 FPS for Excalidraw streaming
         onMessage: (text: string) => {
             console.log('Gemini:', text);
         },

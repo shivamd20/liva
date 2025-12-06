@@ -304,7 +304,7 @@ export function BoardEditor({
   );
 
   return (
-    <SpeechProvider>
+    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef}>
       <div
         className="excalidraw-wrapper"
         style={{
