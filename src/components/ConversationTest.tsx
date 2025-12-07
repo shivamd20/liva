@@ -37,7 +37,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
     const [loading, setLoading] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
 
-    const [isVoiceMode, setIsVoiceMode] = useState(false);
+    const [isVoiceMode, setIsVoiceMode] = useState(true);
     const [isEditingToken, setIsEditingToken] = useState(false);
     const [tokenInput, setTokenInput] = useState('');
 
@@ -328,7 +328,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                     </div>
                     <div className="flex items-center gap-1">
                         <TooltipProvider>
-                            <Tooltip>
+                            {/* <Tooltip>
                                 <TooltipTrigger asChild>
                                     <Button
                                         variant={isVoiceMode ? (connected ? "destructive" : "secondary") : "outline"}
@@ -346,7 +346,7 @@ function ConversationTestContent({ id: propId, className, minimal = false }: Con
                                 <TooltipContent>
                                     {isVoiceMode ? "Switch to Text Mode" : "Switch to Voice Mode"}
                                 </TooltipContent>
-                            </Tooltip>
+                            </Tooltip> */}
 
                             <Tooltip>
                                 <TooltipTrigger asChild>
