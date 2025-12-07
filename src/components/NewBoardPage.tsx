@@ -4,6 +4,7 @@ import { useCreateBoard } from '../hooks/useBoards';
 
 export function NewBoardPage() {
     const [title, setTitle] = useState('');
+    const [expiresInHours, setExpiresInHours] = useState(0);
     const [isCreating, setIsCreating] = useState(false);
     const navigate = useNavigate();
     const createBoard = useCreateBoard();
@@ -14,7 +15,7 @@ export function NewBoardPage() {
 
         setIsCreating(true);
         try {
-            createBoard.mutate({ title: title.trim() }, {
+            createBoard.mutate({ title: title.trim(), expiresInHours }, {
                 onSuccess: (newBoard) => {
                     navigate(`/board/${newBoard.id}`);
                 },
@@ -59,10 +60,31 @@ export function NewBoardPage() {
                                 onChange={(e) => setTitle(e.target.value)}
                             />
                         </div>
+
+                        <div>
+                            <label htmlFor="expiration" className="sr-only">
+                                Expiration
+                            </label>
+                            <select
+                                id="expiration"
+                                name="expiration"
+                                className="appearance-none relative block w-full px-4 py-4 border border-gray-300 placeholder-gray-400 text-gray-900 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-base transition-colors duration-200 ease-in-out mt-4"
+                                value={expiresInHours}
+                                onChange={(e) => setExpiresInHours(Number(e.target.value))}
+                            >
+                                <option value={0}>Never Expires</option>
+                                <option value={1}>1 Hour</option>
+                                <option value={2}>2 Hours</option>
+                                <option value={6}>6 Hours</option>
+                                <option value={12}>12 Hours</option>
+                                <option value={24}>24 Hours</option>
+                                <option value={168}>1 Week</option>
+                            </select>
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-4 mt-6">
-                         <button
+                        <button
                             type="button"
                             onClick={() => navigate(-1)}
                             className="w-1/2 flex justify-center py-3 px-4 border border-gray-300 text-sm font-medium rounded-xl text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors duration-200"
@@ -73,9 +95,8 @@ export function NewBoardPage() {
                         <button
                             type="submit"
                             disabled={isCreating || !title.trim()}
-                            className={`w-1/2 flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 ${
-                                (isCreating || !title.trim()) ? 'opacity-50 cursor-not-allowed' : 'shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
-                            }`}
+                            className={`w-1/2 flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 ${(isCreating || !title.trim()) ? 'opacity-50 cursor-not-allowed' : 'shadow-lg hover:shadow-xl transform hover:-translate-y-0.5'
+                                }`}
                         >
                             {isCreating ? (
                                 <span className="flex items-center gap-2">

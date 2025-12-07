@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useState, useEffect } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import BoardsHeader from "./boards-header"
 import BoardsFilters from "./boards-filters"
 import BoardsGrid from "./boards-grid"
@@ -20,6 +20,7 @@ export default function BoardsPage() {
   const deleteBoard = useDeleteBoard()
   const duplicateBoard = useDuplicateBoard()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [filter, setFilter] = useState<"all" | "owned" | "shared" | "recent">("all")
   const [sortBy, setSortBy] = useState<"lastOpened" | "lastUpdated" | "alphabetical">("lastOpened")
@@ -27,6 +28,18 @@ export default function BoardsPage() {
 
   // Modal states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+
+  // Check for create param
+  useEffect(() => {
+    if (searchParams.get("create") === "true") {
+      setIsCreateModalOpen(true)
+      // Optional: Clear the param so it doesn't persist
+      setSearchParams(params => {
+        params.delete("create")
+        return params
+      })
+    }
+  }, [searchParams, setSearchParams])
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false)
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
@@ -40,6 +53,7 @@ export default function BoardsPage() {
 
   // Input states
   const [newBoardTitle, setNewBoardTitle] = useState("")
+  const [expiresInHours, setExpiresInHours] = useState(0)
   const [renameTitle, setRenameTitle] = useState("")
   const [duplicateTitle, setDuplicateTitle] = useState("")
 
@@ -81,10 +95,11 @@ export default function BoardsPage() {
     e.preventDefault()
     if (!newBoardTitle.trim()) return
 
-    createBoard.mutate({ title: newBoardTitle.trim() }, {
+    createBoard.mutate({ title: newBoardTitle.trim(), expiresInHours }, {
       onSuccess: (newBoard) => {
         setIsCreateModalOpen(false)
         setNewBoardTitle("")
+        setExpiresInHours(0)
         mixpanelService.track(MixpanelEvents.BOARD_CREATE, { boardId: newBoard.id });
         navigate(`/board/${newBoard.id}`)
       }
@@ -243,6 +258,33 @@ export default function BoardsPage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
                   autoFocus
                 />
+              </div>
+
+              <div>
+                <label htmlFor="expiresIn" className="block text-sm font-medium text-gray-700 mb-1">
+                  Expiration
+                </label>
+                <div className="relative">
+                  <select
+                    id="expiresIn"
+                    value={expiresInHours}
+                    onChange={(e) => setExpiresInHours(Number(e.target.value))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900 appearance-none bg-white"
+                  >
+                    <option value={0}>Never Expires</option>
+                    <option value={1}>1 Hour</option>
+                    <option value={2}>2 Hours</option>
+                    <option value={6}>6 Hours</option>
+                    <option value={12}>12 Hours</option>
+                    <option value={24}>24 Hours</option>
+                    <option value={168}>1 Week</option>
+                  </select>
+                  <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 mt-6">

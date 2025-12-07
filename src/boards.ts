@@ -7,7 +7,7 @@ export type UnsubscribeFunction = () => void;
 export interface BoardsAPI {
   getAll: () => Promise<Board[]>;
   getById: (id: string) => Promise<Board | null>;
-  create: (title?: string, id?: string) => Promise<Board>;
+  create: (title?: string, id?: string, expiresInHours?: number) => Promise<Board>;
   update: (board: Board) => Promise<void>;
   delete: (id: string) => Promise<void>;
   subscribeToChanges: (id: string, callback: BoardChangeCallback) => UnsubscribeFunction;

@@ -22,6 +22,7 @@ export interface NoteCurrent {
     blob: NoteBlob;
     createdAt: number;
     updatedAt: number;
+    expiresAt: number | null;
     collaborators: string[];
     userId: string;
     access: 'private' | 'public';
@@ -36,6 +37,7 @@ export const createNoteInput = z.object({
     title: z.string().nullable().optional(),
     blob: z.unknown(),
     collaborators: z.array(z.string()).optional(),
+    expiresInHours: z.number().optional(),
 });
 
 export const updateNoteInput = z.object({

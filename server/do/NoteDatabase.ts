@@ -26,6 +26,13 @@ export class NoteDatabase {
         } catch (e) {
             // Column already exists, ignore
         }
+
+        // Migration: Add expires_at column if it doesn't exist
+        try {
+            this.sql.exec(QUERIES.ADD_EXPIRES_AT_COLUMN);
+        } catch (e) {
+            // Column already exists, ignore
+        }
     }
 
     /**
@@ -46,6 +53,7 @@ export class NoteDatabase {
             blob: JSON.parse(row.blob),
             createdAt: row.created_at,
             updatedAt: row.updated_at,
+            expiresAt: row.expires_at, // can be null
             collaborators: JSON.parse(row.collaborators),
             userId: row.user_id,
             access: row.access as "private" | "public",
@@ -62,6 +70,7 @@ export class NoteDatabase {
         blob: NoteBlob;
         createdAt: number;
         updatedAt: number;
+        expiresAt: number | null;
         collaborators: string[];
         userId: string;
         access: "private" | "public";
@@ -74,6 +83,7 @@ export class NoteDatabase {
             JSON.stringify(params.blob),
             params.createdAt,
             params.updatedAt,
+            params.expiresAt,
             JSON.stringify(params.collaborators),
             params.userId,
             params.access

@@ -57,7 +57,25 @@ export default function BoardCard({ board, onRename, onDelete, onDuplicate, onHi
 					<h3 className="text-base font-semibold text-foreground truncate mb-1 group-hover:text-accent transition-colors duration-200">
 						{board.title || 'Untitled'}
 					</h3>
-					<p className="text-sm text-muted-foreground">Edited {formatDate(board.updatedAt)}</p>
+					<div className="flex flex-col gap-1">
+						<p className="text-sm text-muted-foreground">Edited {formatDate(board.updatedAt)}</p>
+						{board.expiresAt && (
+							<p className={`text-xs font-medium ${board.expiresAt < Date.now() ? "text-red-500" : "text-amber-600 dark:text-amber-500"}`}>
+								{(() => {
+									if (board.expiresAt! < Date.now()) {
+										return "Read-only (Expired)";
+									}
+									const diff = board.expiresAt! - Date.now();
+									const hours = Math.floor(diff / (1000 * 60 * 60));
+									const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+									if (hours >= 24) return `Expires in ${Math.floor(hours / 24)} days`;
+									if (hours > 0) return `Expires in ${hours}h ${minutes}m`;
+									return `Expires in ${minutes}m`;
+								})()}
+							</p>
+						)}
+					</div>
 				</div>
 			</Link>
 

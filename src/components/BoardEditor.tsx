@@ -321,6 +321,7 @@ export function BoardEditor({
           (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
         )}>
           <Excalidraw
+            viewModeEnabled={!!(board.expiresAt && Date.now() > board.expiresAt)}
             excalidrawAPI={(api) => setExcalidrawAPI(api)}
             theme={theme == 'dark' ? 'dark' : 'light'}
             initialData={{

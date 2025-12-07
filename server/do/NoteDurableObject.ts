@@ -162,6 +162,13 @@ export class NoteDurableObject extends DurableObject {
             const current = this.db.getCurrent();
             if (!current) return;
 
+            // Check expiration
+            if (current.expiresAt && Date.now() > current.expiresAt) {
+                // Should probably send error back to client, but for now just return
+                console.warn("Attempt to update expired note via WS");
+                return;
+            }
+
             // Update note with optimistic locking
             await this.updateNote({
                 title: data.title,
@@ -184,6 +191,7 @@ export class NoteDurableObject extends DurableObject {
         collaborators?: string[];
         userId: string;
         access?: "private" | "public";
+        expiresInHours?: number;
     }): Promise<NoteCurrent> {
         const existing = this.db.getCurrent();
         if (existing) {
@@ -196,6 +204,11 @@ export class NoteDurableObject extends DurableObject {
         const title = params.title ?? null;
         const collaborators = params.collaborators ?? [];
 
+        let expiresAt: number | null = null;
+        if (params.expiresInHours && params.expiresInHours > 0) {
+            expiresAt = timestamp + (params.expiresInHours * 60 * 60 * 1000);
+        }
+
         // Insert current note (fast path)
         this.db.insertCurrent({
             id: params.id,
@@ -204,6 +217,7 @@ export class NoteDurableObject extends DurableObject {
             blob: params.blob,
             createdAt: timestamp,
             updatedAt: timestamp,
+            expiresAt,
             collaborators,
             userId: params.userId,
             access,
@@ -216,6 +230,7 @@ export class NoteDurableObject extends DurableObject {
             blob: structuredClone(params.blob),
             createdAt: timestamp,
             updatedAt: timestamp,
+            expiresAt,
             collaborators,
             userId: params.userId,
             access,
@@ -254,6 +269,11 @@ export class NoteDurableObject extends DurableObject {
         // Optimistic concurrency check
         if (params.expectedVersion !== undefined && params.expectedVersion !== current.version) {
             throw new Error("Version mismatch");
+        }
+
+        // Check expiration
+        if (current.expiresAt && Date.now() > current.expiresAt) {
+            throw new Error("Note has expired and is read-only");
         }
 
         const timestamp = Date.now();

@@ -91,6 +91,7 @@ export class NotesServiceDO {
 				blob: input.blob,
 				collaborators: input.collaborators ?? [],
 				userId,
+				expiresInHours: input.expiresInHours,
 			})) as NoteCurrent;
 
 			// Update index

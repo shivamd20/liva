@@ -13,6 +13,7 @@ export const QUERIES = {
       blob TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
+      expires_at INTEGER,
       collaborators TEXT NOT NULL,
       user_id TEXT NOT NULL,
       access TEXT NOT NULL DEFAULT 'private'
@@ -40,6 +41,11 @@ export const QUERIES = {
     ADD COLUMN access TEXT NOT NULL DEFAULT 'private'
   `,
 
+  ADD_EXPIRES_AT_COLUMN: `
+    ALTER TABLE note_current
+    ADD COLUMN expires_at INTEGER
+  `,
+
   // Current note operations
   GET_CURRENT_NOTE: `
     SELECT * FROM note_current LIMIT 1
@@ -47,10 +53,10 @@ export const QUERIES = {
 
   INSERT_CURRENT_NOTE: `
     INSERT INTO note_current(
-      id, version, title, blob, created_at, updated_at, 
+      id, version, title, blob, created_at, updated_at, expires_at,
       collaborators, user_id, access
     )
-    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `,
 
   UPDATE_CURRENT_NOTE: `

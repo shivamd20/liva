@@ -1,6 +1,5 @@
 import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
-import { NewBoardPage } from './components/NewBoardPage';
 import { LandingPage } from './components/LandingPage';
 import { AuthDialog } from './components/AuthDialog';
 import { MainMenu } from '@excalidraw/excalidraw';
@@ -281,7 +280,7 @@ function AppContent() {
 
   const handleNewBoard = () => {
     mixpanelService.track(MixpanelEvents.NAV_NEW_BOARD);
-    navigate('/board/new');
+    navigate('/board?create=true');
   };
 
   const handleDeleteBoard = (id: string) => {
@@ -306,7 +305,6 @@ function AppContent() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/boards" element={<BoardsPage />} />
         <Route path="/board" element={<BoardsPage />} />
-        <Route path="/board/new" element={<NewBoardPage />} />
         <Route path="/templates" element={<> Work in progress </>} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />

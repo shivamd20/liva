@@ -10,4 +10,5 @@ export interface Board {
   excalidrawElements?: OrderedExcalidrawElement[];
   userId: string;
   access: 'private' | 'public';
+  expiresAt?: number | null;
 }
