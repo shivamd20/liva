@@ -39,6 +39,18 @@ export class ConversationDurableObject extends DurableObject {
     }
 
     async fetch(request: Request): Promise<Response> {
+        const userId = request.headers.get("X-Liva-User-Id");
+        if (!userId) {
+            return new Response("Unauthorized", { status: 401 });
+        }
+
+        const creatorId = this.getState("creator_id");
+        if (!creatorId) {
+            this.setState("creator_id", userId);
+        } else if (creatorId !== userId) {
+            return new Response("Forbidden", { status: 403 });
+        }
+
         const url = new URL(request.url);
 
         if (request.method === "POST" && url.pathname === "/append") {

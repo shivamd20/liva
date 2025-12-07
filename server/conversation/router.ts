@@ -18,7 +18,11 @@ export const conversationRouter = t.router({
             if (from) url.searchParams.set("from", from);
             url.searchParams.set("limit", limit.toString());
 
-            const res = await stub.fetch(url.toString());
+            const res = await stub.fetch(url.toString(), {
+                headers: {
+                    "X-Liva-User-Id": ctx.userId
+                }
+            });
             if (!res.ok) {
                 throw new Error("Failed to fetch history");
             }
@@ -40,6 +44,9 @@ export const conversationRouter = t.router({
 
             const res = await stub.fetch("http://internal/append", {
                 method: "POST",
+                headers: {
+                    "X-Liva-User-Id": ctx.userId
+                },
                 body: JSON.stringify({ type, payload, metadata }),
             });
 
@@ -61,6 +68,9 @@ export const conversationRouter = t.router({
 
             const res = await stub.fetch("http://internal/summarize", {
                 method: "POST",
+                headers: {
+                    "X-Liva-User-Id": ctx.userId
+                },
             });
 
             if (!res.ok) {
@@ -79,7 +89,11 @@ export const conversationRouter = t.router({
             const id = ctx.env.CONVERSATION_DURABLE_OBJECT.idFromName(conversationId);
             const stub = ctx.env.CONVERSATION_DURABLE_OBJECT.get(id);
 
-            const res = await stub.fetch("http://internal/debug/verify");
+            const res = await stub.fetch("http://internal/debug/verify", {
+                headers: {
+                    "X-Liva-User-Id": ctx.userId
+                }
+            });
 
             if (!res.ok) {
                 throw new Error("Failed to verify");
