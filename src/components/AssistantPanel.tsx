@@ -164,7 +164,7 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
     // Lets keep it mounted and use CSS transforms/visibility if needed, OR just let the parent handle conditional rendering.
     // The parent (BoardEditor) will likely control the layout.
 
-    if (!isOpen && !isPinned) return null;
+    if (!isOpen) return null;
 
     return (
         <div className="h-full w-full flex flex-col bg-background/95 backdrop-blur-xl border-l shadow-2xl relative overflow-hidden">
@@ -174,7 +174,7 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
                 </div>
                 <div className="flex items-center gap-1">
                     <TooltipProvider>
-                        <Tooltip>
+                        {/* <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button
                                     variant="ghost"
@@ -192,7 +192,7 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
                             <TooltipContent>
                                 {isPinned ? "Unpin Panel" : "Pin Panel"}
                             </TooltipContent>
-                        </Tooltip>
+                        </Tooltip> */}
 
                         <Tooltip>
                             <TooltipTrigger asChild>

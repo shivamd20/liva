@@ -308,7 +308,7 @@ export function BoardEditor({
   );
 
   const [activePanelTab, setActivePanelTab] = useState<'share' | 'conversation' | null>(null);
-  const [isPanelPinned, setIsPanelPinned] = useState(false);
+  const [isPanelPinned, setIsPanelPinned] = useState(true);
 
   const togglePanel = (tab: 'share' | 'conversation') => {
     setActivePanelTab(current => current === tab ? null : tab);
@@ -384,8 +384,7 @@ export function BoardEditor({
 
         <div className={cn(
           "fixed top-0 bottom-0 right-0 z-[50] w-[400px] bg-background border-l shadow-2xl transition-transform duration-300 ease-in-out",
-          activePanelTab ? "translate-x-0" : "translate-x-full",
-          isPanelPinned && "relative translate-x-0 shadow-none border-l-border"
+          activePanelTab ? "translate-x-0" : "translate-x-full"
         )}>
           <AssistantPanel
             isOpen={!!activePanelTab}
