@@ -11,6 +11,7 @@ import BoardsPage from './components/boards/boards-page';
 import { useTheme } from 'next-themes';
 import { CommandMenuProvider } from '@/lib/command-menu-context';
 import { CommandMenu } from '@/components/command-menu';
+import TemplateCatalog from './components/boards/TemplateCatalog';
 import { TestAI } from './components/TestAI';
 
 import { useDuplicateBoard } from './hooks/useBoards';
@@ -305,7 +306,7 @@ function AppContent() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/boards" element={<BoardsPage />} />
         <Route path="/board" element={<BoardsPage />} />
-        <Route path="/templates" element={<> Work in progress </>} />
+        <Route path="/templates" element={<TemplateCatalog />} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />

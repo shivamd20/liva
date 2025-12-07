@@ -72,7 +72,7 @@ function int16ArrayToWavBlob(int16Data: Int16Array, sampleRate: number): Blob {
 export function useSpeechToSpeech({
     apiKey,
     model = 'gemini-2.5-flash-native-audio-preview-09-2025',
-    systemInstruction = 'You are a helpful assistant.',
+    systemInstruction,
     voiceName = 'Zephyr',
     onMessage,
     onError,
@@ -80,6 +80,9 @@ export function useSpeechToSpeech({
     excalidrawAPIRef,
     frameRate = 2
 }: UseSpeechToSpeechParams): SpeechState {
+
+    if (!systemInstruction?.length) throw new Error('systemInstruction is required');
+
     const [connected, setConnected] = useState(false);
     const [isMuted, setIsMuted] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -376,7 +379,7 @@ export function useSpeechToSpeech({
                     speechConfig: {
                         voiceConfig: { prebuiltVoiceConfig: { voiceName } },
                     },
-                    systemInstruction: { parts: [{ text: effectiveInstruction }] },
+                    systemInstruction: { parts: [{ text: systemInstruction }] },
                 },
                 callbacks: {
                     onopen: () => {

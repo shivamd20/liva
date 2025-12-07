@@ -28,7 +28,7 @@ export function useCreateBoard() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (params: { title?: string, id?: string, expiresInHours?: number }) => boards.create(params.title, params.id, params.expiresInHours),
+    mutationFn: (params: { title?: string, id?: string, expiresInHours?: number, templateId?: string }) => boards.create(params.title, params.id, params.expiresInHours, params.templateId),
     onSuccess: (newBoard) => {
       queryClient.setQueryData(['board', newBoard.id], newBoard);
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });

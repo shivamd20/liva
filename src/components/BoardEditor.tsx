@@ -32,6 +32,7 @@ import { useCommandMenu } from '../lib/command-menu-context';
 import { trpcClient } from '../trpcClient';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 import { SpeechProvider } from '../contexts/SpeechContext';
+import { useQuery } from '@tanstack/react-query';
 
 
 interface BoardEditorProps {
@@ -313,8 +314,16 @@ export function BoardEditor({
     setActivePanelTab(current => current === tab ? null : tab);
   };
 
+  const { data: template } = useQuery({
+    queryKey: ['template', board.templateId],
+    queryFn: () => trpcClient.templates.get.query({ id: board.templateId! }),
+    enabled: !!board.templateId
+  });
+
+  console.log(template);
+
   return (
-    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef}>
+    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef} systemInstruction={template?.content}>
       <div className="flex h-full w-full overflow-hidden relative bg-background">
         <div className={cn(
           "h-full transition-all duration-300 ease-in-out relative",

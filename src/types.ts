@@ -11,4 +11,5 @@ export interface Board {
   userId: string;
   access: 'private' | 'public';
   expiresAt?: number | null;
+  templateId?: string;
 }

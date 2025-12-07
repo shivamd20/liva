@@ -92,6 +92,7 @@ export class NotesServiceDO {
 				collaborators: input.collaborators ?? [],
 				userId,
 				expiresInHours: input.expiresInHours,
+				templateId: input.templateId,
 			})) as NoteCurrent;
 
 			// Update index

@@ -11,6 +11,7 @@ import { X, AlertTriangle, Copy, Plus } from "lucide-react"
 import { HistoryModal } from "../HistoryModal"
 import { useSession } from "../../lib/auth-client"
 import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
+import { TemplateSelection } from "./TemplateSelection"
 
 export default function BoardsPage() {
   const { data: boards = [], isLoading } = useBoards()
@@ -33,9 +34,14 @@ export default function BoardsPage() {
   useEffect(() => {
     if (searchParams.get("create") === "true") {
       setIsCreateModalOpen(true)
+      const templateId = searchParams.get("templateId")
+      if (templateId) {
+        setSelectedTemplateId(templateId)
+      }
       // Optional: Clear the param so it doesn't persist
       setSearchParams(params => {
         params.delete("create")
+        params.delete("templateId")
         return params
       })
     }
@@ -56,6 +62,7 @@ export default function BoardsPage() {
   const [expiresInHours, setExpiresInHours] = useState(0)
   const [renameTitle, setRenameTitle] = useState("")
   const [duplicateTitle, setDuplicateTitle] = useState("")
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
 
   // Filter and sort boards
   const filteredBoards = boards
@@ -95,12 +102,13 @@ export default function BoardsPage() {
     e.preventDefault()
     if (!newBoardTitle.trim()) return
 
-    createBoard.mutate({ title: newBoardTitle.trim(), expiresInHours }, {
+    createBoard.mutate({ title: newBoardTitle.trim(), expiresInHours, templateId: selectedTemplateId ?? undefined }, {
       onSuccess: (newBoard) => {
         setIsCreateModalOpen(false)
         setNewBoardTitle("")
         setExpiresInHours(0)
-        mixpanelService.track(MixpanelEvents.BOARD_CREATE, { boardId: newBoard.id });
+        setSelectedTemplateId(null)
+        mixpanelService.track(MixpanelEvents.BOARD_CREATE, { boardId: newBoard.id, templateId: selectedTemplateId });
         navigate(`/board/${newBoard.id}`)
       }
     })
@@ -245,49 +253,61 @@ export default function BoardsPage() {
             </div>
 
             <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <div>
-                <label htmlFor="boardTitle" className="block text-sm font-medium text-gray-700 mb-1">
-                  Board Title
-                </label>
-                <input
-                  id="boardTitle"
-                  type="text"
-                  value={newBoardTitle}
-                  onChange={(e) => setNewBoardTitle(e.target.value)}
-                  placeholder="e.g., Project Roadmap"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
-                  autoFocus
-                />
-              </div>
+              <div className="max-h-[60vh] overflow-y-auto px-1">
+                <div className="mb-4">
+                  <label htmlFor="boardTitle" className="block text-sm font-medium text-gray-700 mb-1">
+                    Board Title
+                  </label>
+                  <input
+                    id="boardTitle"
+                    type="text"
+                    value={newBoardTitle}
+                    onChange={(e) => setNewBoardTitle(e.target.value)}
+                    placeholder="e.g., Project Roadmap"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
+                    autoFocus
+                  />
+                </div>
 
-              <div>
-                <label htmlFor="expiresIn" className="block text-sm font-medium text-gray-700 mb-1">
-                  Expiration
-                </label>
-                <div className="relative">
-                  <select
-                    id="expiresIn"
-                    value={expiresInHours}
-                    onChange={(e) => setExpiresInHours(Number(e.target.value))}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900 appearance-none bg-white"
-                  >
-                    <option value={0}>Never Expires</option>
-                    <option value={1}>1 Hour</option>
-                    <option value={2}>2 Hours</option>
-                    <option value={6}>6 Hours</option>
-                    <option value={12}>12 Hours</option>
-                    <option value={24}>24 Hours</option>
-                    <option value={168}>1 Week</option>
-                  </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                    </svg>
+                <div className="mb-4">
+                  <label htmlFor="expiresIn" className="block text-sm font-medium text-gray-700 mb-1">
+                    Expiration
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="expiresIn"
+                      value={expiresInHours}
+                      onChange={(e) => setExpiresInHours(Number(e.target.value))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900 appearance-none bg-white"
+                    >
+                      <option value={0}>Never Expires</option>
+                      <option value={1}>1 Hour</option>
+                      <option value={2}>2 Hours</option>
+                      <option value={6}>6 Hours</option>
+                      <option value={12}>12 Hours</option>
+                      <option value={24}>24 Hours</option>
+                      <option value={168}>1 Week</option>
+                    </select>
+                    <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
+                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
                   </div>
+                </div>
+
+                <div className="mb-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Choose a Template
+                  </label>
+                  <TemplateSelection
+                    selectedTemplateId={selectedTemplateId}
+                    onSelect={setSelectedTemplateId}
+                  />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 mt-6 pt-2 border-t border-gray-100">
                 <Dialog.Close asChild>
                   <button
                     type="button"

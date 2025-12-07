@@ -26,6 +26,7 @@ export interface NoteCurrent {
     collaborators: string[];
     userId: string;
     access: 'private' | 'public';
+    templateId?: string;
 }
 
 // -----------------------------------------------------------------------------
@@ -38,6 +39,7 @@ export const createNoteInput = z.object({
     blob: z.unknown(),
     collaborators: z.array(z.string()).optional(),
     expiresInHours: z.number().optional(),
+    templateId: z.string().optional(),
 });
 
 export const updateNoteInput = z.object({

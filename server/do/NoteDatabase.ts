@@ -33,6 +33,13 @@ export class NoteDatabase {
         } catch (e) {
             // Column already exists, ignore
         }
+
+        // Migration: Add template_id column if it doesn't exist
+        try {
+            this.sql.exec(QUERIES.ADD_TEMPLATE_ID_COLUMN);
+        } catch (e) {
+            // Column already exists, ignore
+        }
     }
 
     /**
@@ -57,6 +64,7 @@ export class NoteDatabase {
             collaborators: JSON.parse(row.collaborators),
             userId: row.user_id,
             access: row.access as "private" | "public",
+            templateId: row.template_id,
         };
     }
 
@@ -74,6 +82,7 @@ export class NoteDatabase {
         collaborators: string[];
         userId: string;
         access: "private" | "public";
+        templateId?: string;
     }): void {
         this.sql.exec(
             QUERIES.INSERT_CURRENT_NOTE,
@@ -86,7 +95,8 @@ export class NoteDatabase {
             params.expiresAt,
             JSON.stringify(params.collaborators),
             params.userId,
-            params.access
+            params.access,
+            params.templateId || null
         );
     }
 

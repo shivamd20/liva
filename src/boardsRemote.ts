@@ -1,7 +1,7 @@
 import { Board } from './types';
 import { BoardsAPI, BoardChangeCallback, EphemeralCallback, UnsubscribeFunction } from './boards';
 import { trpcClient } from './trpcClient';
-import type { NoteCurrent } from '../src/notes/types';
+import type { NoteCurrent, PaginatedHistoryResponse } from '../server/notes/types';
 
 // Map between Board (UI) and NoteCurrent (API)
 const noteToBoard = (note: NoteCurrent): Board => {
@@ -17,6 +17,7 @@ const noteToBoard = (note: NoteCurrent): Board => {
     userId: note.userId,
     access: note.access,
     expiresAt: note.expiresAt,
+    templateId: note.templateId,
   };
 };
 
@@ -232,7 +233,7 @@ export const boardsRemote: BoardsAPI = {
     return note ? noteToBoard(note as NoteCurrent) : null;
   },
 
-  create: async (title?: string, id?: string, expiresInHours?: number): Promise<Board> => {
+  create: async (title?: string, id?: string, expiresInHours?: number, templateId?: string): Promise<Board> => {
     // Create new note
     const newNote = await trpcClient.createNote.mutate({
       id, // Optional: if provided, uses this ID; if undefined, server generates one
@@ -241,7 +242,8 @@ export const boardsRemote: BoardsAPI = {
         content: '',
         excalidrawElements: [],
       },
-      expiresInHours
+      expiresInHours,
+      templateId
     });
 
     return noteToBoard(newNote as NoteCurrent);
@@ -284,7 +286,7 @@ export const boardsRemote: BoardsAPI = {
   },
 
   getHistory: async (id: string, limit?: number, cursor?: number) => {
-    const result = await trpcClient.getHistory.query({ id, limit, cursor });
+    const result = (await trpcClient.getHistory.query({ id, limit, cursor })) as unknown as PaginatedHistoryResponse;
     return {
       items: result.items.map((item: any) => ({
         version: item.version,

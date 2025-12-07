@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, useNavigate, useLocation } from "react-router-dom"
 import { useSession, signOut } from "../../lib/auth-client"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { LogOut } from "lucide-react"
@@ -16,20 +16,13 @@ interface BoardsHeaderProps {
 export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHeaderProps) {
   const [scrolled, setScrolled] = useState(false)
   const { data: session, isPending: isAuthPending } = useSession()
+  const location = useLocation()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20)
-    }
-    window.addEventListener("scroll", handleScroll, { passive: true })
-    return () => window.removeEventListener("scroll", handleScroll)
-  }, [])
-
   const navLinks = [
-    { name: "Boards", href: "/boards", active: true },
-    { name: "Shared", href: "/boards?filter=shared", active: false },
-    { name: "Templates", href: "/templates", active: false },
+    { name: "Boards", href: "/boards" },
+    { name: "Shared", href: "/boards?filter=shared" },
+    { name: "Templates", href: "/templates" },
   ]
 
   return (
@@ -88,18 +81,26 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
 
           {/* Center Navigation */}
           <nav className="hidden md:flex items-center gap-1 absolute left-1/2 -translate-x-1/2">
-            {navLinks.map((link) => (
-              <Link
-                key={link.name}
-                to={link.href}
-                className={`relative px-4 py-2 text-sm font-medium transition-colors duration-200 rounded-lg ${link.active
-                  ? "text-foreground bg-foreground/[0.06]"
-                  : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]"
-                  }`}
-              >
-                {link.name}
-              </Link>
-            ))}
+            {navLinks.map((link) => {
+              const isActive = link.href === "/boards"
+                ? location.pathname === "/boards" && !location.search.includes("filter=shared")
+                : link.href === "/boards?filter=shared"
+                  ? location.pathname === "/boards" && location.search.includes("filter=shared")
+                  : location.pathname.startsWith(link.href)
+
+              return (
+                <Link
+                  key={link.name}
+                  to={link.href}
+                  className={`relative px-4 py-2 text-sm font-medium transition-colors duration-200 rounded-lg ${isActive
+                    ? "text-foreground bg-foreground/[0.06]"
+                    : "text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]"
+                    }`}
+                >
+                  {link.name}
+                </Link>
+              )
+            })}
           </nav>
 
           {/* Right side: Search + Settings + Avatar */}

@@ -192,6 +192,7 @@ export class NoteDurableObject extends DurableObject {
         userId: string;
         access?: "private" | "public";
         expiresInHours?: number;
+        templateId?: string;
     }): Promise<NoteCurrent> {
         const existing = this.db.getCurrent();
         if (existing) {
@@ -221,6 +222,7 @@ export class NoteDurableObject extends DurableObject {
             collaborators,
             userId: params.userId,
             access,
+            templateId: params.templateId,
         });
 
         const current: NoteCurrent = {
@@ -234,6 +236,7 @@ export class NoteDurableObject extends DurableObject {
             collaborators,
             userId: params.userId,
             access,
+            templateId: params.templateId,
         };
 
         // Broadcast immediately (fast)
