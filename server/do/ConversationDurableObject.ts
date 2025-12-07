@@ -81,7 +81,47 @@ export class ConversationDurableObject extends DurableObject {
             VALUES (?, ?, ?, ?, ?)
         `, id, timestamp, type, payload, JSON.stringify(metadata || {}));
 
+        // Trigger transcription for audio events
+        if (type === 'audio_in' || type === 'audio_out') {
+            this.ctx.waitUntil(this.transcribeAudio(id, payload));
+        }
+
         return Response.json({ id, timestamp });
+    }
+
+    private async transcribeAudio(id: string, base64Audio: string) {
+        try {
+            // Check for AI binding
+            const ai = (this.env as any).AI;
+            if (!ai) {
+                console.warn("AI binding not found in Env");
+                return;
+            }
+
+            // Simple base64 decode
+            const base64 = base64Audio.includes(',') ? base64Audio.split(',')[1] : base64Audio;
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const response = await ai.run('@cf/openai/whisper', {
+                audio: [...bytes]
+            });
+
+            if (response && response.text) {
+                // Fetch latest metadata to avoid overwriting other changes
+                const result = this.sql.exec("SELECT metadata FROM events WHERE id = ?", id).toArray();
+                if (result.length > 0) {
+                    const currentMetadata = JSON.parse(result[0].metadata);
+                    currentMetadata.transcript = response.text.trim();
+                    this.sql.exec("UPDATE events SET metadata = ? WHERE id = ?", JSON.stringify(currentMetadata), id);
+                }
+            }
+        } catch (err) {
+            console.error("Transcription error:", err);
+        }
     }
 
     private async getEvents(request: Request): Promise<Response> {

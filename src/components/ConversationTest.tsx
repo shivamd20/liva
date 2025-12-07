@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
 import { useParams } from 'react-router-dom';
 import { trpcClient } from '../trpcClient';
-import { Mic, Send, Square, Play, Pause, RefreshCw, Loader2, Sparkles, Volume2, Key, Settings, Phone, PhoneOff, MicOff } from 'lucide-react';
+import { Mic, Send, Square, Play, Pause, RefreshCw, Loader2, Sparkles, Volume2, Key, Settings, Phone, PhoneOff, MicOff, Captions } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
@@ -599,6 +599,7 @@ function MessageBubble({ event }: { event: Event }) {
     const isUser = event.type.endsWith('_in');
     const isAudio = event.type.includes('audio');
     const isSummary = event.type === 'summary';
+    const [showTranscript, setShowTranscript] = useState(false);
 
     if (isSummary) {
         return (
@@ -628,7 +629,35 @@ function MessageBubble({ event }: { event: Event }) {
                 )}
 
                 {isAudio && (
-                    <AudioPlayer src={event.payload} isUser={isUser} />
+                    <div className="flex flex-col gap-1 items-start">
+                        <AudioPlayer src={event.payload} isUser={isUser} />
+                        {event.metadata?.transcript && (
+                            <div className="flex flex-col items-start w-full">
+                                <button
+                                    onClick={() => setShowTranscript(!showTranscript)}
+                                    className={cn(
+                                        "text-[10px] flex items-center gap-1.5 mt-2 px-2 py-1 rounded-full transition-all border select-none",
+                                        isUser
+                                            ? "bg-white/10 text-white/90 hover:bg-white/20 border-white/20"
+                                            : "bg-black/5 text-muted-foreground hover:bg-black/10 border-black/5 dark:bg-white/5 dark:border-white/5"
+                                    )}
+                                >
+                                    <Captions className="w-3 h-3" />
+                                    {showTranscript ? "Hide" : "Transcript"}
+                                </button>
+                                {showTranscript && (
+                                    <div className={cn(
+                                        "text-xs mt-2 p-2 rounded-md w-full text-left animate-in fade-in slide-in-from-top-1",
+                                        isUser
+                                            ? "bg-black/20 text-white/90"
+                                            : "bg-black/5 dark:bg-white/5 text-foreground/90"
+                                    )}>
+                                        {event.metadata.transcript}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 <span className={cn(
