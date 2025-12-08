@@ -1,6 +1,8 @@
 import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { BoardEditor } from './components/BoardEditor';
 import { LandingPage } from './components/LandingPage';
+import { PrivacyPolicy } from './components/PrivacyPolicy';
+
 import { AuthDialog } from './components/AuthDialog';
 import { MainMenu } from '@excalidraw/excalidraw';
 import { Board } from './types';
@@ -304,6 +306,8 @@ function AppContent() {
       <CommandMenu />
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+
         <Route path="/boards" element={<BoardsPage />} />
         <Route path="/board" element={<BoardsPage />} />
         <Route path="/templates" element={<TemplateCatalog />} />
