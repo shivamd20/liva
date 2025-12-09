@@ -1,5 +1,7 @@
-import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { DemoLiveBoard } from './apiFirst/examples/DemoLiveBoard';
 import { BoardEditor } from './components/BoardEditor';
+
 import { LandingPage } from './components/LandingPage';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 
@@ -314,6 +316,8 @@ function AppContent() {
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
+        <Route path="/demoLiveAPI" element={<Navigate to="/demoLiveAPI/new" replace />} />
+        <Route path="/demoLiveAPI/:boardId" element={<DemoLiveBoard />} />
         <Route path="/convo/:id" element={<ConversationTest />} />
         <Route
           path="/board/:id"

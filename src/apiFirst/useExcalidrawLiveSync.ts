@@ -1,0 +1,207 @@
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { ExcalidrawImperativeAPI, Collaborator, SocketId } from '@excalidraw/excalidraw/types';
+import { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
+import { liveSyncClient, LiveSyncBoard } from './LiveSyncClient';
+
+export interface UserInfo {
+    username?: string;
+    avatarUrl?: string;
+    color?: { background: string; stroke: string };
+}
+
+export interface UseExcalidrawLiveSyncProps {
+    excalidrawAPI: ExcalidrawImperativeAPI | null;
+    boardId: string;
+    userInfo?: UserInfo;
+    debounceMs?: number;
+}
+
+// Version-based merge logic (Duplicate to keep independent)
+function mergeElements(
+    local: readonly OrderedExcalidrawElement[],
+    incoming: OrderedExcalidrawElement[]
+): OrderedExcalidrawElement[] {
+    const localMap = new Map(local.map((e) => [e.id, e]));
+    const incomingMap = new Map(incoming.map((e) => [e.id, e]));
+    const result = new Map(localMap);
+
+    for (const [id, incomingEl] of incomingMap) {
+        const localEl = localMap.get(id);
+        if (!localEl) {
+            result.set(id, incomingEl);
+        } else {
+            const localVersion = localEl.version || 0;
+            const incomingVersion = incomingEl.version || 0;
+            if (incomingVersion > localVersion) {
+                result.set(id, incomingEl);
+            }
+        }
+    }
+    return Array.from(result.values());
+}
+
+export function useExcalidrawLiveSync({
+    excalidrawAPI,
+    boardId,
+    userInfo = { username: 'Anonymous' },
+    debounceMs = 50,
+}: UseExcalidrawLiveSyncProps) {
+
+    // -- Sync State --
+    const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
+    const lastRemoteUpdateRef = useRef<string>('');
+    const lastBoardVersionRef = useRef<number>(0);
+    const debounceTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    // -- Collaborators State --
+    const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
+
+    // -- 1. Handle Local Changes (onChange) --
+    const handleChange = useCallback((elements: readonly OrderedExcalidrawElement[]) => {
+        // Snapshot immediately
+        const elementsSnapshot = JSON.stringify(elements);
+
+        if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
+
+        debounceTimeoutRef.current = setTimeout(() => {
+            const lastStr = JSON.stringify(lastElementsRef.current);
+            if (elementsSnapshot !== lastStr) {
+                const parsedElements = JSON.parse(elementsSnapshot) as OrderedExcalidrawElement[];
+                lastElementsRef.current = parsedElements;
+                lastRemoteUpdateRef.current = elementsSnapshot; // Mark as our change
+
+                // Send to server
+                liveSyncClient.sendUpdate({
+                    id: boardId,
+                    title: 'Untitled', // We can improve this if needed
+                    excalidrawElements: parsedElements,
+                    updatedAt: Date.now()
+                });
+            }
+        }, debounceMs);
+    }, [boardId, debounceMs]);
+
+
+    // -- 2. Handle Remote Changes --
+    useEffect(() => {
+        if (!excalidrawAPI) return;
+
+        const unsubscribe = liveSyncClient.subscribe(boardId, (remoteBoard) => {
+            // Prevent loop: if version is same as what we last processed
+            if (remoteBoard.updatedAt === lastBoardVersionRef.current) return;
+
+            // Prevent loop: if content is exactly what we just sent
+            const incomingStr = JSON.stringify(remoteBoard.excalidrawElements);
+            if (incomingStr === lastRemoteUpdateRef.current) {
+                lastBoardVersionRef.current = remoteBoard.updatedAt;
+                return;
+            }
+
+            // It is a real remote update
+            const currentElements = excalidrawAPI.getSceneElements();
+            const merged = mergeElements(currentElements, remoteBoard.excalidrawElements);
+
+            if (JSON.stringify(merged) !== JSON.stringify(currentElements)) {
+                excalidrawAPI.updateScene({
+                    elements: merged,
+                    // We don't mess with appState mostly
+                });
+                lastElementsRef.current = merged;
+            }
+            lastBoardVersionRef.current = remoteBoard.updatedAt;
+        });
+
+        return () => unsubscribe();
+    }, [excalidrawAPI, boardId]);
+
+
+    // -- 3. Handle Cursors & Ephemeral State --
+    useEffect(() => {
+        if (!excalidrawAPI) return;
+
+        const handleEphemeral = (msg: any) => {
+            if (msg.type === 'ephemeral') {
+                const { senderId, data } = msg;
+                if (data === null) {
+                    // User disconnected
+                    setCollaborators(prev => {
+                        const next = new Map(prev);
+                        next.delete(senderId);
+                        return next;
+                    });
+                    return;
+                }
+
+                if (data.type === 'pointer') {
+                    setCollaborators(prev => {
+                        const next = new Map(prev);
+                        next.set(senderId, {
+                            id: senderId,
+                            username: data.payload.username || 'User',
+                            avatarUrl: data.payload.avatarUrl,
+                            color: data.payload.color || { background: '#999', stroke: '#999' },
+                            pointer: {
+                                x: data.payload.pointer.x,
+                                y: data.payload.pointer.y,
+                                tool: "pointer"
+                            }
+                        });
+                        return next;
+                    });
+                }
+
+            } else if (msg.type === 'ephemeral_state') {
+                // Bulk initial state
+                const newCalls = new Map<SocketId, Collaborator>();
+                Object.entries(msg.data).forEach(([id, data]: [string, any]) => {
+                    if (data && data.type === 'pointer') {
+                        newCalls.set(id as SocketId, {
+                            id: id,
+                            username: data.payload.username || 'User',
+                            avatarUrl: data.payload.avatarUrl,
+                            color: data.payload.color || { background: '#999', stroke: '#999' },
+                            pointer: {
+                                x: data.payload.pointer.x,
+                                y: data.payload.pointer.y,
+                                tool: "pointer"
+                            }
+                        });
+                    }
+                });
+                setCollaborators(newCalls);
+            }
+        };
+
+        const unsubscribe = liveSyncClient.subscribeEphemeral(boardId, handleEphemeral);
+        return () => unsubscribe();
+    }, [excalidrawAPI, boardId]);
+
+
+    // -- 4. Update Collaborators in Excalidraw --
+    useEffect(() => {
+        if (excalidrawAPI) {
+            excalidrawAPI.updateScene({ collaborators });
+        }
+    }, [excalidrawAPI, collaborators]);
+
+
+    // -- 5. Pointer Updates --
+    const onPointerUpdate = useCallback((payload: { pointer: { x: number; y: number }, button: 'down' | 'up', pointersMap: any }) => {
+        liveSyncClient.sendEphemeral(boardId, {
+            type: 'pointer',
+            payload: {
+                pointer: payload.pointer,
+                button: payload.button,
+                username: userInfo.username,
+                avatarUrl: userInfo.avatarUrl,
+                color: userInfo.color,
+            }
+        });
+    }, [boardId, userInfo]);
+
+
+    return {
+        handleChange,
+        onPointerUpdate
+    };
+}
