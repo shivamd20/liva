@@ -31,7 +31,7 @@ export function DemoLiveBoard() {
 
         if (boardId === 'new') {
             setIsCreating(true);
-            createExcalidrawBoard('Demo Board', 'http://localhost:5173')
+            createExcalidrawBoard('Demo Board')
                 .then(id => {
                     navigate(`/demoLiveAPI/${id}`, { replace: true });
                 })
@@ -46,7 +46,7 @@ export function DemoLiveBoard() {
         excalidrawAPI,
         boardId: boardId || '', // Pass empty if creating, hook handles it gracefully or we skip
         userInfo,
-        baseUrl: 'http://localhost:5173',
+        // baseUrl: 'http://localhost:5173',
     });
 
     if (boardId === 'new' || isCreating) {

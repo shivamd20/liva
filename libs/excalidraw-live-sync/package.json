@@ -1,6 +1,6 @@
 {
     "name": "@shvm/excalidraw-live-sync",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "type": "module",
     "description": "Standalone library for Excalidraw live sync",
     "main": "./dist/index.cjs",
