@@ -3,10 +3,12 @@
  * Standalone function to create a new board via the API.
  * This effectively calls the `createNote` tRPC mutation via HTTP.
  */
-export async function createExcalidrawBoard(title: string = 'Untitled'): Promise<string> {
-    const protocol = window.location.protocol;
-    const host = window.location.host;
-    const endpoint = `${protocol}//${host}/api/v1/createNote`;
+export async function createExcalidrawBoard(
+    title: string = 'Untitled',
+    baseUrl: string = 'https://liva.shvm.in'
+): Promise<string> {
+    const cleanBaseUrl = baseUrl.replace(/\/$/, '');
+    const endpoint = `${cleanBaseUrl}/api/v1/createNote`;
 
     const payload = {
         title,

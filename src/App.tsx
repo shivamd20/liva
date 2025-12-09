@@ -1,5 +1,5 @@
 import { Routes, Route, useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { DemoLiveBoard } from './apiFirst/examples/DemoLiveBoard';
+import { DemoLiveBoard } from './examples/DemoLiveBoard';
 import { BoardEditor } from './components/BoardEditor';
 
 import { LandingPage } from './components/LandingPage';

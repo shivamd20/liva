@@ -3,8 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
-import { useExcalidrawLiveSync } from '../useExcalidrawLiveSync';
-import { createExcalidrawBoard } from '../createBoard';
+import { useExcalidrawLiveSync, createExcalidrawBoard } from '@shvm/excalidraw-live-sync';
 
 export function DemoLiveBoard() {
     const { boardId } = useParams<{ boardId: string }>();
@@ -32,7 +31,7 @@ export function DemoLiveBoard() {
 
         if (boardId === 'new') {
             setIsCreating(true);
-            createExcalidrawBoard('Demo Board')
+            createExcalidrawBoard('Demo Board', 'http://localhost:8787')
                 .then(id => {
                     navigate(`/demoLiveAPI/${id}`, { replace: true });
                 })
@@ -47,6 +46,7 @@ export function DemoLiveBoard() {
         excalidrawAPI,
         boardId: boardId || '', // Pass empty if creating, hook handles it gracefully or we skip
         userInfo,
+        baseUrl: 'http://localhost:8787',
     });
 
     if (boardId === 'new' || isCreating) {
@@ -72,7 +72,7 @@ export function DemoLiveBoard() {
                 Live Sync Demo: {boardId} ({userInfo.username})
             </h1>
             <Excalidraw
-                excalidrawAPI={(api) => setExcalidrawAPI(api)}
+                excalidrawAPI={(api) => setExcalidrawAPI(api as any)}
                 onChange={handleChange}
                 onPointerUpdate={onPointerUpdate}
                 UIOptions={{

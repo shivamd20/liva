@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { ExcalidrawImperativeAPI, Collaborator, SocketId } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
-import { liveSyncClient, LiveSyncBoard } from './LiveSyncClient';
+import { liveSyncClient } from './LiveSyncClient';
 
 export interface UserInfo {
     username?: string;
@@ -14,6 +14,7 @@ export interface UseExcalidrawLiveSyncProps {
     boardId: string;
     userInfo?: UserInfo;
     debounceMs?: number;
+    baseUrl?: string;
 }
 
 // Version-based merge logic (Duplicate to keep independent)
@@ -45,7 +46,13 @@ export function useExcalidrawLiveSync({
     boardId,
     userInfo = { username: 'Anonymous' },
     debounceMs = 50,
+    baseUrl = 'https://liva.shvm.in',
 }: UseExcalidrawLiveSyncProps) {
+
+    // Set base URL once or when it changes
+    useEffect(() => {
+        liveSyncClient.setBaseUrl(baseUrl);
+    }, [baseUrl]);
 
     // -- Sync State --
     const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
@@ -57,7 +64,8 @@ export function useExcalidrawLiveSync({
     const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
 
     // -- 1. Handle Local Changes (onChange) --
-    const handleChange = useCallback((elements: readonly OrderedExcalidrawElement[]) => {
+    // We accept any here to match Excalidraw's onChange(elements, appState, files)
+    const handleChange = useCallback((elements: readonly any[]) => {
         // Snapshot immediately
         const elementsSnapshot = JSON.stringify(elements);
 

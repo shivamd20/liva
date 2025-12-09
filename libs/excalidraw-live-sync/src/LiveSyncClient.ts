@@ -39,12 +39,23 @@ export class LiveSyncClient {
     private sessionIds: Map<string, string> = new Map();
     private reconnectTimers: Map<string, number> = new Map();
 
-    // Helper to determine WS URL - can be authorized/customized
+    private baseUrl: string = 'https://liva.shvm.in';
+
+    setBaseUrl(url: string) {
+        this.baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
+    }
+
+    // Helper to determine WS URL
     private getWsUrl(id: string): string {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Assuming the sync API is on the same host for this demo/implementation
-        // In a real library, this would be a config option.
-        return `${protocol}//${window.location.host}/ws/note/${id}`;
+        try {
+            const url = new URL(this.baseUrl);
+            const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${url.host}/ws/note/${id}`;
+        } catch (e) {
+            // Fallback for relative URLs or invalid inputs, though we expect a valid absolute URL default
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            return `${protocol}//${window.location.host}/ws/note/${id}`;
+        }
     }
 
     subscribe(id: string, callback: BoardChangeCallback): UnsubscribeFunction {
