@@ -23,6 +23,18 @@ export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
 		const url = new URL(request.url);
 
+		// Handle CORS preflight requests
+		if (request.method === "OPTIONS") {
+			return new Response(null, {
+				headers: {
+					"Access-Control-Allow-Origin": request.headers.get("Origin") || "*",
+					"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+					"Access-Control-Allow-Headers": "Content-Type, Authorization, X-LIVA-USER-ID, Upgrade",
+					"Access-Control-Allow-Credentials": "true",
+				},
+			});
+		}
+
 		try {
 			const auth = createAuth(env);
 			if (url.pathname.startsWith("/api/auth")) {
@@ -51,6 +63,11 @@ export default {
 				console.error("Auth check failed for WebSocket", e);
 			}
 
+			// If no session, try extracting from query parameters or headers (for custom clients)
+			if (!userId) {
+				userId = url.searchParams.get("x-liva-user-id") || request.headers.get("X-LIVA-USER-ID") || undefined;
+			}
+
 			// Forward to the NoteDurableObject for this note
 			let doId: DurableObjectId;
 			if (noteId.length === 64 && /^[0-9a-f]{64}$/.test(noteId)) {
@@ -77,7 +94,7 @@ export default {
 		}
 
 		if (url.pathname.startsWith("/api/v1")) {
-			return fetchRequestHandler({
+			const response = await fetchRequestHandler({
 				endpoint: "/api/v1",
 				req: request,
 				router: appRouter,
@@ -97,6 +114,13 @@ export default {
 					return { env, userId };
 				},
 			});
+
+			// Add CORS headers to the response
+			const newResponse = new Response(response.body, response);
+			newResponse.headers.set("Access-Control-Allow-Origin", request.headers.get("Origin") || "*");
+			newResponse.headers.set("Access-Control-Allow-Credentials", "true");
+
+			return newResponse;
 		}
 
 		// Example DO call (kept for reference)

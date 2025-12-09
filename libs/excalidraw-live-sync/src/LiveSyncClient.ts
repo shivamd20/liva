@@ -40,21 +40,33 @@ export class LiveSyncClient {
     private reconnectTimers: Map<string, number> = new Map();
 
     private baseUrl: string = 'https://liva.shvm.in';
+    private userId?: string;
 
     setBaseUrl(url: string) {
         this.baseUrl = url.replace(/\/$/, ''); // Remove trailing slash
     }
 
+    setUserId(id: string) {
+        this.userId = id;
+    }
+
     // Helper to determine WS URL
     private getWsUrl(id: string): string {
+        const appendQuery = (base: string) => {
+            if (this.userId) {
+                return `${base}?x-liva-user-id=${encodeURIComponent(this.userId)}`;
+            }
+            return base;
+        };
+
         try {
             const url = new URL(this.baseUrl);
             const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-            return `${protocol}//${url.host}/ws/note/${id}`;
+            return appendQuery(`${protocol}//${url.host}/ws/note/${id}`);
         } catch (e) {
             // Fallback for relative URLs or invalid inputs, though we expect a valid absolute URL default
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            return `${protocol}//${window.location.host}/ws/note/${id}`;
+            return appendQuery(`${protocol}//${window.location.host}/ws/note/${id}`);
         }
     }
 
