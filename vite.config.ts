@@ -11,6 +11,7 @@ export default defineConfig({
       '@': path.resolve(process.cwd(), 'src'),
       react: path.resolve(process.cwd(), 'node_modules/react'),
       'react-dom': path.resolve(process.cwd(), 'node_modules/react-dom'),
+      '@shvm/excalidraw-live-sync': path.resolve(process.cwd(), 'libs/excalidraw-live-sync/src/index.ts'),
     },
   },
   server: {

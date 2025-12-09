@@ -38,9 +38,14 @@
             "./worker-configuration.d.ts",
             "vite/client"
         ],
-           "paths": {
-      "@/*": ["./src/*"]
-    }
+        "paths": {
+            "@/*": [
+                "./src/*"
+            ],
+            "@shvm/excalidraw-live-sync": [
+                "./libs/excalidraw-live-sync/src/index.ts"
+            ]
+        }
     },
     "exclude": [
         "spec",
