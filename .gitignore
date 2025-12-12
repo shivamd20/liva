@@ -169,3 +169,4 @@ public/index.html
 public
 .idea
 .DS_Store
+.npmrc
