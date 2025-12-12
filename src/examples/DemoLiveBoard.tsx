@@ -5,6 +5,8 @@ import { ExcalidrawImperativeAPI } from '@excalidraw/excalidraw/types';
 import '@excalidraw/excalidraw/index.css';
 import { useExcalidrawLiveSync, createExcalidrawBoard } from '@shvm/excalidraw-live-sync';
 
+const userId = 'ramu'
+
 export function DemoLiveBoard() {
     const { boardId } = useParams<{ boardId: string }>();
     const navigate = useNavigate();
@@ -12,6 +14,7 @@ export function DemoLiveBoard() {
     const [isCreating, setIsCreating] = useState(false);
 
     // Generate a random user for demo purposes
+
     const [userInfo] = useState(() => ({
         username: `User-${Math.floor(Math.random() * 1000)}`,
         avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.floor(Math.random() * 1000)}`,
@@ -31,7 +34,7 @@ export function DemoLiveBoard() {
 
         if (boardId === 'new') {
             setIsCreating(true);
-            createExcalidrawBoard('Demo Board')
+            createExcalidrawBoard('Demo Board', userId)
                 .then(id => {
                     navigate(`/demoLiveAPI/${id}`, { replace: true });
                 })
@@ -40,11 +43,12 @@ export function DemoLiveBoard() {
                     alert('Failed to create board');
                 });
         }
-    }, [boardId, navigate]);
+    }, [boardId, navigate, userId]);
 
     const { handleChange, onPointerUpdate } = useExcalidrawLiveSync({
         excalidrawAPI,
         boardId: boardId || '', // Pass empty if creating, hook handles it gracefully or we skip
+        userId,
         userInfo,
         // baseUrl: 'http://localhost:5173',
     });

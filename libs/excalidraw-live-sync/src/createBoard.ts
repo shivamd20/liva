@@ -5,6 +5,7 @@
  */
 export async function createExcalidrawBoard(
     title: string = 'Untitled',
+    userId: string,
     baseUrl: string = 'https://liva.shvm.in'
 ): Promise<string> {
     const cleanBaseUrl = baseUrl.replace(/\/$/, '');
@@ -18,10 +19,6 @@ export async function createExcalidrawBoard(
         }
     };
 
-    // Generate a random user ID for public/demo creation if not authenticated
-    // In a real app, this should come from your auth provider
-    const demoUserId = `demo-user-${Math.floor(Math.random() * 100000)}`;
-
     // Correct tRPC HTTP payload for batch mode without transformer:
     // Body: { "0": payload }
 
@@ -29,7 +26,7 @@ export async function createExcalidrawBoard(
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-LIVA-USER-ID': demoUserId
+            'X-LIVA-USER-ID': userId
         },
         body: JSON.stringify({
             "0": payload

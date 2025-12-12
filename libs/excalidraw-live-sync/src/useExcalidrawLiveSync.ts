@@ -12,6 +12,7 @@ export interface UserInfo {
 export interface UseExcalidrawLiveSyncProps {
     excalidrawAPI: ExcalidrawImperativeAPI | null;
     boardId: string;
+    userId: string; // Mandatory userId
     userInfo?: UserInfo;
     debounceMs?: number;
     baseUrl?: string;
@@ -44,15 +45,17 @@ function mergeElements(
 export function useExcalidrawLiveSync({
     excalidrawAPI,
     boardId,
+    userId,
     userInfo = { username: 'Anonymous' },
     debounceMs = 50,
     baseUrl = 'https://liva.shvm.in',
 }: UseExcalidrawLiveSyncProps) {
 
-    // Set base URL once or when it changes
+    // Set base URL and User ID
     useEffect(() => {
         liveSyncClient.setBaseUrl(baseUrl);
-    }, [baseUrl]);
+        liveSyncClient.setUserId(userId);
+    }, [baseUrl, userId]);
 
     // -- Sync State --
     const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);

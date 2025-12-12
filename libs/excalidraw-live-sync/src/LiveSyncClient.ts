@@ -53,10 +53,10 @@ export class LiveSyncClient {
     // Helper to determine WS URL
     private getWsUrl(id: string): string {
         const appendQuery = (base: string) => {
-            if (this.userId) {
-                return `${base}?x-liva-user-id=${encodeURIComponent(this.userId)}`;
+            if (!this.userId) {
+                throw new Error("LiveSyncClient: userId must be set before connecting.");
             }
-            return base;
+            return `${base}?x-liva-user-id=${encodeURIComponent(this.userId)}`;
         };
 
         try {

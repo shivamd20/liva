@@ -33,12 +33,13 @@ import { Excalidraw } from '@excalidraw/excalidraw';
 import { useExcalidrawLiveSync } from '@shvm/excalidraw-live-sync';
 import '@excalidraw/excalidraw/index.css';
 
-function CollaborativeBoard({ boardId }) {
+function CollaborativeBoard({ boardId, userId }) {
     const [excalidrawAPI, setExcalidrawAPI] = useState(null);
 
     const { handleChange, onPointerUpdate } = useExcalidrawLiveSync({
         excalidrawAPI,
         boardId,
+        userId, // Mandatory: Unique identifier for the current user
         userInfo: { username: 'Alice' },
         baseUrl: 'https://liva.shvm.in' // Optional, defaults to this
     });
@@ -62,8 +63,8 @@ You can use the helper function to create new boards via the API.
 ```ts
 import { createExcalidrawBoard } from '@shvm/excalidraw-live-sync';
 
-async function createNew() {
-    const boardId = await createExcalidrawBoard('My New Board', 'https://liva.shvm.in');
+async function createNew(userId) {
+    const boardId = await createExcalidrawBoard('My New Board', userId, 'https://liva.shvm.in');
     console.log('Created board:', boardId);
 }
 ```
@@ -78,6 +79,7 @@ To use your own backend (running the Liva Durable Object server), pass the `base
 ```tsx
 useExcalidrawLiveSync({
     // ...
+    userId: 'user-123',
     baseUrl: 'https://my-own-worker.workers.dev'
 })
 ```
