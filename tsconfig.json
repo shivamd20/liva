@@ -44,6 +44,9 @@
             ],
             "@shvm/excalidraw-live-sync": [
                 "./libs/excalidraw-live-sync/src/index.ts"
+            ],
+            "@shvm/vocal": [
+                "./libs/vocal/src/index.ts"
             ]
         }
     },
