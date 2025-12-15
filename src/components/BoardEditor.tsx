@@ -19,7 +19,7 @@ import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidr
 import '@excalidraw/excalidraw/index.css';
 import '../styles/excalidraw-mobile.css';
 import { ReactNode, useRef, useCallback, useEffect, useState, useMemo } from 'react';
-import { useExcalidrawSync } from '../hooks/useExcalidrawSync';
+import { useExcalidrawLiveSync } from '@shvm/excalidraw-live-sync';
 import { useResponsive } from '../hooks/useResponsive';
 import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
@@ -64,7 +64,7 @@ export function BoardEditor({
     }
   }, [excalidrawAPI]);
   const queryClient = useQueryClient();
-  const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
+
   const { data: session } = useSession();
   const userProfile = useMemo(() => getUserProfile(session), [session]);
   const userId = session?.user?.id;
@@ -79,42 +79,17 @@ export function BoardEditor({
 
 
 
-  // Memoize callbacks to prevent unnecessary re-subscriptions
-  const handleLocalChange = useCallback(
-    (elements: OrderedExcalidrawElement[]) => {
-      const updatedBoard = {
-        ...board,
-        excalidrawElements: elements,
-      };
-      // Use WebSocket update for faster latency
-      boardsAPI.updateViaWS(updatedBoard);
-    },
-    [board, boardsAPI]
-  );
-
-  // Handle remote changes by updating cache directly (don't call onChange which triggers API)
-  const handleRemoteChange = useCallback(
-    (updatedBoard: Board) => {
-      queryClient.setQueryData(['board', updatedBoard.id], updatedBoard);
-    },
-    [queryClient]
-  );
-
-  const subscribeToChanges = useCallback(
-    (id: string, callback: (board: Board) => void) => {
-      return boardsAPI.subscribeToChanges(id, callback);
-    },
-    []
-  );
-
-  // Sync hook handles debouncing, merging, WebSocket subscription, and loop prevention
-  const { handleLocalChange: debouncedLocalChange } = useExcalidrawSync({
+  // Use the library for syncing
+  const { handleChange, onPointerUpdate } = useExcalidrawLiveSync({
     excalidrawAPI: excalidrawAPIRef.current,
-    board,
-    onLocalChange: handleLocalChange,
-    onRemoteChange: handleRemoteChange,
-    subscribeToChanges,
-    enabled: syncEnabled,
+    boardId: board.id,
+    userId: userId || 'anonymous',
+    userInfo: {
+      username: userProfile.username,
+      avatarUrl: userProfile.avatarUrl,
+      color: userProfile.color,
+    },
+    baseUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
   });
 
   useEffect(() => {
@@ -123,90 +98,7 @@ export function BoardEditor({
     board.title
   ])
 
-  // Subscribe to ephemeral events (cursors, etc.)
-  useEffect(() => {
-    if (!syncEnabled) return;
 
-    const handleEphemeral = (msg: any) => {
-      if (msg.type === 'ephemeral') {
-        const { senderId, data } = msg;
-
-        // data is null when user disconnects
-        if (data === null) {
-          setCollaborators(prev => {
-            const next = new Map(prev);
-            next.delete(senderId as SocketId);
-            return next;
-          });
-          return;
-        }
-
-        if (data.type === 'pointer') {
-          setCollaborators(prev => {
-            const next = new Map(prev);
-            // Only update if changed to avoid thrashing (though React state updates are somewhat optimized)
-            // But here we create a new Map every time, which triggers re-render.
-            // Excalidraw might handle frequent updates well.
-            next.set(senderId as SocketId, {
-              id: senderId,
-              username: data.payload.username || 'User',
-              avatarUrl: data.payload.avatarUrl,
-              color: data.payload.color || { background: '#999', stroke: '#999' },
-              pointer: {
-                x: data.payload.pointer.x,
-                y: data.payload.pointer.y,
-                tool: "pointer"
-              }
-            });
-            return next;
-          });
-        }
-      } else if (msg.type === 'ephemeral_state') {
-        // Initial state of others
-        const newCollaborators = new Map<SocketId, Collaborator>();
-        Object.entries(msg.data).forEach(([id, data]: [string, any]) => {
-          if (data && data.type === 'pointer') {
-            newCollaborators.set(id as SocketId, {
-              id: id,
-              username: data.payload.username || 'User',
-              avatarUrl: data.payload.avatarUrl,
-              color: data.payload.color || { background: '#999', stroke: '#999' },
-              pointer: {
-                x: data.payload.pointer.x,
-                y: data.payload.pointer.y,
-                tool: "pointer"
-              }
-            });
-          }
-        });
-        setCollaborators(newCollaborators);
-      }
-    };
-
-    return boardsAPI.subscribeToEphemeral(board.id, handleEphemeral);
-  }, [board.id, syncEnabled, boardsAPI]);
-
-  // Update Excalidraw scene when collaborators change
-  useEffect(() => {
-    if (excalidrawAPIRef.current) {
-      excalidrawAPIRef.current.updateScene({ collaborators });
-    }
-  }, [collaborators]);
-
-  const onPointerUpdate = useCallback((payload: { pointer: { x: number; y: number }, button: 'down' | 'up', pointersMap: any }) => {
-    if (!syncEnabled) return;
-
-    boardsAPI.sendEphemeral(board.id, {
-      type: 'pointer',
-      payload: {
-        pointer: payload.pointer,
-        button: payload.button,
-        username: userProfile.username,
-        avatarUrl: userProfile.avatarUrl,
-        color: userProfile.color,
-      }
-    });
-  }, [board.id, syncEnabled, boardsAPI, userProfile]);
 
   // Responsive UI options based on device type
   const uiOptions = useMemo(() => {
@@ -261,11 +153,16 @@ export function BoardEditor({
       });
 
       if (result && result.updatedElements) {
-        const updatedBoard = {
-          ...board,
-          excalidrawElements: result.updatedElements as unknown as OrderedExcalidrawElement[]
-        };
-        boardsAPI.updateViaWS(updatedBoard);
+        const updatedElements = result.updatedElements as unknown as OrderedExcalidrawElement[];
+
+        // Update local scene
+        excalidrawAPIRef.current?.updateScene({
+          elements: updatedElements
+        });
+
+        // Sync changes
+        handleChange(updatedElements);
+
         toast.success("Board updated by AI", { id: toastId });
         mixpanelService.track(MixpanelEvents.AI_GENERATE_SUCCESS, { boardId: board.id });
       } else {
@@ -337,7 +234,7 @@ export function BoardEditor({
               elements: board.excalidrawElements || [],
             }}
             onChange={(elements) => {
-              debouncedLocalChange(elements);
+              handleChange(elements);
             }}
             isCollaborating={board.access === 'public'}
             UIOptions={uiOptions}
