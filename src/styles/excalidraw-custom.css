@@ -1,0 +1,13 @@
+.sidebar-trigger {
+    display: none !important;
+}
+
+/* Also hide the library button specifically if it has a different class in some versions */
+.excalidraw-library-button {
+    display: none !important;
+}
+
+.dropdown-menu-button {
+    display: none !important;
+
+}

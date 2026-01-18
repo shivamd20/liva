@@ -129,9 +129,13 @@ function BoardView({
   const handleRenameBoard = () => {
     const newTitle = window.prompt('Enter new board name:', board.title || 'Untitled');
     if (newTitle !== null) {
-      mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: board.id, newTitle });
-      handleBoardChange({ ...board, title: newTitle });
+      handleTitleChange(newTitle);
     }
+  };
+
+  const handleTitleChange = (newTitle: string) => {
+    mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: board.id, newTitle });
+    handleBoardChange({ ...board, title: newTitle });
   };
 
   const handleDuplicate = () => {
@@ -173,63 +177,63 @@ function BoardView({
     setTheme(theme === 'dark' ? 'light' : 'dark');
   };
 
-  const menuItems = (
-    <>
-      <MainMenu.Item onSelect={() => navigate('/board')}>
-        Return to Boards
-      </MainMenu.Item>
-      <MainMenu.Item onSelect={onNewBoard}>
-        New Board
-      </MainMenu.Item>
-      <MainMenu.Item onSelect={handleRenameBoard}>
-        Rename Current Board
-      </MainMenu.Item>
-      <MainMenu.Item onSelect={handleDuplicate}>
-        Duplicate Board
-      </MainMenu.Item>
-      <MainMenu.Item onSelect={() => {
+  /* 
+   * Construct menu items for TopBar
+   */
+  const menuItems = [
+    {
+      label: 'New Board',
+      onClick: onNewBoard,
+      icon: null
+    },
+    {
+      label: 'Rename Board',
+      onClick: handleRenameBoard,
+      icon: <Edit2 className="w-4 h-4" />
+    },
+    {
+      label: 'Duplicate Board',
+      onClick: handleDuplicate,
+      icon: <Copy className="w-4 h-4" />
+    },
+    {
+      label: 'History',
+      onClick: () => {
         mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id });
         setIsHistoryOpen(true);
-      }}>
-        History
-      </MainMenu.Item>
-      <MainMenu.Item onSelect={handleSwitchTheme}>
-        Switch to {theme === 'dark' ? 'light' : 'dark'} mode
-      </MainMenu.Item>
-      {allBoards.length > 1 && id && (
-        <>
-          <MainMenu.Separator />
-          <MainMenu.Item
-            onSelect={() => {
-              if (window.confirm('Delete this board?')) {
-                mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: id, source: 'Main Menu' });
-                onDeleteBoard(id);
-              }
-            }}
-          >
-            Delete Current Board
-          </MainMenu.Item>
-        </>
-      )}
-      <MainMenu.Separator />
-      <MainMenu.Group title="Boards">
-        {allBoards.map(b => (
-          <MainMenu.Item
-            key={b.id}
-            onSelect={() => navigate(`/board/${b.id}`)}
-          >
-            {b.title || 'Untitled board'}
-            {b.id === id && ' (current)'}
-          </MainMenu.Item>
-        ))}
-      </MainMenu.Group>
-
-    </>
-  );
+      },
+      icon: <History className="w-4 h-4" />
+    },
+    {
+      label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`,
+      onClick: handleSwitchTheme,
+      icon: null,
+      separator: true
+    },
+    // "Return to Boards" removed as we now have a dedicated Back button
+    ...(allBoards.length > 1 && id ? [{
+      label: 'Delete Current Board',
+      onClick: () => {
+        if (window.confirm('Delete this board?')) {
+          mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: id, source: 'Main Menu' });
+          onDeleteBoard(id);
+        }
+      },
+      icon: <Trash className="w-4 h-4" />,
+      variant: 'destructive' as const
+    }] : [])
+  ];
 
   return (
     <>
-      <BoardEditor board={board} onChange={handleBoardChange} menuItems={menuItems} key={id} />
+      <BoardEditor
+        board={board}
+        onChange={handleBoardChange}
+        menuItems={menuItems}
+        key={id}
+        onBack={() => navigate('/board')}
+        onTitleChange={handleTitleChange}
+      />
       {isHistoryOpen && (
         <HistoryModal
           isOpen={isHistoryOpen}

@@ -18,7 +18,8 @@ import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/exc
 import { cn } from '../lib/utils';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
-import '../styles/excalidraw-mobile.css';
+import '../styles/excalidraw-custom.css';
+// import '../styles/excalidraw-mobile.css';
 import { ReactNode, useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { useExcalidrawLiveSync } from '@shvm/excalidraw-live-sync';
 import { useResponsive } from '../hooks/useResponsive';
@@ -34,16 +35,18 @@ import { trpcClient } from '../trpcClient';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
-
+import { TopBarMenuItem } from './TopBar';
 
 interface BoardEditorProps {
   board: Board;
   onChange: (board: Board) => void;
-  menuItems?: ReactNode;
+  menuItems?: TopBarMenuItem[];
   syncEnabled?: boolean;
   onPointerDown?: (activeTool: any, pointerDownState: any) => void;
   boardsAPI?: BoardsAPI;
   onLinkOpen?: (element: NonDeletedExcalidrawElement, event: CustomEvent<{ nativeEvent: MouseEvent | React.PointerEvent<HTMLCanvasElement> }>) => void;
+  onBack?: () => void;
+  onTitleChange?: (newTitle: string) => void;
 }
 
 export function BoardEditor({
@@ -54,7 +57,9 @@ export function BoardEditor({
   syncEnabled = true,
   onPointerDown,
   boardsAPI = defaultBoardsAPI,
-  onLinkOpen
+  onLinkOpen,
+  onBack,
+  onTitleChange
 }: BoardEditorProps) {
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -228,7 +233,17 @@ export function BoardEditor({
   return (
     <SpeechProvider excalidrawAPIRef={excalidrawAPIRef} systemInstruction={template?.content}>
       <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
-        <TopBar board={board} onSubmit={handleBoardSubmit} />
+        <TopBar
+          board={board}
+          onSubmit={handleBoardSubmit}
+          menuItems={menuItems || []}
+          onToggleShare={() => togglePanel('share')}
+          onToggleChat={() => togglePanel('conversation')}
+          isShareOpen={activePanelTab === 'share'}
+          isChatOpen={activePanelTab === 'conversation'}
+          onBack={onBack || (() => { })}
+          onTitleChange={onTitleChange || (() => { })}
+        />
 
         <div className="flex-1 relative flex overflow-hidden w-full h-full">
           <div className={cn(
@@ -247,44 +262,11 @@ export function BoardEditor({
               }}
               isCollaborating={board.access === 'public'}
               UIOptions={uiOptions}
-              renderTopRightUI={() => (
-                <div className="flex gap-2 isolate">
-                  <button
-                    onClick={() => togglePanel('share')}
-                    className={cn(
-                      "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
-                      activePanelTab === 'share'
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
-                    )}
-                    title={board.access === 'public' ? "Board is Public" : "Share Board"}
-                  >
-                    {board.access === 'public' ? (
-                      <Globe className="w-4 h-4 text-blue-500" />
-                    ) : (
-                      <Share2 className="w-4 h-4" />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => togglePanel('conversation')}
-                    className={cn(
-                      "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
-                      activePanelTab === 'conversation'
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
-                    )}
-                    title="Conversations"
-                  >
-                    <MessageCircle className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
+              // renderTopRightUI is removed as it's now in TopBar
               onPointerUpdate={onPointerUpdate}
               onPointerDown={handlePointerDown}
               onLinkOpen={onLinkOpen}
             >
-              {menuItems && <MainMenu>{menuItems}</MainMenu>}
             </Excalidraw>
           </div>
 
