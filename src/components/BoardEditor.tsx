@@ -13,6 +13,7 @@ import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
 import { Sparkles } from 'lucide-react';
 import { Share2, MessageCircle, Globe } from 'lucide-react';
 import { AssistantPanel } from './AssistantPanel';
+import { TopBar } from './TopBar';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { cn } from '../lib/utils';
 import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
@@ -211,6 +212,11 @@ export function BoardEditor({
     setActivePanelTab(current => current === tab ? null : tab);
   };
 
+  const handleBoardSubmit = () => {
+    // Placeholder implementation for now
+    alert("Board submitted! (This is a placeholder)");
+  };
+
   const { data: template } = useQuery({
     queryKey: ['template', board.templateId],
     queryFn: () => trpcClient.templates.get.query({ id: board.templateId! }),
@@ -221,77 +227,81 @@ export function BoardEditor({
 
   return (
     <SpeechProvider excalidrawAPIRef={excalidrawAPIRef} systemInstruction={template?.content}>
-      <div className="flex h-full w-full overflow-hidden relative bg-background">
-        <div className={cn(
-          "h-full transition-all duration-300 ease-in-out relative",
-          (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
-        )}>
-          <Excalidraw
-            viewModeEnabled={!!(board.expiresAt && Date.now() > board.expiresAt)}
-            excalidrawAPI={(api) => setExcalidrawAPI(api)}
-            theme={theme == 'dark' ? 'dark' : 'light'}
-            initialData={{
-              elements: board.excalidrawElements || [],
-            }}
-            onChange={(elements) => {
-              handleChange(elements);
-            }}
-            isCollaborating={board.access === 'public'}
-            UIOptions={uiOptions}
-            renderTopRightUI={() => (
-              <div className="flex gap-2 isolate">
-                <button
-                  onClick={() => togglePanel('share')}
-                  className={cn(
-                    "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
-                    activePanelTab === 'share'
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
-                  )}
-                  title={board.access === 'public' ? "Board is Public" : "Share Board"}
-                >
-                  {board.access === 'public' ? (
-                    <Globe className="w-4 h-4 text-blue-500" />
-                  ) : (
-                    <Share2 className="w-4 h-4" />
-                  )}
-                </button>
+      <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
+        <TopBar board={board} onSubmit={handleBoardSubmit} />
 
-                <button
-                  onClick={() => togglePanel('conversation')}
-                  className={cn(
-                    "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
-                    activePanelTab === 'conversation'
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
-                  )}
-                  title="Conversations"
-                >
-                  <MessageCircle className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            onPointerUpdate={onPointerUpdate}
-            onPointerDown={handlePointerDown}
-            onLinkOpen={onLinkOpen}
-          >
-            {menuItems && <MainMenu>{menuItems}</MainMenu>}
-          </Excalidraw>
-        </div>
+        <div className="flex-1 relative flex overflow-hidden w-full h-full">
+          <div className={cn(
+            "h-full transition-all duration-300 ease-in-out relative",
+            (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
+          )}>
+            <Excalidraw
+              viewModeEnabled={!!(board.expiresAt && Date.now() > board.expiresAt)}
+              excalidrawAPI={(api) => setExcalidrawAPI(api)}
+              theme={theme == 'dark' ? 'dark' : 'light'}
+              initialData={{
+                elements: board.excalidrawElements || [],
+              }}
+              onChange={(elements) => {
+                handleChange(elements);
+              }}
+              isCollaborating={board.access === 'public'}
+              UIOptions={uiOptions}
+              renderTopRightUI={() => (
+                <div className="flex gap-2 isolate">
+                  <button
+                    onClick={() => togglePanel('share')}
+                    className={cn(
+                      "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
+                      activePanelTab === 'share'
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                    )}
+                    title={board.access === 'public' ? "Board is Public" : "Share Board"}
+                  >
+                    {board.access === 'public' ? (
+                      <Globe className="w-4 h-4 text-blue-500" />
+                    ) : (
+                      <Share2 className="w-4 h-4" />
+                    )}
+                  </button>
 
-        <div className={cn(
-          "fixed top-0 bottom-0 right-0 z-[50] w-[400px] bg-background border-l shadow-2xl transition-transform duration-300 ease-in-out",
-          activePanelTab ? "translate-x-0" : "translate-x-full"
-        )}>
-          <AssistantPanel
-            isOpen={!!activePanelTab}
-            activeTab={activePanelTab}
-            isPinned={isPanelPinned}
-            onTogglePin={() => setIsPanelPinned(!isPanelPinned)}
-            onClose={() => setActivePanelTab(null)}
-            board={board}
-            isOwner={isOwner}
-          />
+                  <button
+                    onClick={() => togglePanel('conversation')}
+                    className={cn(
+                      "flex items-center justify-center w-7 h-7 rounded-lg transition-all",
+                      activePanelTab === 'conversation'
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground"
+                    )}
+                    title="Conversations"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              onPointerUpdate={onPointerUpdate}
+              onPointerDown={handlePointerDown}
+              onLinkOpen={onLinkOpen}
+            >
+              {menuItems && <MainMenu>{menuItems}</MainMenu>}
+            </Excalidraw>
+          </div>
+
+          <div className={cn(
+            "fixed top-12 bottom-0 right-0 z-[50] w-[400px] bg-background border-l shadow-2xl transition-transform duration-300 ease-in-out",
+            activePanelTab ? "translate-x-0" : "translate-x-full"
+          )}>
+            <AssistantPanel
+              isOpen={!!activePanelTab}
+              activeTab={activePanelTab}
+              isPinned={isPanelPinned}
+              onTogglePin={() => setIsPanelPinned(!isPanelPinned)}
+              onClose={() => setActivePanelTab(null)}
+              board={board}
+              isOwner={isOwner}
+            />
+          </div>
         </div>
       </div >
     </SpeechProvider >
