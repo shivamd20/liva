@@ -7,6 +7,7 @@ import { createAuth } from "./auth";
 export { NoteDurableObject } from "./do/NoteDurableObject";
 export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
 export { ConversationDurableObject } from "./do/ConversationDurableObject";
+export { RecordingDurableObject } from "./do/RecordingDurableObject";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
@@ -38,12 +39,20 @@ export default {
 		try {
 			const auth = createAuth(env);
 			if (url.pathname.startsWith("/api/auth")) {
-				const response = await auth.handler(request);
-				return response;
+				return await auth.handler(request);
 			}
 		} catch (error) {
 			console.error("Auth Error:", error);
 			return new Response("Internal Auth Error", { status: 500 });
+		}
+
+		// Recording API Routing
+		// Route all /api/recording/* to a singleton or session-based DO.
+		// For now, let's use a "GLOBAL_RECORDER" singleton for MVP simplicity to hold all sessions.
+		if (url.pathname.startsWith("/api/recording")) {
+			const doId = env.RECORDING_DURABLE_OBJECT.idFromName("GLOBAL_RECORDER");
+			const stub = env.RECORDING_DURABLE_OBJECT.get(doId);
+			return stub.fetch(request);
 		}
 
 		// Handle WebSocket connections for real-time note updates

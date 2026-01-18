@@ -13,6 +13,7 @@ export default defineConfig({
       'react-dom': path.resolve(process.cwd(), 'node_modules/react-dom'),
       "@shvm/excalidraw-live-sync": path.resolve(__dirname, "./libs/excalidraw-live-sync/src"),
       "@shvm/vocal": path.resolve(__dirname, "./libs/vocal/src"),
+      "@shvm/recorder": path.resolve(__dirname, "./libs/recorder/src"),
     },
   },
   server: {

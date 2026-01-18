@@ -47,6 +47,9 @@
             ],
             "@shvm/vocal": [
                 "./libs/vocal/src/index.ts"
+            ],
+            "@shvm/recorder": [
+                "./libs/recorder/src/index.ts"
             ]
         }
     },

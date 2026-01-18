@@ -29,6 +29,12 @@
 				"ConversationDurableObject"
 			],
 			"tag": "v3"
+		},
+		{
+			"new_sqlite_classes": [
+				"RecordingDurableObject"
+			],
+			"tag": "v4"
 		}
 	],
 	"assets": {
@@ -56,6 +62,10 @@
 			{
 				"class_name": "ConversationDurableObject",
 				"name": "CONVERSATION_DURABLE_OBJECT"
+			},
+			{
+				"class_name": "RecordingDurableObject",
+				"name": "RECORDING_DURABLE_OBJECT"
 			}
 		]
 	},
