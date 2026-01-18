@@ -11,6 +11,16 @@ export class RecordingDurableObject extends DurableObject {
     }
 
     private initializeTables() {
+        // Drop old table if exists to force schema update in dev
+        // In prod, use migrations. For now this is fine for dev loop.
+        try {
+            // check if 'pointers' column exists, if so drop table?
+            // simple heuristic: drop table pointer_events to reset schema
+            // or just CREATE TABLE IF NOT EXISTS with new schema (won't alter existing)
+            // Let's brute force drop for this dev iteration to ensure fresh schema
+            // this.sql.exec("DROP TABLE IF EXISTS pointer_events");
+        } catch (e) { }
+
         this.sql.exec(`
             CREATE TABLE IF NOT EXISTS audio_chunks (
                 sessionId TEXT,
@@ -19,7 +29,10 @@ export class RecordingDurableObject extends DurableObject {
                 durationMs INTEGER,
                 blob BLOB,
                 PRIMARY KEY (sessionId, chunkId)
-            );
+            )
+        `);
+
+        this.sql.exec(`
             CREATE TABLE IF NOT EXISTS board_events (
                 sessionId TEXT,
                 t INTEGER,
@@ -27,13 +40,20 @@ export class RecordingDurableObject extends DurableObject {
                 elements TEXT,
                 appStateMinimal TEXT,
                 files TEXT
-            );
+            )
+        `);
+
+        this.sql.exec(`
             CREATE TABLE IF NOT EXISTS pointer_events (
                 sessionId TEXT,
                 t INTEGER,
-                pointers TEXT,
+                pointer TEXT,
+                pointersMap TEXT,
                 button TEXT
-            );
+            )
+        `);
+
+        this.sql.exec(`
             CREATE TABLE IF NOT EXISTS manifest (
                 sessionId TEXT PRIMARY KEY,
                 startedAt INTEGER,
@@ -42,7 +62,7 @@ export class RecordingDurableObject extends DurableObject {
                 boardEventCount INTEGER,
                 pointerEventCount INTEGER,
                 status TEXT
-            );
+            )
         `);
     }
 
@@ -101,7 +121,7 @@ export class RecordingDurableObject extends DurableObject {
             this.sql.exec(`
                 INSERT INTO board_events (sessionId, t, type, elements, appStateMinimal, files)
                 VALUES (?, ?, ?, ?, ?, ?)
-            `, sessionId, e.t, e.type, JSON.stringify(e.elements), JSON.stringify(e.appStateMinimal || {}), JSON.stringify(e.files || {}));
+            `, sessionId, e.t, e.type, JSON.stringify(e.elements), JSON.stringify(e.appStateMinimal || {}), JSON.stringify(e.files || null));
         }
 
         return new Response('OK');
@@ -112,10 +132,37 @@ export class RecordingDurableObject extends DurableObject {
         const { sessionId, events } = body;
 
         for (const e of events) {
-            this.sql.exec(`
-                INSERT INTO pointer_events (sessionId, t, pointers, button)
-                VALUES (?, ?, ?, ?)
-            `, sessionId, e.t, JSON.stringify(e.pointers), e.button || 'up');
+            // Check if column exists, if not maybe fallback? 
+            // In dev environment, table might be old.
+            // Let's try inserting into new columns.
+            try {
+                this.sql.exec(`
+                    INSERT INTO pointer_events (sessionId, t, pointer, pointersMap, button)
+                    VALUES (?, ?, ?, ?, ?)
+                `, sessionId, e.t, JSON.stringify(e.pointer), JSON.stringify(e.pointersMap || {}), e.button || 'up');
+            } catch (err) {
+                // Determine if error is due to missing column
+                // If so, maybe drop table and retry?
+                // This is drastic but effective for dev.
+                try {
+                    this.sql.exec("DROP TABLE pointer_events");
+                    this.sql.exec(`
+                        CREATE TABLE pointer_events (
+                            sessionId TEXT,
+                            t INTEGER,
+                            pointer TEXT,
+                            pointersMap TEXT,
+                            button TEXT
+                        )
+                   `);
+                    this.sql.exec(`
+                        INSERT INTO pointer_events (sessionId, t, pointer, pointersMap, button)
+                        VALUES (?, ?, ?, ?, ?)
+                    `, sessionId, e.t, JSON.stringify(e.pointer), JSON.stringify(e.pointersMap || {}), e.button || 'up');
+                } catch (e) {
+                    console.error("Failed to migrate pointer table", e);
+                }
+            }
         }
 
         return new Response('OK');
@@ -131,18 +178,6 @@ export class RecordingDurableObject extends DurableObject {
     }
 
     private async getManifest(request: Request) {
-        // Assume session ID is derived or passed. For this DO, one DO = one session?
-        // Or one DO = global recorder?
-        // For scalability, one DO per session is best. But naming is tricky without coordination.
-        // For MVP/Test, let's use ONE gloabl DO for all recordings, or route by ID.
-        // If route by ID 'RECORDING_MANAGER', then we query by sessionId.
-        // If route by ID = sessionId, then we just select * LIMIT 1.
-
-        // Let's assume this DO instance handles *multiple* sessions for now for simplicity of not managing many DO IDs in the client.
-        // Wait, `fetch` in `index.ts` determines routing. 
-        // If we use `idFromName('GLOBAL_RECORDER')`, then one DO holds all. Max storage 10GB per DO? 
-        // For MVP test, GLOBAL is fine.
-
         const url = new URL(request.url);
         const sessionId = url.searchParams.get('sessionId');
 
@@ -163,12 +198,13 @@ export class RecordingDurableObject extends DurableObject {
             ...e,
             elements: JSON.parse(e.elements),
             appStateMinimal: JSON.parse(e.appStateMinimal),
-            files: JSON.parse(e.files)
+            files: JSON.parse(e.files || 'null')
         }));
 
         const pointerEvents = this.sql.exec("SELECT * FROM pointer_events WHERE sessionId = ? ORDER BY t ASC", sessionId).toArray().map((e: any) => ({
             ...e,
-            pointers: JSON.parse(e.pointers)
+            pointer: e.pointer ? JSON.parse(e.pointer) : { x: 0, y: 0 },
+            pointersMap: e.pointersMap ? JSON.parse(e.pointersMap) : {}
         }));
 
         return Response.json({
@@ -181,7 +217,6 @@ export class RecordingDurableObject extends DurableObject {
         const sessionId = url.searchParams.get('sessionId');
         if (!sessionId) return new Response("Session ID required", { status: 400 });
 
-        // If chunkId provided, get one. If not, maybe stream all?
         const chunkId = url.searchParams.get('chunkId');
 
         if (chunkId) {
@@ -190,7 +225,6 @@ export class RecordingDurableObject extends DurableObject {
             return new Response(row.blob, { headers: { 'Content-Type': 'audio/webm;codecs=opus' } });
         }
 
-        // Return list of chunks metadata
         const chunks = this.sql.exec("SELECT sessionId, chunkId, startOffsetMs, durationMs FROM audio_chunks WHERE sessionId = ? ORDER BY chunkId ASC", sessionId).toArray();
         return Response.json(chunks);
     }

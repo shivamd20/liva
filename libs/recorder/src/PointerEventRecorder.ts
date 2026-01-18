@@ -1,65 +1,65 @@
 import { PointerEvent as RecordedPointerEvent } from './types';
 
+interface ExcalidrawPointerPayload {
+    pointer: { x: number; y: number };
+    button: 'down' | 'up';
+    pointersMap: Map<string, Readonly<{ x: number; y: number }>>;
+}
+
 export class PointerEventRecorder {
     private onEvent: (event: RecordedPointerEvent) => void;
     private startTime: number;
     private intervalId: any;
-    private lastEvent: RecordedPointerEvent | null = null;
-    private currentPointer: { x: number, y: number, buttons: number } | null = null;
+
+    private lastEmittedEvent: RecordedPointerEvent | null = null;
+    private currentPayload: ExcalidrawPointerPayload | null = null;
 
     constructor(startTime: number, onEvent: (event: RecordedPointerEvent) => void) {
         this.startTime = startTime;
         this.onEvent = onEvent;
+        // Start ticking immediately (or we could start/stop explicitly)
+        // But for consistency with previous API let's keep start/stop but without args
     }
 
-    start(container: HTMLElement) {
-        container.addEventListener('pointermove', this.handlePointerMove);
-        container.addEventListener('pointerdown', this.handlePointerMove);
-        container.addEventListener('pointerup', this.handlePointerMove);
-
-        // Sample at 30Hz
+    start() {
         this.intervalId = setInterval(this.tick, 33);
     }
 
-    stop(container: HTMLElement) {
-        container.removeEventListener('pointermove', this.handlePointerMove);
-        container.removeEventListener('pointerdown', this.handlePointerMove);
-        container.removeEventListener('pointerup', this.handlePointerMove);
+    stop() {
         clearInterval(this.intervalId);
     }
 
-    private handlePointerMove = (e: PointerEvent) => {
-        // Just update state, don't emit yet
-        // Accessing Excalidraw coordinates might be tricky if we don't transform.
-        // Assuming we get clientX/Y and need to convert relative to something?
-        // Or Excalidraw provides a way?
-        // Doc says "Pointer events emitted by Excalidraw". Excalidraw API has onPointerUpdate?
-        // Let's assume we listen to DOM for now, but really we want scene coordinates.
-        // If we attach to the Excalidraw container, we get client coords.
-        this.currentPointer = {
-            x: e.clientX,
-            y: e.clientY,
-            buttons: e.buttons
-        };
-    };
+    // Called by Controller
+    handlePointerUpdate(payload: ExcalidrawPointerPayload) {
+        this.currentPayload = payload;
+    }
 
     private tick = () => {
-        if (!this.currentPointer) return;
+        if (!this.currentPayload) return;
+
+        // Convert Map to Record
+        const pointersMapRecord: Record<string, { x: number, y: number }> = {};
+        this.currentPayload.pointersMap.forEach((v, k) => {
+            pointersMapRecord[k] = { x: v.x, y: v.y };
+        });
 
         const event: RecordedPointerEvent = {
             t: Date.now() - this.startTime,
-            x: this.currentPointer.x,
-            y: this.currentPointer.y,
-            tool: 'pointer', // TODO: get from AppState
-            buttons: this.currentPointer.buttons
+            pointer: this.currentPayload.pointer,
+            button: this.currentPayload.button,
+            pointersMap: pointersMapRecord
         };
 
-        // Simple dedupe?
-        if (this.lastEvent && this.lastEvent.x === event.x && this.lastEvent.y === event.y && this.lastEvent.buttons === event.buttons) {
+        // Dedupe
+        if (this.lastEmittedEvent &&
+            this.lastEmittedEvent.pointer.x === event.pointer.x &&
+            this.lastEmittedEvent.pointer.y === event.pointer.y &&
+            this.lastEmittedEvent.button === event.button
+        ) {
             return;
         }
 
-        this.lastEvent = event;
+        this.lastEmittedEvent = event;
         this.onEvent(event);
     };
 }

@@ -27,11 +27,15 @@ export class ExcalidrawEventRecorder {
         const event: BoardEvent = {
             t: Date.now() - this.startTime,
             type: 'update',
-            elements: elements, // Capturing all for now. Warning: heavy!
+            elements: elements,
             appStateMinimal: {
                 viewBackgroundColor: appState.viewBackgroundColor,
-                // Add other relevant semantic state
-            }
+                scrollX: appState.scrollX,
+                scrollY: appState.scrollY,
+                zoom: appState.zoom,
+                selectedElementIds: appState.selectedElementIds,
+            },
+            files: files
         };
         this.onEvent(event);
     }

@@ -56,6 +56,13 @@ export class RecordingSessionController {
         });
     }
 
+    // Hook for Excalidraw onPointerUpdate
+    public handlePointerUpdate = (payload: any) => {
+        if (this.isRecording && this.pointerRecorder) {
+            this.pointerRecorder.handlePointerUpdate(payload);
+        }
+    }
+
     async start() {
         if (this.isRecording) return;
 
@@ -77,23 +84,10 @@ export class RecordingSessionController {
         });
 
         // Start Pointer Recorder
-        // Needs a container. Excalidraw API might give us the container?
-        // this.excalidrawAPI.getAppState().container? No.
-        // Usually we need to look up the DOM element. 
-        // For now, let's look for a class or assume body/window if not specific?
-        // Or user must pass container?
-        // Let's assume document.body for now for pointers, or specific selector.
-        // Better: this.excalidrawAPI.getHTMLCanvasElement().parentElement
-        // Assuming excalidrawAPI has getHTMLCanvasElement() or similar.
-        // Actually, Excalidraw API usually has `getAppState` etc.
-        // Let's try `document.querySelector('.excalidraw-container')` or similar in the playground.
-        // For robustness, we might need to pass the container in constructor.
-        // For now, attaching to window for pointers is simplest but captures everything.
-        // Let's attach to `document.body` for simplicity in MVP.
         this.pointerRecorder = new PointerEventRecorder(this.startTime, (event) => {
             if (this.isRecording) this.pointerBuffer.push(event);
         });
-        this.pointerRecorder.start(document.body);
+        this.pointerRecorder.start();
 
         if (this.config.onSessionStart && this.sessionId) {
             this.config.onSessionStart(this.sessionId);
@@ -107,7 +101,7 @@ export class RecordingSessionController {
 
         // Stop engines
         if (this.micEngine) this.micEngine.stop();
-        if (this.pointerRecorder) this.pointerRecorder.stop(document.body);
+        if (this.pointerRecorder) this.pointerRecorder.stop();
 
         // Flush buffers
         await this.audioBuffer.flush();

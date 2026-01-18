@@ -82,18 +82,66 @@ export function Inspect() {
     useEffect(() => {
         if (!excalidrawAPIRef.current) return;
 
-        // Find board state at currentTime
-        // Events are snapshot updates in this MVP
-        // Find the last event before currentTime
+        // 1. Board State
+        let recordedSelection: any = {};
+
+        // 1. Board State
         const currentBoardEvent = boardEvents.filter(e => e.t <= currentTime).pop();
         if (currentBoardEvent) {
+            const appStateMinimal = currentBoardEvent.appStateMinimal || {};
+
+            // Capture selection for collaborator
+            if (appStateMinimal.selectedElementIds) {
+                recordedSelection = appStateMinimal.selectedElementIds;
+            }
+
+            const appStateUpdate: any = {
+                viewBackgroundColor: appStateMinimal.viewBackgroundColor,
+                scrollX: appStateMinimal.scrollX,
+                scrollY: appStateMinimal.scrollY,
+                // selectedElementIds: appStateMinimal.selectedElementIds // Don't force local selection
+            };
+
+            // ONLY pass zoom if it is effectively defined
+            // Excalidraw expects { value: number } usually.
+            if (appStateMinimal.zoom) {
+                appStateUpdate.zoom = appStateMinimal.zoom;
+            }
+
             excalidrawAPIRef.current.updateScene({
                 elements: currentBoardEvent.elements,
-                appState: currentBoardEvent.appStateMinimal
+                appState: appStateUpdate,
+                files: currentBoardEvent.files || null
             });
         }
 
-    }, [currentTime, boardEvents]);
+        // 2. Pointer State
+        const currentPointerEvent = pointerEvents.filter(e => e.t <= currentTime).pop();
+        if (currentPointerEvent) {
+            // Defensive check for new pointer structure
+            const px = currentPointerEvent.pointer ? currentPointerEvent.pointer.x : currentPointerEvent.x;
+            const py = currentPointerEvent.pointer ? currentPointerEvent.pointer.y : currentPointerEvent.y;
+
+            if (typeof px === 'number' && typeof py === 'number') {
+                const collaborators = new Map();
+                collaborators.set('user-replay', {
+                    id: 'user-replay',
+                    username: 'Recorded User',
+                    avatarUrl: undefined,
+                    color: { background: '#ff0000', stroke: '#ff0000' },
+                    pointer: {
+                        x: px,
+                        y: py,
+                        tool: 'pointer'
+                    },
+                    button: currentPointerEvent.button || 'up',
+                    selectedElementIds: recordedSelection
+                });
+                excalidrawAPIRef.current.updateScene({ collaborators });
+            }
+        }
+
+    }, [currentTime, boardEvents, pointerEvents]);
 
     const formatTime = (ms: number) => {
         const s = Math.floor(ms / 1000);
@@ -144,7 +192,8 @@ export function Inspect() {
             <div style={{ flex: 1, position: 'relative' }}>
                 <Excalidraw
                     excalidrawAPI={(api) => excalidrawAPIRef.current = api}
-                    viewModeEnabled={true}
+                    viewModeEnabled={false}
+                    isCollaborating={true}
                 />
             </div>
         </div>

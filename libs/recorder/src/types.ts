@@ -22,14 +22,14 @@ export interface BoardEvent {
     type: BoardEventType;
     elements: readonly ExcalidrawElement[];
     appStateMinimal: Partial<AppState>;
+    files?: Record<string, any>;
 }
 
 export interface PointerEvent {
     t: number;
-    x: number;
-    y: number;
-    tool: string;
-    buttons: number;
+    pointer: { x: number; y: number };
+    button: 'down' | 'up';
+    pointersMap: Record<string, Readonly<{ x: number, y: number }>>;
 }
 
 export interface Manifest {

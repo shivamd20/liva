@@ -83,6 +83,11 @@ export function Playground() {
                             controller.handleExcalidrawChange(elements, appState, files);
                         }
                     }}
+                    onPointerUpdate={(payload) => {
+                        if (controller) {
+                            controller.handlePointerUpdate(payload);
+                        }
+                    }}
                 />
             </div>
         </div>
