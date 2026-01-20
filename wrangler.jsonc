@@ -35,6 +35,12 @@
 				"RecordingDurableObject"
 			],
 			"tag": "v4"
+		},
+		{
+			"new_sqlite_classes": [
+				"MonorailSessionDO"
+			],
+			"tag": "v5"
 		}
 	],
 	"assets": {
@@ -66,9 +72,19 @@
 			{
 				"class_name": "RecordingDurableObject",
 				"name": "RECORDING_DURABLE_OBJECT"
+			},
+			{
+				"class_name": "MonorailSessionDO",
+				"name": "MONORAIL_SESSION_DO"
 			}
 		]
 	},
+	"r2_buckets": [
+		{
+			"binding": "files",
+			"bucket_name": "din-files"
+		}
+	],
 	"observability": {
 		"enabled": true
 	},

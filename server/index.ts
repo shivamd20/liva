@@ -8,6 +8,7 @@ export { NoteDurableObject } from "./do/NoteDurableObject";
 export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
 export { ConversationDurableObject } from "./do/ConversationDurableObject";
 export { RecordingDurableObject } from "./do/RecordingDurableObject";
+export { MonorailSessionDO } from "./monorail/session-do";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
@@ -52,6 +53,17 @@ export default {
 		if (url.pathname.startsWith("/api/recording")) {
 			const doId = env.RECORDING_DURABLE_OBJECT.idFromName("GLOBAL_RECORDER");
 			const stub = env.RECORDING_DURABLE_OBJECT.get(doId);
+			return stub.fetch(request);
+		}
+
+		if (url.pathname.startsWith("/api/monorail/session/")) {
+			const parts = url.pathname.split("/");
+			// /api/monorail/session/:sessionId/...
+			const sessionId = parts[4];
+			if (!sessionId) return new Response("Session ID missing", { status: 400 });
+
+			const idObj = env.MONORAIL_SESSION_DO.idFromName(sessionId);
+			const stub = env.MONORAIL_SESSION_DO.get(idObj);
 			return stub.fetch(request);
 		}
 
