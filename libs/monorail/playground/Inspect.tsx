@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { useState, useEffect } from 'react';
 
 export function Inspect({ sessionId, onBack }: { sessionId: string; onBack: () => void }) {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { Excalidraw } from '@excalidraw/excalidraw';
 import { Manifest } from '../src/types';

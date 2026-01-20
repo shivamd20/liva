@@ -25,7 +25,7 @@ export const decodeAudioData = async (
         audioData.byteOffset,
         audioData.byteOffset + audioData.byteLength
     );
-    return await audioContext.decodeAudioData(arrayBuffer);
+    return await audioContext.decodeAudioData(arrayBuffer as ArrayBuffer);
 };
 
 export const createPcmBlob = (inputData: Float32Array): Blob => {

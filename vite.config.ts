@@ -14,6 +14,7 @@ export default defineConfig({
       "@shvm/excalidraw-live-sync": path.resolve(__dirname, "./libs/excalidraw-live-sync/src"),
       "@shvm/vocal": path.resolve(__dirname, "./libs/vocal/src"),
       "@shvm/recorder": path.resolve(__dirname, "./libs/recorder/src"),
+      "@shvm/monorail": path.resolve(__dirname, "./libs/monorail/src"),
     },
   },
   server: {

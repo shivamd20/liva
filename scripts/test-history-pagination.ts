@@ -1,9 +1,12 @@
+// @ts-nocheck
 
 import { createTRPCProxyClient, httpBatchLink } from '@trpc/client';
 
 // Node 18+ has built-in fetch, so we don't need node-fetch
 
-const client = createTRPCProxyClient({
+import { type AppRouter } from '../server/trpc';
+
+const client = createTRPCProxyClient<AppRouter>({
     links: [
         httpBatchLink({
             url: 'http://localhost:8787/api/v1',

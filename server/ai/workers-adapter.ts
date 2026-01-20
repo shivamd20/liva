@@ -29,7 +29,7 @@ function zodToJsonSchema(schema: z.ZodType<any>): any {
     if (schema instanceof z.ZodArray) {
         return {
             type: "array",
-            items: zodToJsonSchema(schema.element),
+            items: zodToJsonSchema(schema.element as any),
         };
     }
     if (schema instanceof z.ZodEnum) {
@@ -40,11 +40,11 @@ function zodToJsonSchema(schema: z.ZodType<any>): any {
     }
 
     if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
-        return zodToJsonSchema(schema.unwrap());
+        return zodToJsonSchema(schema.unwrap() as any);
     }
 
     if (schema instanceof z.ZodDefault) {
-        return zodToJsonSchema(schema.removeDefault());
+        return zodToJsonSchema(schema.removeDefault() as any);
     }
 
     return { type: "string" }; // Fallback

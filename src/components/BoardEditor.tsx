@@ -36,7 +36,7 @@ import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
-import { MonorailRecorder } from '../../libs/monorail/src';
+import { MonorailRecorder } from '@shvm/monorail';
 import { RecordingsDialog } from './RecordingsDialog';
 
 interface BoardEditorProps {

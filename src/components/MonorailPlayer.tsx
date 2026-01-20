@@ -51,15 +51,23 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
     };
 
     const loadManifest = async () => {
+        cleanup();
+
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+
         try {
-            cleanup();
             setStatus('loading');
             setError(null);
 
-            const res = await fetch(`/api/monorail/session/${sessionId}/manifest`);
+            const res = await fetch(`/api/monorail/session/${sessionId}/manifest`, {
+                signal: controller.signal
+            });
             if (!res.ok) throw new Error("Failed to load recording manifest");
 
             const data = await res.json() as any;
+            if (controller.signal.aborted) return;
+
             setManifest(data);
             totalChunksRef.current = data.chunks_uploaded || 0;
 
@@ -71,7 +79,8 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
 
             initializeMediaSource();
 
-        } catch (e) {
+        } catch (e: any) {
+            if (e.name === 'AbortError') return;
             console.error(e);
             setError((e as Error).message);
             setStatus('error');
@@ -139,6 +148,9 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
     const processQueue = async () => {
         if (processingRef.current || queueRef.current.length === 0) return;
 
+        // Check if aborted or cleaned up
+        if (abortControllerRef.current?.signal.aborted) return;
+
         const mediaSource = mediaSourceRef.current;
         const sourceBuffer = sourceBufferRef.current;
 
@@ -162,11 +174,18 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
             const chunkIndex = queueRef.current[0];
             if (chunkIndex === undefined) return;
 
-            const res = await fetch(`/api/monorail/session/${sessionId}/chunk/${chunkIndex}`);
+            const res = await fetch(`/api/monorail/session/${sessionId}/chunk/${chunkIndex}`, {
+                signal: abortControllerRef.current?.signal
+            });
             if (!res.ok) throw new Error(`Failed to load chunk ${chunkIndex}`);
 
             const blob = await res.blob();
             const arrayBuffer = await blob.arrayBuffer();
+
+            // CRITICAL CHECK: Ensure we are still valid after async fetch
+            if (abortControllerRef.current?.signal.aborted) return;
+            if (!sourceBufferRef.current || sourceBufferRef.current !== sourceBuffer) return;
+            if (mediaSourceRef.current?.readyState !== 'open') return;
 
             try {
                 sourceBuffer.appendBuffer(arrayBuffer);
@@ -186,8 +205,10 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
                 throw err;
             }
 
-        } catch (e) {
-            console.error("Chunk load error", e);
+        } catch (e: any) {
+            if (e.name !== 'AbortError') {
+                console.error("Chunk load error", e);
+            }
         } finally {
             processingRef.current = false;
         }
@@ -209,8 +230,7 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
     const togglePlay = () => {
         if (videoRef.current) {
             if (videoRef.current.paused) {
-                videoRef.current.play().catch(console.error);
-                setStatus('playing');
+                play();
             } else {
                 videoRef.current.pause();
                 setStatus('paused');
@@ -222,7 +242,13 @@ export function MonorailPlayer({ sessionId, autoPlay = false }: MonorailPlayerPr
         if (videoRef.current) {
             const p = videoRef.current.play();
             if (p) {
-                p.catch(console.error).then(() => setStatus('playing'));
+                p.then(() => {
+                    setStatus('playing');
+                }).catch(e => {
+                    if (e.name !== 'AbortError') {
+                        console.error("Play error:", e);
+                    }
+                });
             }
         }
     };

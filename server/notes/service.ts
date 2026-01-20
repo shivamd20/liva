@@ -80,6 +80,9 @@ export const NotesService = {
             createdAt: timestamp,
             updatedAt: timestamp,
             collaborators: input.collaborators ?? [],
+            expiresAt: null,
+            userId: 'anonymous',
+            access: 'private',
         };
 
         notesStore.set(id, current);

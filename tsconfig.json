@@ -17,6 +17,7 @@
         "moduleResolution": "bundler",
         /* Enable importing .json files */
         "resolveJsonModule": true,
+        "esModuleInterop": true,
         /* Allow JavaScript files to be a part of your program. Use the `checkJS` option to get errors from these files. */
         "allowJs": true,
         /* Enable error reporting in type-checked JavaScript files. */
@@ -50,6 +51,9 @@
             ],
             "@shvm/recorder": [
                 "./libs/recorder/src/index.ts"
+            ],
+            "@shvm/monorail": [
+                "./libs/monorail/src/index.ts"
             ]
         }
     },

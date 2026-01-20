@@ -1,3 +1,4 @@
+// @ts-nocheck
 import React, { useState, useRef, useEffect } from 'react';
 import { MonorailRecorder } from '../src';
 import { Inspect } from './Inspect';

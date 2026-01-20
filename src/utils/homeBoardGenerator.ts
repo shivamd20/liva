@@ -140,7 +140,7 @@ export const createBoardCard = (board: Board, index: number, startY: number): Ex
     const card = createRectangle(x, y, 200, 80, '#f0f0f0', '#cccccc', cardId);
     // @ts-ignore
     card.link = `/board/${board.id}`;
-    card.locked = true;
+    (card as any).locked = true;
 
     // Truncate title if too long
     const maxTitleLength = 20;
