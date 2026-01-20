@@ -36,6 +36,7 @@ import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
+import { MonorailRecorder } from '../../libs/monorail/src';
 
 interface BoardEditorProps {
   board: Board;
@@ -80,9 +81,146 @@ export function BoardEditor({
 
   // ... imports
 
+
   const { registerCommand, unregisterCommand } = useCommandMenu();
 
+  // Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
 
+  const recorderRef = useRef<MonorailRecorder | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const excalidrawContainerRef = useRef<HTMLDivElement | null>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isRecording && recordingStartTime) {
+      interval = setInterval(() => {
+        setRecordingDuration(Math.floor((Date.now() - recordingStartTime) / 1000));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isRecording, recordingStartTime]);
+
+  const toggleMute = useCallback(() => {
+    if (cameraStreamRef.current) {
+      const audioTracks = cameraStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsMuted(prev => !prev);
+    }
+  }, []);
+
+  const toggleVideo = useCallback(() => {
+    if (cameraStreamRef.current) {
+      const videoTracks = cameraStreamRef.current.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !track.enabled;
+      });
+      setIsVideoEnabled(prev => !prev);
+    }
+  }, []);
+
+  const startRecording = async () => {
+    try {
+      console.log("Starting recording...");
+      // 1. Create Session
+      const res = await fetch('/api/v1/monorail.createSession', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: undefined })
+      });
+      if (!res.ok) throw new Error("Failed to create session");
+      const responseData = await res.json() as any;
+      const session = responseData.result.data;
+
+      setRecordingSessionId(session.id);
+
+      // 2. Setup Recorder
+      const recorder = new MonorailRecorder({
+        sessionId: session.id,
+        getUploadUrl: async (index) => {
+          return `/api/monorail/session/${session.id}/upload/${index}`;
+        }
+      });
+
+      // 3. Media
+      const cameraStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+      cameraStreamRef.current = cameraStream;
+
+      if (excalidrawContainerRef.current) {
+        await recorder.addContainer(excalidrawContainerRef.current);
+      }
+
+      recorder.addCamera(cameraStream);
+
+      await recorder.start();
+      recorderRef.current = recorder;
+
+      // Preview
+      if (previewVideoRef.current) {
+        const stream = recorder.getStream();
+        if (stream) {
+          previewVideoRef.current.srcObject = stream;
+          previewVideoRef.current.play().catch(e => console.error("Preview play failed", e));
+        }
+      }
+
+      setIsRecording(true);
+      setRecordingStartTime(Date.now());
+      setIsVideoEnabled(true);
+      setIsMuted(false);
+      toast.success("Recording started");
+
+    } catch (e) {
+      console.error("Recording error:", e);
+      toast.error("Failed to start recording: " + (e as Error).message);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!recorderRef.current) return;
+    try {
+      const sessionId = recordingSessionId;
+      await recorderRef.current.stop();
+
+      // Stop camera tracks
+      if (cameraStreamRef.current) {
+        cameraStreamRef.current.getTracks().forEach(track => track.stop());
+        cameraStreamRef.current = null;
+      }
+
+      recorderRef.current = null;
+      setIsRecording(false);
+      setRecordingStartTime(null);
+      setRecordingDuration(0);
+
+      if (previewVideoRef.current) {
+        previewVideoRef.current.srcObject = null;
+      }
+
+      if (sessionId) {
+        await fetch('/api/v1/monorail.finalizeSession', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId })
+        });
+        toast.success("Recording saved!");
+      }
+    } catch (e) {
+      console.error("Stop error:", e);
+      toast.error("Error stopping recording");
+    }
+  };
 
 
   // Use the library for syncing
@@ -243,13 +381,25 @@ export function BoardEditor({
           isChatOpen={activePanelTab === 'conversation'}
           onBack={onBack || (() => { })}
           onTitleChange={onTitleChange || (() => { })}
+
+          isRecording={isRecording}
+          onStartRecording={startRecording}
+          onStopRecording={stopRecording}
+          recordingDuration={recordingDuration}
+          onToggleMute={toggleMute}
+          isMuted={isMuted}
+          onToggleVideo={toggleVideo}
+          isVideoEnabled={isVideoEnabled}
+          recordingSessionId={recordingSessionId}
         />
 
         <div className="flex-1 relative flex overflow-hidden w-full h-full">
-          <div className={cn(
-            "h-full transition-all duration-300 ease-in-out relative",
-            (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
-          )}>
+          <div
+            ref={excalidrawContainerRef}
+            className={cn(
+              "h-full transition-all duration-300 ease-in-out relative",
+              (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
+            )}>
             <Excalidraw
               viewModeEnabled={!!(board.expiresAt && Date.now() > board.expiresAt)}
               excalidrawAPI={(api) => setExcalidrawAPI(api)}
@@ -268,6 +418,19 @@ export function BoardEditor({
               onLinkOpen={onLinkOpen}
             >
             </Excalidraw>
+
+            {/* Live Preview */}
+            <div className={cn(
+              "absolute bottom-4 right-4 z-50 w-64 aspect-video bg-black rounded-lg overflow-hidden shadow-lg border border-neutral-800 transition-all duration-300",
+              isRecording ? "opacity-100 translate-y-0" : "opacity-0 translate-y-10 pointer-events-none"
+            )}>
+              <video
+                ref={previewVideoRef}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+              />
+            </div>
           </div>
 
           <div className={cn(

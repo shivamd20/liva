@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Board } from '../types';
 import { cn } from '../lib/utils';
-import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft } from 'lucide-react';
+import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft, Mic, MicOff, Video, VideoOff, Square, Circle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -33,6 +33,17 @@ interface TopBarProps {
     isChatOpen: boolean;
     onBack: () => void;
     onTitleChange: (newTitle: string) => void;
+
+    // Recording props
+    isRecording?: boolean;
+    onStartRecording?: () => void;
+    onStopRecording?: () => void;
+    recordingDuration?: number; // in seconds
+    onToggleMute?: () => void;
+    isMuted?: boolean;
+    onToggleVideo?: () => void;
+    isVideoEnabled?: boolean;
+    recordingSessionId?: string | null;
 }
 
 export function TopBar({
@@ -44,7 +55,17 @@ export function TopBar({
     isShareOpen,
     isChatOpen,
     onBack,
-    onTitleChange
+    onTitleChange,
+
+    isRecording = false,
+    onStartRecording,
+    onStopRecording,
+    recordingDuration = 0,
+    onToggleMute,
+    isMuted = false,
+    onToggleVideo,
+    isVideoEnabled = true,
+    recordingSessionId
 }: TopBarProps) {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [status, setStatus] = useState<'in_progress' | 'expired' | 'submitted'>('in_progress');
@@ -79,6 +100,12 @@ export function TopBar({
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     };
 
+    const formatDuration = (totalSeconds: number) => {
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
     const getTimerColor = (ms: number | null) => {
         if (ms === null) return 'text-neutral-500';
         const minutes = ms / 1000 / 60;
@@ -103,9 +130,9 @@ export function TopBar({
     };
 
     return (
-        <div className="h-12 w-full relative  flex items-center justify-between px-4 select-none bg-white/80 dark:bg-neutral-950/80 backdrop-blur-md border-b border-neutral-200/50 dark:border-neutral-800/50 transition-all duration-300">
+        <div className="h-12 w-full relative flex items-center justify-between px-4 select-none bg-white/80 dark:bg-neutral-950/80 backdrop-blur-md border-b border-neutral-200/50 dark:border-neutral-800/50 transition-all duration-300">
             {/* 1. Left: Back, Hamburger & Title */}
-            <div className="flex-1 flex items-center gap-2  mr-4">
+            <div className="flex-1 flex items-center gap-2 mr-4">
                 <Button
                     variant="ghost"
                     size="icon"
@@ -189,6 +216,68 @@ export function TopBar({
 
             {/* 3. Right: Controls & Status */}
             <div className="flex-1 flex justify-end items-center gap-3">
+                {/* Recording Controls */}
+                <div className="flex items-center gap-2 mr-2">
+                    {isRecording ? (
+                        <>
+                            <div className="flex items-center gap-2 px-2 py-1 bg-red-50 dark:bg-red-950/30 rounded-md border border-red-100 dark:border-red-900/50">
+                                <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                                <span className="text-xs font-mono font-medium text-red-600 dark:text-red-400 tabular-nums">
+                                    {formatDuration(recordingDuration)}
+                                </span>
+                            </div>
+
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onToggleMute}
+                                className={cn("h-8 w-8", isMuted && "text-red-500")}
+                                title={isMuted ? "Unmute" : "Mute"}
+                            >
+                                {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                            </Button>
+
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={onToggleVideo}
+                                className={cn("h-8 w-8", !isVideoEnabled && "text-red-500")}
+                                title={isVideoEnabled ? "Turn off video" : "Turn on video"}
+                            >
+                                {isVideoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+                            </Button>
+
+                            <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={onStopRecording}
+                                className="h-8 px-3 gap-2"
+                            >
+                                <Square className="h-3 w-3 fill-current" />
+                                <span className="hidden sm:inline">Stop</span>
+                            </Button>
+
+                            {recordingSessionId && (
+                                <div className="hidden lg:block text-[10px] text-neutral-400 font-mono">
+                                    ID: {recordingSessionId.slice(0, 8)}...
+                                </div>
+                            )}
+                        </>
+                    ) : (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={onStartRecording}
+                            className="h-8 gap-2 text-neutral-600 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50"
+                        >
+                            <div className="w-2 h-2 rounded-full bg-red-600" />
+                            <span className="hidden sm:inline">Record</span>
+                        </Button>
+                    )}
+                </div>
+
+                <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
+
                 {/* Share Button */}
                 <Button
                     variant="ghost"
