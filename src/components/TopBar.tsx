@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Board } from '../types';
 import { cn } from '../lib/utils';
-import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft, Mic, MicOff, Video, VideoOff, Square, Circle } from 'lucide-react';
+import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft, Mic, MicOff, Video, VideoOff, Square, Circle, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -33,6 +33,7 @@ interface TopBarProps {
     isChatOpen: boolean;
     onBack: () => void;
     onTitleChange: (newTitle: string) => void;
+    onToggleRecordings?: () => void;
 
     // Recording props
     isRecording?: boolean;
@@ -56,6 +57,7 @@ export function TopBar({
     isChatOpen,
     onBack,
     onTitleChange,
+    onToggleRecordings,
 
     isRecording = false,
     onStartRecording,
@@ -303,6 +305,18 @@ export function TopBar({
                 >
                     <MessageCircle className="h-4 w-4" />
                 </Button>
+
+                {onToggleRecordings && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onToggleRecordings}
+                        className="h-8 w-8 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
+                        title="View Recordings"
+                    >
+                        <Clock className="h-4 w-4" />
+                    </Button>
+                )}
 
                 <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
 

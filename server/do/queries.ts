@@ -99,4 +99,28 @@ export const QUERIES = {
   DELETE_HISTORY: `
     DELETE FROM note_history
   `,
+
+  // Recording History operations
+  CREATE_NOTE_RECORDINGS_TABLE: `
+    CREATE TABLE IF NOT EXISTS note_recordings(
+      session_id TEXT PRIMARY KEY,
+      duration INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      title TEXT
+    );
+  `,
+
+  CREATE_RECORDINGS_INDEX: `
+    CREATE INDEX IF NOT EXISTS idx_recordings_created_at
+    ON note_recordings(created_at);
+  `,
+
+  INSERT_RECORDING: `
+    INSERT INTO note_recordings(session_id, duration, created_at, title)
+    VALUES(?, ?, ?, ?)
+  `,
+
+  GET_RECORDINGS: `
+    SELECT * FROM note_recordings ORDER BY created_at DESC
+  `,
 } as const;

@@ -9,6 +9,14 @@ import {
 	updateNoteInput,
 	type NoteCurrent,
 } from "./types";
+import { z } from "zod";
+
+export const addRecordingInput = z.object({
+	id: z.string(),
+	sessionId: z.string(),
+	duration: z.number(),
+	title: z.string().optional(),
+});
 
 export const notesRouter = router({
 	// --- Mutations ---
@@ -38,6 +46,11 @@ export const notesRouter = router({
 		return await service.toggleShare(input.id, ctx.userId);
 	}),
 
+	addRecording: publicProcedure.input(addRecordingInput).mutation(async ({ input, ctx }) => {
+		const service = new NotesServiceDO(ctx.env);
+		return await service.addRecording(input.id, input.sessionId, input.duration, input.title);
+	}),
+
 	// --- Queries ---
 
 	getNote: publicProcedure.input(idInput).query(async ({ input, ctx }) => {
@@ -58,6 +71,11 @@ export const notesRouter = router({
 	getVersion: publicProcedure.input(getVersionInput).query(async ({ input, ctx }) => {
 		const service = new NotesServiceDO(ctx.env);
 		return await service.getVersion(input.id, input.version);
+	}),
+
+	getRecordings: publicProcedure.input(idInput).query(async ({ input, ctx }) => {
+		const service = new NotesServiceDO(ctx.env);
+		return await service.getRecordings(input.id);
 	}),
 
 	// --- Subscriptions ---

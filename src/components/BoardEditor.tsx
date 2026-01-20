@@ -37,6 +37,7 @@ import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
 import { MonorailRecorder } from '../../libs/monorail/src';
+import { RecordingsDialog } from './RecordingsDialog';
 
 interface BoardEditorProps {
   board: Board;
@@ -91,6 +92,7 @@ export function BoardEditor({
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isRecordingsOpen, setIsRecordingsOpen] = useState(false);
 
   const recorderRef = useRef<MonorailRecorder | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -214,6 +216,15 @@ export function BoardEditor({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ sessionId })
         });
+
+        // Save to board history
+        await trpcClient.addRecording.mutate({
+          id: board.id,
+          sessionId,
+          duration: recordingDuration,
+          title: `Recording ${new Date().toLocaleString()}`
+        });
+
         toast.success("Recording saved!");
       }
     } catch (e) {
@@ -382,6 +393,8 @@ export function BoardEditor({
           onBack={onBack || (() => { })}
           onTitleChange={onTitleChange || (() => { })}
 
+          onToggleRecordings={() => setIsRecordingsOpen(true)}
+
           isRecording={isRecording}
           onStartRecording={startRecording}
           onStopRecording={stopRecording}
@@ -397,7 +410,7 @@ export function BoardEditor({
           <div
             ref={excalidrawContainerRef}
             className={cn(
-              "h-full transition-all duration-300 ease-in-out relative",
+              "h-full transition-all duration-300 ease-in-out relative bg-white dark:bg-neutral-950",
               (activePanelTab && isPanelPinned) ? "flex-1 w-[calc(100%-400px)]" : "w-full"
             )}>
             <Excalidraw
@@ -448,6 +461,12 @@ export function BoardEditor({
             />
           </div>
         </div>
+
+        <RecordingsDialog
+          open={isRecordingsOpen}
+          onOpenChange={setIsRecordingsOpen}
+          boardId={board.id}
+        />
       </div >
     </SpeechProvider >
   );

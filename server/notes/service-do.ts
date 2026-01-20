@@ -120,7 +120,7 @@ export class NotesServiceDO {
 		const indexStub = this.getIndexStub();
 
 		// Check permissions before updating
-		const existing = await stub.getNote();
+		const existing = (await stub.getNote()) as unknown as NoteCurrent | null;
 		if (!existing) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
 		}
@@ -170,8 +170,8 @@ export class NotesServiceDO {
 		const stub = this.getStub(id);
 		const indexStub = this.getIndexStub();
 
-		// Check permissions
-		const existing = await stub.getNote();
+		// Check permissions before updating
+		const existing = (await stub.getNote()) as unknown as NoteCurrent | null;
 		if (!existing) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
 		}
@@ -217,7 +217,7 @@ export class NotesServiceDO {
 		const indexStub = this.getIndexStub();
 
 		// Check if note exists and user has permission
-		const note = (await stub.getNote()) as NoteCurrent | null;
+		const note = (await stub.getNote()) as unknown as NoteCurrent | null;
 		if (!note) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
 		}
@@ -237,7 +237,7 @@ export class NotesServiceDO {
 
 	async getNote(id: string, userId: string) {
 		const stub = this.getStub(id);
-		const note = (await stub.getNote()) as NoteCurrent | null;
+		const note = (await stub.getNote()) as unknown as NoteCurrent | null;
 
 		if (note) {
 			const isOwner = note.userId === userId;
@@ -255,7 +255,7 @@ export class NotesServiceDO {
 	async toggleShare(id: string, userId: string) {
 		const stub = this.getStub(id);
 
-		const note = (await stub.getNote()) as NoteCurrent | null;
+		const note = (await stub.getNote()) as unknown as NoteCurrent | null;
 		if (!note) {
 			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
 		}
@@ -286,5 +286,22 @@ export class NotesServiceDO {
 	async getVersion(id: string, version: number) {
 		const stub = this.getStub(id);
 		return await stub.getVersion(version);
+	}
+
+	async addRecording(id: string, sessionId: string, duration: number, title?: string) {
+		const stub = this.getStub(id);
+		// We cast as any because stub methods aren't auto-generated in this setup
+		await (stub as any).addRecording({ sessionId, duration, title });
+		return { success: true };
+	}
+
+	async getRecordings(id: string) {
+		const stub = this.getStub(id);
+		return await (stub as any).getRecordings() as Array<{
+			sessionId: string;
+			duration: number;
+			createdAt: number;
+			title: string | null;
+		}>;
 	}
 }

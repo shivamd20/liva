@@ -436,6 +436,30 @@ export class NoteDurableObject extends DurableObject {
         await this.history.deleteAll();
 
         // Broadcast delete and close all connections
+        // Broadcast delete and close all connections
         this.wsManager.broadcastDelete(current?.id ?? "deleted");
+    }
+
+    /**
+     * Add a recording
+     */
+    async addRecording(params: {
+        sessionId: string;
+        duration: number;
+        title?: string;
+    }): Promise<void> {
+        this.db.addRecording(params);
+    }
+
+    /**
+     * Get recordings
+     */
+    async getRecordings(): Promise<Array<{
+        sessionId: string;
+        duration: number;
+        createdAt: number;
+        title: string | null;
+    }>> {
+        return this.db.getRecordings();
     }
 }

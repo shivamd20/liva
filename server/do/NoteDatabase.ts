@@ -40,6 +40,10 @@ export class NoteDatabase {
         } catch (e) {
             // Column already exists, ignore
         }
+
+        // Initialize Recordings Table
+        this.sql.exec(QUERIES.CREATE_NOTE_RECORDINGS_TABLE);
+        this.sql.exec(QUERIES.CREATE_RECORDINGS_INDEX);
     }
 
     /**
@@ -236,5 +240,40 @@ export class NoteDatabase {
      */
     deleteHistory(): void {
         this.sql.exec(QUERIES.DELETE_HISTORY);
+    }
+
+    /**
+     * Add a recording to the note
+     */
+    addRecording(params: {
+        sessionId: string;
+        duration: number;
+        title?: string;
+    }): void {
+        this.sql.exec(
+            QUERIES.INSERT_RECORDING,
+            params.sessionId,
+            params.duration,
+            Date.now(),
+            params.title || null
+        );
+    }
+
+    /**
+     * Get all recordings for this note
+     */
+    getRecordings(): Array<{
+        sessionId: string;
+        duration: number;
+        createdAt: number;
+        title: string | null;
+    }> {
+        const results = this.sql.exec(QUERIES.GET_RECORDINGS).toArray();
+        return results.map((row: any) => ({
+            sessionId: row.session_id,
+            duration: row.duration,
+            createdAt: row.created_at,
+            title: row.title,
+        }));
     }
 }
