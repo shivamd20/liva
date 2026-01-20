@@ -11,16 +11,15 @@ import { X, AlertTriangle, Copy, Plus } from "lucide-react"
 import { HistoryModal } from "../HistoryModal"
 import { useSession } from "../../lib/auth-client"
 import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
-import { TemplateSelection } from "./TemplateSelection"
 
 export default function BoardsPage() {
   const { data: boards = [], isLoading } = useBoards()
   const { data: session } = useSession()
-  const createBoard = useCreateBoard()
   const updateBoard = useUpdateBoard()
   const deleteBoard = useDeleteBoard()
   const duplicateBoard = useDuplicateBoard()
   const navigate = useNavigate()
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [filter, setFilter] = useState<"all" | "owned" | "shared" | "recent">("all")
@@ -28,24 +27,6 @@ export default function BoardsPage() {
   const [searchQuery, setSearchQuery] = useState("")
 
   // Modal states
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
-
-  // Check for create param
-  useEffect(() => {
-    if (searchParams.get("create") === "true") {
-      setIsCreateModalOpen(true)
-      const templateId = searchParams.get("templateId")
-      if (templateId) {
-        setSelectedTemplateId(templateId)
-      }
-      // Optional: Clear the param so it doesn't persist
-      setSearchParams(params => {
-        params.delete("create")
-        params.delete("templateId")
-        return params
-      })
-    }
-  }, [searchParams, setSearchParams])
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false)
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
@@ -58,62 +39,17 @@ export default function BoardsPage() {
   const [boardForHistory, setBoardForHistory] = useState<{ id: string; title: string } | null>(null)
 
   // Input states
-  const [newBoardTitle, setNewBoardTitle] = useState("")
-  const [expiresInHours, setExpiresInHours] = useState(0)
   const [renameTitle, setRenameTitle] = useState("")
   const [duplicateTitle, setDuplicateTitle] = useState("")
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
 
-  // Filter and sort boards
-  const filteredBoards = boards
-    .filter((board) => {
-      if (searchQuery) {
-        return board.title.toLowerCase().includes(searchQuery.toLowerCase())
-      }
-      switch (filter) {
-        case "owned":
-          return session?.user?.id ? board.userId === session.user.id : true
-        case "shared":
-          return session?.user?.id ? board.userId !== session.user.id : false
-        case "recent":
-          // Show boards from last 7 days
-          const weekAgo = new Date()
-          weekAgo.setDate(weekAgo.getDate() - 7)
-          return new Date(board.updatedAt) > weekAgo
-        default:
-          return true
-      }
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "alphabetical":
-          return a.title.localeCompare(b.title)
-        case "lastUpdated":
-        case "lastOpened":
-        default:
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      }
-    })
-
-  const isEmpty = boards.length === 0
+  // Check for create param and redirect if needed (legacy support or deep links)
+  useEffect(() => {
+    if (searchParams.get("create") === "true") {
+      navigate('/new', { replace: true });
+    }
+  }, [searchParams, navigate]);
 
   // Handlers
-  const handleCreateSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newBoardTitle.trim()) return
-
-    createBoard.mutate({ title: newBoardTitle.trim(), expiresInHours, templateId: selectedTemplateId ?? undefined }, {
-      onSuccess: (newBoard) => {
-        setIsCreateModalOpen(false)
-        setNewBoardTitle("")
-        setExpiresInHours(0)
-        setSelectedTemplateId(null)
-        mixpanelService.track(MixpanelEvents.BOARD_CREATE, { boardId: newBoard.id, templateId: selectedTemplateId });
-        navigate(`/board/${newBoard.id}`)
-      }
-    })
-  }
-
   const handleRenameClick = (board: Board) => {
     setBoardToRename(board)
     setRenameTitle(board.title || "Untitled")
@@ -174,6 +110,39 @@ export default function BoardsPage() {
     setIsHistoryModalOpen(true)
   }
 
+  // Filter and sort boards
+  const filteredBoards = boards
+    .filter((board) => {
+      if (searchQuery) {
+        return board.title.toLowerCase().includes(searchQuery.toLowerCase())
+      }
+      switch (filter) {
+        case "owned":
+          return session?.user?.id ? board.userId === session.user.id : true
+        case "shared":
+          return session?.user?.id ? board.userId !== session.user.id : false
+        case "recent":
+          // Show boards from last 7 days
+          const weekAgo = new Date()
+          weekAgo.setDate(weekAgo.getDate() - 7)
+          return new Date(board.updatedAt) > weekAgo
+        default:
+          return true
+      }
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "alphabetical":
+          return a.title.localeCompare(b.title)
+        case "lastUpdated":
+        case "lastOpened":
+        default:
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      }
+    })
+
+  const isEmpty = boards.length === 0
+
   if (isLoading) {
     return (
       <div className="flex w-screen items-center justify-center h-screen bg-background">
@@ -207,7 +176,7 @@ export default function BoardsPage() {
               {!isEmpty && (
                 <button
                   className="group relative inline-flex items-center gap-2.5 px-6 py-3.5 text-base font-semibold text-primary-foreground rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
-                  onClick={() => setIsCreateModalOpen(true)}
+                  onClick={() => navigate('/new')}
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl transition-transform duration-300 group-hover:scale-105" />
                   <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
@@ -221,13 +190,13 @@ export default function BoardsPage() {
           </section>
 
           {isEmpty ? (
-            <EmptyState onCreateClick={() => setIsCreateModalOpen(true)} />
+            <EmptyState onCreateClick={() => navigate('/new')} />
           ) : (
             <>
               <BoardsFilters filter={filter} onFilterChange={setFilter} sortBy={sortBy} onSortChange={setSortBy} />
               <BoardsGrid
                 boards={filteredBoards}
-                onCreateClick={() => setIsCreateModalOpen(true)}
+                onCreateClick={() => navigate('/new')}
                 onRename={handleRenameClick}
                 onDelete={handleDeleteClick}
                 onDuplicate={handleDuplicateClick}
@@ -237,97 +206,6 @@ export default function BoardsPage() {
           )}
         </div>
       </main>
-
-      {/* Create Board Modal */}
-      <Dialog.Root open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
-            <div className="flex justify-between items-center mb-4">
-              <Dialog.Title className="text-xl font-bold text-gray-900">Create New Board</Dialog.Title>
-              <Dialog.Close asChild>
-                <button className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-              </Dialog.Close>
-            </div>
-
-            <form onSubmit={handleCreateSubmit} className="space-y-4">
-              <div className="max-h-[60vh] overflow-y-auto px-1">
-                <div className="mb-4">
-                  <label htmlFor="boardTitle" className="block text-sm font-medium text-gray-700 mb-1">
-                    Board Title
-                  </label>
-                  <input
-                    id="boardTitle"
-                    type="text"
-                    value={newBoardTitle}
-                    onChange={(e) => setNewBoardTitle(e.target.value)}
-                    placeholder="e.g., Project Roadmap"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
-                    autoFocus
-                  />
-                </div>
-
-                <div className="mb-4">
-                  <label htmlFor="expiresIn" className="block text-sm font-medium text-gray-700 mb-1">
-                    Expiration
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="expiresIn"
-                      value={expiresInHours}
-                      onChange={(e) => setExpiresInHours(Number(e.target.value))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900 appearance-none bg-white"
-                    >
-                      <option value={0}>Never Expires</option>
-                      <option value={1}>1 Hour</option>
-                      <option value={2}>2 Hours</option>
-                      <option value={6}>6 Hours</option>
-                      <option value={12}>12 Hours</option>
-                      <option value={24}>24 Hours</option>
-                      <option value={168}>1 Week</option>
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center px-2 pointer-events-none">
-                      <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mb-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Choose a Template
-                  </label>
-                  <TemplateSelection
-                    selectedTemplateId={selectedTemplateId}
-                    onSelect={setSelectedTemplateId}
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 mt-6 pt-2 border-t border-gray-100">
-                <Dialog.Close asChild>
-                  <button
-                    type="button"
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </Dialog.Close>
-                <button
-                  type="submit"
-                  disabled={!newBoardTitle.trim() || createBoard.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
-                >
-                  {createBoard.isPending ? 'Creating...' : 'Create Board'}
-                </button>
-              </div>
-            </form>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
 
       {/* Delete Confirmation Modal */}
       <Dialog.Root open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>

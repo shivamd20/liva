@@ -131,7 +131,7 @@ export function BoardEditor({
 
   const startRecording = async () => {
     try {
-      console.log("Starting recording...");
+      console.log("[Recording] Starting recording...");
       // 1. Create Session
       const res = await fetch('/api/v1/monorail.createSession', {
         method: 'POST',
@@ -144,7 +144,30 @@ export function BoardEditor({
 
       setRecordingSessionId(session.id);
 
-      // 2. Setup Recorder
+      // 2. Associate recording with board IMMEDIATELY
+      console.log('[Recording] Associating with board:', {
+        boardId: board.id,
+        sessionId: session.id
+      });
+
+      try {
+        await trpcClient.addRecording.mutate({
+          id: board.id,
+          sessionId: session.id,
+          duration: 0, // Will be updated on finalization
+          title: `Recording ${new Date().toLocaleString()}`
+        });
+        console.log('[Recording] Successfully associated with board');
+
+        // Invalidate recordings list to show the new (in-progress) recording
+        await queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
+      } catch (associateError) {
+        console.error('[Recording] Failed to associate with board:', associateError);
+        // Don't fail the recording start, but log it
+        toast.error("Recording started but not linked to board");
+      }
+
+      // 3. Setup Recorder
       const recorder = new MonorailRecorder({
         sessionId: session.id,
         getUploadUrl: async (index) => {
@@ -152,7 +175,7 @@ export function BoardEditor({
         }
       });
 
-      // 3. Media
+      // 4. Media
       const cameraStream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true
@@ -184,7 +207,7 @@ export function BoardEditor({
       toast.success("Recording started");
 
     } catch (e) {
-      console.error("Recording error:", e);
+      console.error("[Recording] Start error:", e);
       toast.error("Failed to start recording: " + (e as Error).message);
     }
   };
@@ -193,6 +216,9 @@ export function BoardEditor({
     if (!recorderRef.current) return;
     try {
       const sessionId = recordingSessionId;
+      const finalDuration = recordingDuration;
+
+      console.log('[Recording] Stopping recorder...');
       await recorderRef.current.stop();
 
       // Stop camera tracks
@@ -211,24 +237,43 @@ export function BoardEditor({
       }
 
       if (sessionId) {
-        await fetch('/api/v1/monorail.finalizeSession', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sessionId })
-        });
+        try {
+          console.log('[Recording] Signaling stop to Durable Object...');
 
-        // Save to board history
-        await trpcClient.addRecording.mutate({
-          id: board.id,
-          sessionId,
-          duration: recordingDuration,
-          title: `Recording ${new Date().toLocaleString()}`
-        });
+          // Signal stop to the Durable Object
+          // This sets a 5-second alarm that will automatically finalize the session
+          // after all pending uploads complete (avoiding race conditions)
+          await trpcClient.monorail.signalStop.mutate({ sessionId });
 
-        toast.success("Recording saved!");
+          console.log('[Recording] Stop signal sent. Session will auto-finalize after pending uploads.');
+
+          console.log('[Recording] Updating recording duration:', {
+            boardId: board.id,
+            sessionId,
+            duration: finalDuration
+          });
+
+          // Update the recording with final duration
+          await trpcClient.addRecording.mutate({
+            id: board.id,
+            sessionId,
+            duration: finalDuration,
+            title: `Recording ${new Date().toLocaleString()}`
+          });
+
+          console.log('[Recording] Recording updated successfully');
+
+          await queryClient.invalidateQueries({ queryKey: ['board', board.id] });
+          await queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
+
+          toast.success("Recording saved! Processing...");
+        } catch (saveError) {
+          console.error('[Recording] Failed to finalize/save recording:', saveError);
+          toast.error("Recording completed but failed to save to board");
+        }
       }
     } catch (e) {
-      console.error("Stop error:", e);
+      console.error("[Recording] Stop error:", e);
       toast.error("Error stopping recording");
     }
   };
@@ -366,25 +411,11 @@ export function BoardEditor({
     setActivePanelTab(current => current === tab ? null : tab);
   };
 
-  const handleBoardSubmit = () => {
-    // Placeholder implementation for now
-    alert("Board submitted! (This is a placeholder)");
-  };
-
-  const { data: template } = useQuery({
-    queryKey: ['template', board.templateId],
-    queryFn: () => trpcClient.templates.get.query({ id: board.templateId! }),
-    enabled: !!board.templateId
-  });
-
-  console.log(template);
-
   return (
-    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef} systemInstruction={template?.content}>
+    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef}>
       <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
         <TopBar
           board={board}
-          onSubmit={handleBoardSubmit}
           menuItems={menuItems || []}
           onToggleShare={() => togglePanel('share')}
           onToggleChat={() => togglePanel('conversation')}

@@ -12,8 +12,21 @@ export const monorailRouter = router({
             return await stub.createSession(id);
         }),
 
+    /**
+     * Signal that recording has stopped
+     * Sets a short alarm for automatic finalization after pending uploads complete
+     */
+    signalStop: publicProcedure
+        .input(z.object({ sessionId: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+            const idObj = ctx.env.MONORAIL_SESSION_DO.idFromName(input.sessionId);
+            const stub = ctx.env.MONORAIL_SESSION_DO.get(idObj);
+            return await stub.signalStop();
+        }),
 
-
+    /**
+     * @deprecated Use signalStop instead
+     */
     finalizeSession: publicProcedure
         .input(z.object({ sessionId: z.string() }))
         .mutation(async ({ ctx, input }) => {

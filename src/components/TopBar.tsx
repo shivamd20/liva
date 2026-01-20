@@ -25,7 +25,6 @@ export interface TopBarMenuItem {
 
 interface TopBarProps {
     board: Board;
-    onSubmit: () => void;
     menuItems: TopBarMenuItem[];
     onToggleShare: () => void;
     onToggleChat: () => void;
@@ -49,7 +48,6 @@ interface TopBarProps {
 
 export function TopBar({
     board,
-    onSubmit,
     menuItems,
     onToggleShare,
     onToggleChat,
@@ -70,7 +68,6 @@ export function TopBar({
     recordingSessionId
 }: TopBarProps) {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
-    const [status, setStatus] = useState<'in_progress' | 'expired' | 'submitted'>('in_progress');
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [tempTitle, setTempTitle] = useState(board.title);
 
@@ -84,16 +81,11 @@ export function TopBar({
         const interval = setInterval(() => {
             const now = Date.now();
             const remaining = Math.max(0, board.expiresAt! - now);
-
             setTimeLeft(remaining);
-
-            if (remaining <= 0 && status !== 'submitted') {
-                setStatus('expired');
-            }
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [board.expiresAt, status]);
+    }, [board.expiresAt]);
 
     const formatTime = (ms: number) => {
         const totalSeconds = Math.floor(ms / 1000);
@@ -114,12 +106,6 @@ export function TopBar({
         if (minutes < 2) return 'text-red-600'; // Danger
         if (minutes < 10) return 'text-yellow-600'; // Warning
         return 'text-neutral-900 dark:text-neutral-100'; // Normal
-    };
-
-    const displayStatus = () => {
-        if (status === 'submitted') return 'Submitted';
-        if (status === 'expired') return 'Expired';
-        return 'In Progress';
     };
 
     const handleTitleSubmit = () => {
@@ -206,17 +192,7 @@ export function TopBar({
                 )}
             </div>
 
-            {/* 2. Center: Timer */}
-            <div className="flex-none flex justify-center items-center absolute left-1/2 -translate-x-1/2 pointer-events-none">
-                <div className={cn(
-                    "text-xl font-medium font-mono tracking-tight tabular-nums transition-colors duration-300 opacity-90",
-                    getTimerColor(timeLeft)
-                )}>
-                    {timeLeft !== null ? formatTime(timeLeft) : "--:--"}
-                </div>
-            </div>
-
-            {/* 3. Right: Controls & Status */}
+            {/* 2. Right: Controls */}
             <div className="flex-1 flex justify-end items-center gap-3">
                 {/* Recording Controls */}
                 <div className="flex items-center gap-2 mr-2">
@@ -258,12 +234,6 @@ export function TopBar({
                                 <Square className="h-3 w-3 fill-current" />
                                 <span className="hidden sm:inline">Stop</span>
                             </Button>
-
-                            {recordingSessionId && (
-                                <div className="hidden lg:block text-[10px] text-neutral-400 font-mono">
-                                    ID: {recordingSessionId.slice(0, 8)}...
-                                </div>
-                            )}
                         </>
                     ) : (
                         <Button
@@ -318,24 +288,15 @@ export function TopBar({
                     </Button>
                 )}
 
-                <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
-
-                {/* Status */}
-                <div className={cn(
-                    "hidden sm:block text-xs font-medium tracking-wide uppercase",
-                    status === 'in_progress' ? "text-emerald-600 dark:text-emerald-500" : "text-neutral-500"
-                )}>
-                    {displayStatus()}
-                </div>
-
-                {/* Submit */}
-                <button
-                    onClick={onSubmit}
-                    className="px-3 py-1.5 bg-neutral-900 text-white dark:bg-white dark:text-neutral-900 rounded-md text-xs font-medium hover:opacity-90 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-                    disabled={status !== 'in_progress'}
-                >
-                    Submit
-                </button>
+                {/* Subtle expiry indicator in top-right */}
+                {board.expiresAt && timeLeft !== null && (
+                    <div className={cn(
+                        "text-[10px] font-mono tabular-nums transition-colors px-2 py-1 rounded",
+                        getTimerColor(timeLeft)
+                    )} title="Time remaining">
+                        {formatTime(timeLeft)}
+                    </div>
+                )}
             </div>
         </div>
     );

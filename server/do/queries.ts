@@ -116,7 +116,7 @@ export const QUERIES = {
   `,
 
   INSERT_RECORDING: `
-    INSERT INTO note_recordings(session_id, duration, created_at, title)
+    INSERT OR REPLACE INTO note_recordings(session_id, duration, created_at, title)
     VALUES(?, ?, ?, ?)
   `,
 

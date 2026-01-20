@@ -109,7 +109,7 @@ export class MonorailRecorder {
         this.mediaRecorder.start(2000); // 2 second chunks
     }
 
-    stop() {
+    async stop() {
         if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
             this.mediaRecorder.stop();
         }

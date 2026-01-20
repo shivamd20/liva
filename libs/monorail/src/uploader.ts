@@ -18,6 +18,27 @@ export class MonorailUploader {
         this.processQueue();
     }
 
+    /**
+     * Wait for all pending uploads to complete
+     * Returns a promise that resolves when queue is empty
+     */
+    async waitForPendingUploads(timeoutMs: number = 30000): Promise<void> {
+        const startTime = Date.now();
+
+        while (this.queue.length > 0 || this.uploading) {
+            if (Date.now() - startTime > timeoutMs) {
+                throw new Error(`Upload timeout: ${this.queue.length} chunks still pending`);
+            }
+
+            // Wait 100ms before checking again
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        if (this.failed) {
+            throw new Error('Upload failed');
+        }
+    }
+
     private async processQueue() {
         if (this.uploading || this.queue.length === 0 || this.failed) return;
 

@@ -24,7 +24,10 @@ export function useBoard(id: string | undefined) {
   });
 }
 
-export function useCreateBoard() {
+export function useCreateBoard(options?: {
+  onSuccess?: (data: Board) => void;
+  onError?: (error: Error) => void;
+}) {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -32,6 +35,10 @@ export function useCreateBoard() {
     onSuccess: (newBoard) => {
       queryClient.setQueryData(['board', newBoard.id], newBoard);
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      options?.onSuccess?.(newBoard);
+    },
+    onError: (error: Error) => {
+      options?.onError?.(error);
     }
   });
 }
