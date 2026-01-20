@@ -16,6 +16,9 @@ export class MonorailRecorder {
     private audioStream: MediaStream | null = null;
     private inputStreams: MediaStream[] = [];
 
+    private activeContainer: HTMLElement | null = null;
+    private containerMouseHandler: ((e: MouseEvent) => void) | null = null;
+
     constructor(options: RecorderOptions) {
         this.compositor = new MonorailCompositor();
         this.uploader = new MonorailUploader({
@@ -30,9 +33,23 @@ export class MonorailRecorder {
         this.compositor.addScreenStream(stream);
     }
 
-    async addCanvas(canvas: HTMLCanvasElement) {
-        this.compositor.addCanvasSource(canvas);
-        // Note: Canvas element itself doesn't provide audio tracks so we don't add to inputStreams here for audio
+    async addContainer(container: HTMLElement) {
+        // Cleanup previous container listener if any
+        this._cleanupContainerListener();
+
+        this.activeContainer = container;
+        this.compositor.addContainerSource(container);
+
+        // Auto-attach mouse listener for pointer tracking
+        this.containerMouseHandler = (e: MouseEvent) => {
+            const rect = container.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            const y = (e.clientY - rect.top) / rect.height;
+            const clampedX = Math.max(0, Math.min(1, x));
+            const clampedY = Math.max(0, Math.min(1, y));
+            this.compositor.updateMouse(clampedX, clampedY);
+        };
+        container.addEventListener('mousemove', this.containerMouseHandler);
     }
 
     async addCamera(stream: MediaStream) {
@@ -96,6 +113,15 @@ export class MonorailRecorder {
         if (this.mediaRecorder && this.mediaRecorder.state !== "inactive") {
             this.mediaRecorder.stop();
         }
+        this._cleanupContainerListener();
         this.compositor.stop();
+    }
+
+    private _cleanupContainerListener() {
+        if (this.activeContainer && this.containerMouseHandler) {
+            this.activeContainer.removeEventListener('mousemove', this.containerMouseHandler);
+            this.containerMouseHandler = null;
+            this.activeContainer = null;
+        }
     }
 }
