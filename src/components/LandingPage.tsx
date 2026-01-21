@@ -1,18 +1,18 @@
 import { Link } from 'react-router-dom';
-import { 
-    LayoutGrid, 
-    Zap, 
-    Link as LinkIcon, 
-    Folder, 
-    Shield, 
-    Github, 
-    Cloud, 
+import {
+    LayoutGrid,
+    Zap,
+    Link as LinkIcon,
+    Folder,
+    Shield,
+    Github,
+    Cloud,
     ArrowRight,
     MousePointer2
 } from 'lucide-react';
 import content from '../landingPage.json';
 import { Button } from '@/components/ui/button';
-    import Navbar from "@/components/navbar"
+import Navbar from "@/components/navbar"
 import Hero from "@/components/hero"
 import ValuePropositions from "@/components/value-propositions"
 import UseCases from "@/components/use-cases"
@@ -33,30 +33,33 @@ const Icons = {
     Cloud
 };
 
-export function LandingPage(){
+export function LandingPageContent() {
+    return (
+        <div className="w-full bg-background overflow-x-hidden">
+            <Hero />
+            <div className="section-divider" />
+            <ValuePropositions />
+            <div className="section-divider" />
+            <UseCases />
+            <div className="section-divider" />
+            <FeaturesSection />
+            <div className="section-divider" />
+            <DataOwnership />
+            <div className="section-divider" />
+            <TechnicalCredibility />
+            <CTASection />
+            <Footer />
+        </div>
+    )
+}
 
-  return (
-    <>
-      <Navbar />
-      <main className="w-full bg-background overflow-x-hidden">
-        <Hero />
-        <div className="section-divider" />
-        <ValuePropositions />
-        <div className="section-divider" />
-        <UseCases />
-        <div className="section-divider" />
-        <FeaturesSection />
-        <div className="section-divider" />
-        <DataOwnership />
-        <div className="section-divider" />
-        <TechnicalCredibility />
-        <CTASection />
-        <Footer />
-      </main>
-    </>
-  )
-
-
+export function LandingPage() {
+    return (
+        <>
+            <Navbar />
+            <LandingPageContent />
+        </>
+    )
 }
 
 
@@ -120,7 +123,7 @@ export function LandingPage_old() {
                                 <div className="absolute bottom-32 left-40 w-32 h-32 bg-yellow-50 border-2 border-yellow-200 shadow-sm transform rotate-3 p-4 font-handwriting text-gray-600">
                                     Don't forget to update the schema!
                                 </div>
-                                
+
                                 {/* Animated Pointers */}
                                 <div className="absolute top-1/3 left-1/3 animate-[float_3s_ease-in-out_infinite]">
                                     <div className="px-2 py-1 bg-blue-500 text-white text-xs rounded rounded-tl-none whitespace-nowrap transform translate-x-3 translate-y-3">
@@ -159,15 +162,15 @@ export function LandingPage_old() {
                             </div>
                         ))}
                     </div>
-                    
+
                     {/* Looping Animation Placeholder */}
                     <div className="w-full max-w-lg mx-auto h-64 bg-white rounded-2xl border border-gray-200 shadow-inner flex items-center justify-center relative overflow-hidden">
-                         <div className="absolute inset-0 flex items-center justify-center opacity-10">
-                             <div className="w-32 h-32 border-4 border-gray-300 rounded-full animate-ping"></div>
-                         </div>
-                         <div className="text-gray-400 font-medium">Realtime Sync Visualization</div>
-                         <MousePointer2 className="absolute top-10 left-10 w-6 h-6 text-[#3B82F6] animate-bounce" />
-                         <MousePointer2 className="absolute bottom-10 right-10 w-6 h-6 text-orange-500 animate-pulse" />
+                        <div className="absolute inset-0 flex items-center justify-center opacity-10">
+                            <div className="w-32 h-32 border-4 border-gray-300 rounded-full animate-ping"></div>
+                        </div>
+                        <div className="text-gray-400 font-medium">Realtime Sync Visualization</div>
+                        <MousePointer2 className="absolute top-10 left-10 w-6 h-6 text-[#3B82F6] animate-bounce" />
+                        <MousePointer2 className="absolute bottom-10 right-10 w-6 h-6 text-orange-500 animate-pulse" />
                     </div>
                 </div>
             </section>
@@ -260,7 +263,7 @@ export function LandingPage_old() {
                     <p className="text-xl text-gray-600 mb-10 max-w-2xl mx-auto leading-relaxed">
                         {content.forEngineers.copy}
                     </p>
-                    <a 
+                    <a
                         href={content.forEngineers.cta.link}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -288,11 +291,10 @@ export function LandingPage_old() {
                                 href={btn.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all ${
-                                    i === 0 
-                                    ? "bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] text-white hover:from-[#2563EB] hover:to-[#0891B2] shadow-lg hover:shadow-xl"
-                                    : "bg-white text-gray-900 border border-gray-200 hover:border-gray-400"
-                                }`}
+                                className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all ${i === 0
+                                        ? "bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] text-white hover:from-[#2563EB] hover:to-[#0891B2] shadow-lg hover:shadow-xl"
+                                        : "bg-white text-gray-900 border border-gray-200 hover:border-gray-400"
+                                    }`}
                             >
                                 {btn.text}
                             </a>
@@ -305,8 +307,8 @@ export function LandingPage_old() {
             <section className="py-24">
                 <div className="container mx-auto px-4 max-w-2xl text-center">
                     <div className="w-20 h-20 bg-gray-200 rounded-full mx-auto mb-6 overflow-hidden">
-                        <img 
-                            src={content.founder.image} 
+                        <img
+                            src={content.founder.image}
                             alt={content.founder.headline}
                             className="w-full h-full object-cover"
                         />
@@ -319,7 +321,7 @@ export function LandingPage_old() {
                     </p>
                     <div className="flex justify-center gap-6">
                         {content.founder.links.map((link, i) => (
-                            <a 
+                            <a
                                 key={i}
                                 href={link.url}
                                 target="_blank"

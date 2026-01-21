@@ -130,6 +130,13 @@ export class NoteDatabase {
     }
 
     /**
+     * Update owner
+     */
+    updateOwner(id: string, userId: string): void {
+        this.sql.exec(QUERIES.UPDATE_OWNER, userId, id);
+    }
+
+    /**
      * Delete current note
      */
     deleteCurrent(): void {

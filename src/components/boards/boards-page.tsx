@@ -10,8 +10,9 @@ import { Board } from "../../types"
 import * as Dialog from "@radix-ui/react-dialog"
 import { X, AlertTriangle, Copy, Plus } from "lucide-react"
 import { HistoryModal } from "../HistoryModal"
-import { useSession } from "../../lib/auth-client"
+import { useSession, signIn } from "../../lib/auth-client"
 import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
+import { LandingPageContent } from "../../components/LandingPage"
 
 export default function BoardsPage() {
   const { data: boards = [], isLoading } = useBoards()
@@ -168,7 +169,6 @@ export default function BoardsPage() {
             <IntegrationsPage />
           ) : (
             <>
-              {/* Page heading */}
               <section className="mb-12">
                 <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
                   <div className="space-y-3">
@@ -198,7 +198,18 @@ export default function BoardsPage() {
               </section>
 
               {isEmpty ? (
-                <EmptyState onCreateClick={() => navigate('/new')} />
+                <div className="space-y-16">
+                  <EmptyState onCreateClick={() => navigate('/new')} />
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                      <div className="w-full border-t border-gray-200" />
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-background px-3 text-base font-semibold leading-6 text-gray-900">Learn More About Liva</span>
+                    </div>
+                  </div>
+                  <LandingPageContent />
+                </div>
               ) : (
                 <>
                   <BoardsFilters filter={filter} onFilterChange={setFilter} sortBy={sortBy} onSortChange={setSortBy} />

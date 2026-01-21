@@ -135,10 +135,10 @@ export default function EmptyState({ onCreateClick }: EmptyStateProps) {
         </button>
 
         <a
-          href="/templates"
+          href="/about"
           className="inline-flex items-center gap-2 px-6 py-3 text-base font-medium text-muted-foreground hover:text-foreground transition-colors duration-200"
         >
-          Explore templates
+          Learn more about Liva
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path
               d="M3 8H13M13 8L9 4M13 8L9 12"

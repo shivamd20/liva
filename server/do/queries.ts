@@ -123,4 +123,10 @@ export const QUERIES = {
   GET_RECORDINGS: `
     SELECT * FROM note_recordings ORDER BY created_at DESC
   `,
+
+  UPDATE_OWNER: `
+    UPDATE note_current
+    SET user_id = ?
+    WHERE id = ?
+  `,
 } as const;

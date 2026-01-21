@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { anonymous } from "better-auth/plugins";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./db/schema";
+import { NotesServiceDO } from "./notes/service-do";
 
 export const createAuth = (env: Env) => {
   const db = drizzle(env.liva_db, { schema });
@@ -15,23 +16,25 @@ export const createAuth = (env: Env) => {
     }),
     secret: env.BETTER_AUTH_SECRET,
     socialProviders: {
-       google: {
-         clientId: env.GOOGLE_CLIENT_ID,
-         clientSecret: env.GOOGLE_CLIENT_SECRET,
-       }
+      google: {
+        clientId: env.GOOGLE_CLIENT_ID,
+        clientSecret: env.GOOGLE_CLIENT_SECRET,
+      }
     },
     baseURL: env.AUTH_BASE_URL,
     trustedOrigins: [
-        "http://localhost:5173",
-        "http://localhost:8787",
-        "https://liva.shvm.in",
-        env.AUTH_BASE_URL
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:8787",
+      "https://liva.shvm.in",
+      env.AUTH_BASE_URL
     ],
     plugins: [
       anonymous({
         onLinkAccount: async ({ anonymousUser, newUser }) => {
-            // TODO: Handle merging anonymous user data to the new user account
-            console.log("Linking anonymous account", anonymousUser.user.id, "to new account", newUser.user.id);
+          console.log("Linking anonymous account", anonymousUser.user.id, "to new account", newUser.user.id);
+          const notesService = new NotesServiceDO(env);
+          await notesService.migrateUserNotes(anonymousUser.user.id, newUser.user.id);
         }
       })
     ]

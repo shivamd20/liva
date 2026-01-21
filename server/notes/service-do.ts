@@ -304,4 +304,28 @@ export class NotesServiceDO {
 			title: string | null;
 		}>;
 	}
+
+	async migrateUserNotes(oldUserId: string, newUserId: string) {
+		const indexStub = this.getIndexStub();
+		const notes = await indexStub.listNotes(oldUserId);
+
+		console.log(`Migrating ${notes.length} notes from ${oldUserId} to ${newUserId}`);
+
+		for (const note of notes) {
+			try {
+				// Update Note DO
+				const stub = this.getStub(note.id);
+				// We need to cast as any because updateOwner is newly added
+				await (stub as any).updateOwner(newUserId);
+
+				// Update Index
+				await indexStub.upsertNote({
+					...note,
+					userId: newUserId
+				});
+			} catch (e) {
+				console.error(`Failed to migrate note ${note.id}`, e);
+			}
+		}
+	}
 }

@@ -5,12 +5,11 @@ import { BoardEditor } from './components/BoardEditor';
 import { LandingPage } from './components/LandingPage';
 import { PrivacyPolicy } from './components/PrivacyPolicy';
 
-import { AuthDialog } from './components/AuthDialog';
 import { MainMenu } from '@excalidraw/excalidraw';
 import { Board } from './types';
 import { useBoards, useBoard, useUpdateBoard, useDeleteBoard } from './hooks/useBoards';
 import { useCallback } from 'react';
-import { useSession } from './lib/auth-client';
+import { useSession, signIn } from './lib/auth-client';
 import BoardsPage from './components/boards/boards-page';
 import { useTheme } from 'next-themes';
 import { CommandMenuProvider } from '@/lib/command-menu-context';
@@ -309,6 +308,13 @@ function AppContent() {
     }
   }, [session?.user]);
 
+  // Implicit Anonymous Login
+  useEffect(() => {
+    if (!isAuthPending && !session?.user && !location.pathname.startsWith('/about')) {
+      signIn.anonymous();
+    }
+  }, [isAuthPending, session, location.pathname]);
+
   const handleNewBoard = () => {
     mixpanelService.track(MixpanelEvents.NAV_NEW_BOARD);
     navigate('/board?create=true');
@@ -327,13 +333,12 @@ function AppContent() {
     });
   };
 
-  const isLandingPage = location.pathname === '/';
-
   return (
     <div className="flex h-screen min-w-screen bg-background w-screen ">
       <CommandMenu />
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<BoardsPage />} />
+        <Route path="/about" element={<LandingPage />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
 
         <Route path="/boards" element={<BoardsPage />} />
@@ -357,12 +362,6 @@ function AppContent() {
           }
         />
       </Routes>
-      <AuthDialog
-        isOpen={!isLandingPage && !isAuthPending && !session?.user}
-        onOpenChange={(open) => {
-          if (!open) navigate('/');
-        }}
-      />
     </div>
   );
 }

@@ -349,6 +349,33 @@ export class NoteDurableObject extends DurableObject {
     }
 
     /**
+     * Update owner
+     */
+    async updateOwner(userId: string): Promise<NoteCurrent> {
+        const current = this.db.getCurrent();
+        if (!current) {
+            throw new Error("Note not found");
+        }
+
+        if (current.userId === userId) {
+            return current;
+        }
+
+        // Update owner (fast)
+        this.db.updateOwner(current.id, userId);
+
+        const newCurrent: NoteCurrent = {
+            ...current,
+            userId,
+        };
+
+        // Broadcast immediately
+        this.wsManager.broadcastUpdate(newCurrent, "update");
+
+        return newCurrent;
+    }
+
+    /**
      * Revert to a specific version
      */
     async revertToVersion(version: number): Promise<NoteCurrent> {
