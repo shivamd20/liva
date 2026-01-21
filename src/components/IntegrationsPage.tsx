@@ -104,8 +104,15 @@ export function IntegrationsPage() {
     if (isLoading) return <div className="flex h-full items-center justify-center"><Loader2 className="animate-spin w-8 h-8 opacity-50" /></div>;
 
     return (
-        <div className="container max-w-4xl mx-auto py-8 px-4 font-sans">
-            <h1 className="text-3xl font-bold mb-8">Integrations</h1>
+        <div className="space-y-8 font-sans">
+            <div className="space-y-3">
+                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground text-balance">
+                    Integrations
+                </h1>
+                <p className="text-lg text-muted-foreground max-w-xl text-pretty leading-relaxed">
+                    Manage your connected services and external accounts.
+                </p>
+            </div>
 
             <Card className="border-border/50 shadow-sm">
                 <CardHeader>

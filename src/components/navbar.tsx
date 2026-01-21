@@ -15,8 +15,8 @@ export default function Navbar() {
   }, [])
 
   const navLinks = [
-    { name: "Templates", href: "/templates" },
-    { name: "Boards", href: "#boards" },
+    { name: "Boards", href: "/boards" },
+    { name: "Integrations", href: "/app/integrations" },
     { name: "GitHub", href: "https://github.com/shivamd20/liva", external: true },
     { name: "Book a demo", href: "https://calendar.app.google/uxqDsCepVjkX6MXj6", external: true },
   ]

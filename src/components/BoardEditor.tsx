@@ -93,13 +93,16 @@ export function BoardEditor({
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [isRecordingsOpen, setIsRecordingsOpen] = useState(false);
 
   const recorderRef = useRef<MonorailRecorder | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const excalidrawContainerRef = useRef<HTMLDivElement | null>(null);
-  const cameraStreamRef = useRef<MediaStream | null>(null);
+
+  // Separate refs for audio and video streams to manage them independently
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const videoStreamRef = useRef<MediaStream | null>(null);
 
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -112,8 +115,8 @@ export function BoardEditor({
   }, [isRecording, recordingStartTime]);
 
   const toggleMute = useCallback(() => {
-    if (cameraStreamRef.current) {
-      const audioTracks = cameraStreamRef.current.getAudioTracks();
+    if (audioStreamRef.current) {
+      const audioTracks = audioStreamRef.current.getAudioTracks();
       audioTracks.forEach(track => {
         track.enabled = !track.enabled;
       });
@@ -121,15 +124,43 @@ export function BoardEditor({
     }
   }, []);
 
-  const toggleVideo = useCallback(() => {
-    if (cameraStreamRef.current) {
-      const videoTracks = cameraStreamRef.current.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !track.enabled;
-      });
-      setIsVideoEnabled(prev => !prev);
+  const toggleVideo = useCallback(async () => {
+    try {
+      if (isVideoEnabled) {
+        // Turn Video OFF
+        if (recorderRef.current) {
+          await recorderRef.current.removeCamera();
+        }
+
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+          videoStreamRef.current = null;
+        }
+        setIsVideoEnabled(false);
+      } else {
+        // Turn Video ON
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
+          audio: false // We already have audio
+        });
+
+        videoStreamRef.current = videoStream;
+
+        if (recorderRef.current) {
+          await recorderRef.current.addCamera(videoStream);
+        }
+        setIsVideoEnabled(true);
+      }
+    } catch (e) {
+      console.error("[Recording] Failed to toggle video:", e);
+      toast.error("Could not access camera");
+      // Ensure state is synced if error occurred
+      setIsVideoEnabled(false);
     }
-  }, []);
+  }, [isVideoEnabled]);
 
   const startRecording = async () => {
     try {
@@ -177,23 +208,28 @@ export function BoardEditor({
         }
       });
 
-      // 4. Media
-      const cameraStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
+      // 4. Media - Start with Audio ONLY as per requirements
+      const audioStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: false
       });
-      cameraStreamRef.current = cameraStream;
+      audioStreamRef.current = audioStream;
 
+      // Register audio stream with recorder
+      await recorder.addAudio(audioStream);
+
+      // Add container source
       if (excalidrawContainerRef.current) {
         await recorder.addContainer(excalidrawContainerRef.current);
       }
 
-      recorder.addCamera(cameraStream);
+      // Note: Video is intentionally NOT added initially. 
+      // It can be enabled later by the user via toggleVideo.
 
       await recorder.start();
       recorderRef.current = recorder;
 
-      // Preview
+      // Preview (will show canvas initially)
       if (previewVideoRef.current) {
         const stream = recorder.getStream();
         if (stream) {
@@ -204,7 +240,7 @@ export function BoardEditor({
 
       setIsRecording(true);
       setRecordingStartTime(Date.now());
-      setIsVideoEnabled(true);
+      setIsVideoEnabled(false); // Default to video off
       setIsMuted(false);
       toast.success("Recording started");
 
@@ -223,10 +259,15 @@ export function BoardEditor({
       console.log('[Recording] Stopping recorder...');
       await recorderRef.current.stop();
 
-      // Stop camera tracks
-      if (cameraStreamRef.current) {
-        cameraStreamRef.current.getTracks().forEach(track => track.stop());
-        cameraStreamRef.current = null;
+      // Stop all media tracks
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(track => track.stop());
+        audioStreamRef.current = null;
+      }
+
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach(track => track.stop());
+        videoStreamRef.current = null;
       }
 
       recorderRef.current = null;

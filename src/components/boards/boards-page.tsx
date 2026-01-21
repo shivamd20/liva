@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import BoardsHeader from "./boards-header"
 import BoardsFilters from "./boards-filters"
 import BoardsGrid from "./boards-grid"
 import EmptyState from "./empty-state"
+import { IntegrationsPage } from "../IntegrationsPage"
 import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
 import * as Dialog from "@radix-ui/react-dialog"
@@ -19,8 +20,11 @@ export default function BoardsPage() {
   const deleteBoard = useDeleteBoard()
   const duplicateBoard = useDuplicateBoard()
   const navigate = useNavigate()
+  const location = useLocation()
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [searchParams, setSearchParams] = useSearchParams()
+
+  const isIntegrationsView = location.pathname === '/app/integrations';
 
   const [filter, setFilter] = useState<"all" | "owned" | "shared" | "recent">("all")
   const [sortBy, setSortBy] = useState<"lastOpened" | "lastUpdated" | "alphabetical">("lastOpened")
@@ -160,48 +164,54 @@ export default function BoardsPage() {
 
       <main className="pt-24 pb-16">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
-          {/* Page heading */}
-          <section className="mb-12">
-            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
-              <div className="space-y-3">
-                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground text-balance">
-                  Your boards
-                </h1>
-                <p className="text-lg text-muted-foreground max-w-xl text-pretty leading-relaxed">
-                  Create, organize, and revisit your collaborative whiteboards. Premium real-time boards backed by
-                  Cloudflare Durable Objects.
-                </p>
-              </div>
-
-              {!isEmpty && (
-                <button
-                  className="group relative inline-flex items-center gap-2.5 px-6 py-3.5 text-base font-semibold text-primary-foreground rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
-                  onClick={() => navigate('/new')}
-                >
-                  <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl transition-transform duration-300 group-hover:scale-105" />
-                  <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
-                  <span className="relative z-10 flex items-center gap-2.5">
-                    <Plus className="w-5 h-5" />
-                    Create new board
-                  </span>
-                </button>
-              )}
-            </div>
-          </section>
-
-          {isEmpty ? (
-            <EmptyState onCreateClick={() => navigate('/new')} />
+          {isIntegrationsView ? (
+            <IntegrationsPage />
           ) : (
             <>
-              <BoardsFilters filter={filter} onFilterChange={setFilter} sortBy={sortBy} onSortChange={setSortBy} />
-              <BoardsGrid
-                boards={filteredBoards}
-                onCreateClick={() => navigate('/new')}
-                onRename={handleRenameClick}
-                onDelete={handleDeleteClick}
-                onDuplicate={handleDuplicateClick}
-                onHistory={handleHistoryClick}
-              />
+              {/* Page heading */}
+              <section className="mb-12">
+                <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+                  <div className="space-y-3">
+                    <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-foreground text-balance">
+                      Your boards
+                    </h1>
+                    <p className="text-lg text-muted-foreground max-w-xl text-pretty leading-relaxed">
+                      Create, organize, and revisit your collaborative whiteboards. Premium real-time boards backed by
+                      Cloudflare Durable Objects.
+                    </p>
+                  </div>
+
+                  {!isEmpty && (
+                    <button
+                      className="group relative inline-flex items-center gap-2.5 px-6 py-3.5 text-base font-semibold text-primary-foreground rounded-2xl overflow-hidden transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
+                      onClick={() => navigate('/new')}
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl transition-transform duration-300 group-hover:scale-105" />
+                      <div className="absolute inset-0 bg-gradient-to-r from-accent to-blue-500 rounded-2xl opacity-0 group-hover:opacity-100 blur-xl transition-opacity duration-500" />
+                      <span className="relative z-10 flex items-center gap-2.5">
+                        <Plus className="w-5 h-5" />
+                        Create new board
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </section>
+
+              {isEmpty ? (
+                <EmptyState onCreateClick={() => navigate('/new')} />
+              ) : (
+                <>
+                  <BoardsFilters filter={filter} onFilterChange={setFilter} sortBy={sortBy} onSortChange={setSortBy} />
+                  <BoardsGrid
+                    boards={filteredBoards}
+                    onCreateClick={() => navigate('/new')}
+                    onRename={handleRenameClick}
+                    onDelete={handleDeleteClick}
+                    onDuplicate={handleDuplicateClick}
+                    onHistory={handleHistoryClick}
+                  />
+                </>
+              )}
             </>
           )}
         </div>

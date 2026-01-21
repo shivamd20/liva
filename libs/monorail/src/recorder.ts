@@ -61,6 +61,10 @@ export class MonorailRecorder {
         this.audioStream = stream;
     }
 
+    async removeCamera() {
+        this.compositor.removeCameraStream();
+    }
+
     // New method to get the stream being recorded (for preview)
     getStream(): MediaStream | null {
         if (this.mediaRecorder) {

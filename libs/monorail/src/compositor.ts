@@ -35,11 +35,25 @@ export class MonorailCompositor {
     }
 
     addCameraStream(stream: MediaStream) {
+        // Cleanup existing if any
+        if (this.cameraVideo) {
+            this.cameraVideo.pause();
+            this.cameraVideo.srcObject = null;
+        }
+
         const video = document.createElement("video");
         video.srcObject = stream;
         video.muted = true;
         video.play();
         this.cameraVideo = video;
+    }
+
+    removeCameraStream() {
+        if (this.cameraVideo) {
+            this.cameraVideo.pause();
+            this.cameraVideo.srcObject = null;
+            this.cameraVideo = null;
+        }
     }
 
     start() {
@@ -135,7 +149,16 @@ export class MonorailCompositor {
 
                 // Text
                 // Simplified font parsing
-                const fontSize = parseFloat(taStyle.fontSize) * (height / srcH);
+                let scale = 1;
+                if (taStyle.transform && taStyle.transform !== 'none') {
+                    try {
+                        const matrix = new DOMMatrix(taStyle.transform);
+                        scale = Math.sqrt(matrix.a * matrix.a + matrix.b * matrix.b);
+                    } catch (e) {
+                        // fallback
+                    }
+                }
+                const fontSize = parseFloat(taStyle.fontSize) * scale * (height / srcH);
                 this.ctx.font = `${taStyle.fontWeight} ${fontSize}px ${taStyle.fontFamily}`;
                 this.ctx.fillStyle = taStyle.color;
                 this.ctx.textBaseline = 'top';

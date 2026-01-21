@@ -22,7 +22,7 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
   const navLinks = [
     { name: "Boards", href: "/boards" },
     { name: "Shared", href: "/boards?filter=shared" },
-    { name: "Templates", href: "/templates" },
+    { name: "Integrations", href: "/app/integrations" },
   ]
 
   return (
