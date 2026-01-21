@@ -49,6 +49,7 @@ interface BoardEditorProps {
   onLinkOpen?: (element: NonDeletedExcalidrawElement, event: CustomEvent<{ nativeEvent: MouseEvent | React.PointerEvent<HTMLCanvasElement> }>) => void;
   onBack?: () => void;
   onTitleChange?: (newTitle: string) => void;
+  onConnectYouTube?: () => void;
 }
 
 export function BoardEditor({
@@ -61,7 +62,8 @@ export function BoardEditor({
   boardsAPI = defaultBoardsAPI,
   onLinkOpen,
   onBack,
-  onTitleChange
+  onTitleChange,
+  onConnectYouTube
 }: BoardEditorProps) {
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -423,6 +425,7 @@ export function BoardEditor({
           isChatOpen={activePanelTab === 'conversation'}
           onBack={onBack || (() => { })}
           onTitleChange={onTitleChange || (() => { })}
+          onConnectYouTube={onConnectYouTube}
 
           onToggleRecordings={() => setIsRecordingsOpen(true)}
 

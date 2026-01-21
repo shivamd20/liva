@@ -17,6 +17,8 @@ import { CommandMenuProvider } from '@/lib/command-menu-context';
 import { CommandMenu } from '@/components/command-menu';
 import { NewBoardRedirect } from './components/NewBoardRedirect';
 import { TestAI } from './components/TestAI';
+import { IntegrationsPage } from './components/IntegrationsPage';
+import { useQuery } from '@tanstack/react-query';
 
 import { useDuplicateBoard } from './hooks/useBoards';
 import { HistoryModal } from './components/HistoryModal';
@@ -59,6 +61,25 @@ function BoardView({
   }, [board?.id]);
 
   const { theme, setTheme } = useTheme();
+
+  // Check YouTube integration status
+  const { data: ytStatus } = useQuery({
+    queryKey: ['youtube-status', session?.user?.id],
+    queryFn: async () => {
+      if (!session?.user?.id) return { connected: false };
+      try {
+        const res = await fetch('/api/integrations/youtube', {
+          headers: { 'X-Liva-User-Id': session.user.id }
+        });
+        if (!res.ok) return { connected: false };
+        return (await res.json()) as { connected: boolean; channels: any[] };
+      } catch (e) {
+        return { connected: false };
+      }
+    },
+    enabled: !!session?.user?.id,
+    staleTime: 60000
+  });
 
   // Register Board Commands
   useEffect(() => {
@@ -233,6 +254,7 @@ function BoardView({
         key={id}
         onBack={() => navigate('/board')}
         onTitleChange={handleTitleChange}
+        onConnectYouTube={ytStatus?.connected === false ? () => navigate('/app/integrations') : undefined}
       />
       {isHistoryOpen && (
         <HistoryModal
@@ -317,6 +339,7 @@ function AppContent() {
         <Route path="/boards" element={<BoardsPage />} />
         <Route path="/board" element={<BoardsPage />} />
         <Route path="/new" element={<NewBoardRedirect />} />
+        <Route path="/app/integrations" element={<IntegrationsPage />} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />

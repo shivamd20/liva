@@ -44,6 +44,7 @@ interface TopBarProps {
     onToggleVideo?: () => void;
     isVideoEnabled?: boolean;
     recordingSessionId?: string | null;
+    onConnectYouTube?: () => void;
 }
 
 export function TopBar({
@@ -65,7 +66,8 @@ export function TopBar({
     isMuted = false,
     onToggleVideo,
     isVideoEnabled = true,
-    recordingSessionId
+    recordingSessionId,
+    onConnectYouTube
 }: TopBarProps) {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -194,6 +196,17 @@ export function TopBar({
 
             {/* 2. Right: Controls */}
             <div className="flex-1 flex justify-end items-center gap-3">
+                {onConnectYouTube && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onConnectYouTube}
+                        className="h-8 gap-2 text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50 hidden md:flex"
+                    >
+                        <span className="text-xs font-medium">Connect YouTube</span>
+                    </Button>
+                )}
+
                 {/* Recording Controls */}
                 <div className="flex items-center gap-2 mr-2">
                     {isRecording ? (

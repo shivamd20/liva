@@ -9,6 +9,7 @@ export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
 export { ConversationDurableObject } from "./do/ConversationDurableObject";
 export { RecordingDurableObject } from "./do/RecordingDurableObject";
 export { MonorailSessionDO } from "./monorail/session-do";
+export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
@@ -39,12 +40,55 @@ export default {
 
 		try {
 			const auth = createAuth(env);
-			if (url.pathname.startsWith("/api/auth")) {
+			if (url.pathname.startsWith("/api/auth") && !url.pathname.startsWith("/api/auth/youtube")) {
 				return await auth.handler(request);
 			}
 		} catch (error) {
 			console.error("Auth Error:", error);
 			return new Response("Internal Auth Error", { status: 500 });
+		}
+
+		// YouTube Integrations Routing
+		if (url.pathname.startsWith("/api/auth/youtube") || url.pathname.startsWith("/api/integrations/youtube")) {
+			// Get User ID
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed", e);
+			}
+
+			if (!userId) {
+				userId = request.headers.get("X-Liva-User-Id") || undefined;
+			}
+
+			if (!userId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+
+			const doId = env.YOUTUBE_INTEGRATION_DO.idFromName(userId);
+			const stub = env.YOUTUBE_INTEGRATION_DO.get(doId);
+
+			const doUrl = new URL(request.url);
+			if (url.pathname === "/api/auth/youtube/start") {
+				doUrl.pathname = "/start-auth";
+			} else if (url.pathname.startsWith("/api/auth/youtube/callback")) {
+				doUrl.pathname = "/callback";
+			} else if (url.pathname === "/api/integrations/youtube" && request.method === "GET") {
+				doUrl.pathname = "/list";
+			} else if (url.pathname.startsWith("/api/integrations/youtube/") && request.method === "DELETE") {
+				const parts = url.pathname.split("/");
+				const integrationId = parts[parts.length - 1];
+				doUrl.pathname = `/disconnect/${integrationId}`;
+			} else {
+				// Pass through or 404
+			}
+
+			const newReq = new Request(doUrl, request);
+			newReq.headers.set("X-Liva-User-Id", userId);
+			return stub.fetch(newReq);
 		}
 
 		// Recording API Routing

@@ -41,6 +41,12 @@
 				"MonorailSessionDO"
 			],
 			"tag": "v5"
+		},
+		{
+			"new_sqlite_classes": [
+				"YouTubeIntegrationDO"
+			],
+			"tag": "v6"
 		}
 	],
 	"assets": {
@@ -76,6 +82,10 @@
 			{
 				"class_name": "MonorailSessionDO",
 				"name": "MONORAIL_SESSION_DO"
+			},
+			{
+				"class_name": "YouTubeIntegrationDO",
+				"name": "YOUTUBE_INTEGRATION_DO"
 			}
 		]
 	},
