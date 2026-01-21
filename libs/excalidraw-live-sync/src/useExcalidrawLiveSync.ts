@@ -144,6 +144,8 @@ export function useExcalidrawLiveSync({
                 }
 
                 if (data.type === 'pointer') {
+                    if (data.payload.userId === userId) return;
+
                     setCollaborators(prev => {
                         const next = new Map(prev);
                         next.set(senderId, {
@@ -166,6 +168,8 @@ export function useExcalidrawLiveSync({
                 const newCalls = new Map<SocketId, Collaborator>();
                 Object.entries(msg.data).forEach(([id, data]: [string, any]) => {
                     if (data && data.type === 'pointer') {
+                        if (data.payload.userId === userId) return;
+
                         newCalls.set(id as SocketId, {
                             id: id,
                             username: data.payload.username || 'User',
@@ -203,12 +207,13 @@ export function useExcalidrawLiveSync({
             payload: {
                 pointer: payload.pointer,
                 button: payload.button,
+                userId: userId,
                 username: userInfo.username,
                 avatarUrl: userInfo.avatarUrl,
                 color: userInfo.color,
             }
         });
-    }, [boardId, userInfo]);
+    }, [boardId, userInfo, userId]);
 
 
     return {

@@ -174,6 +174,11 @@ export class LiveSyncClient {
                         if (mySessionId && message.senderId === mySessionId) {
                             return; // Ignore own messages
                         }
+                    } else if (message.type === 'ephemeral_state') {
+                        const mySessionId = this.sessionIds.get(id);
+                        if (mySessionId && message.data && message.data[mySessionId]) {
+                            delete message.data[mySessionId];
+                        }
                     }
                     const callbacks = this.ephemeralCallbacks.get(id);
                     if (callbacks) {
