@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCreateBoard } from '../hooks/useBoards';
 import { Loader2 } from 'lucide-react';
@@ -24,8 +24,13 @@ export function NewBoardRedirect() {
         }
     });
 
+    const hasInitialised = useRef(false);
+
     // Trigger board creation once on mount
     useEffect(() => {
+        if (hasInitialised.current) return;
+        hasInitialised.current = true;
+
         createBoard.mutate({
             title: 'Untitled Board',
             expiresInHours: 0,

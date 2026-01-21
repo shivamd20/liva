@@ -135,7 +135,7 @@ export default function EmptyState({ onCreateClick }: EmptyStateProps) {
         </button>
 
         <a
-          href="/about"
+          href="#learn-more"
           className="inline-flex items-center gap-2 px-6 py-3 text-base font-medium text-muted-foreground hover:text-foreground transition-colors duration-200"
         >
           Learn more about Liva

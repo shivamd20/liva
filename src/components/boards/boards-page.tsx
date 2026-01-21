@@ -13,6 +13,8 @@ import { HistoryModal } from "../HistoryModal"
 import { useSession, signIn } from "../../lib/auth-client"
 import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
 import { LandingPageContent } from "../../components/LandingPage"
+import Footer from "../../components/footer"
+import { ChevronDown, ChevronUp } from "lucide-react"
 
 export default function BoardsPage() {
   const { data: boards = [], isLoading } = useBoards()
@@ -36,6 +38,8 @@ export default function BoardsPage() {
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false)
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
+
+  const [isLearnMoreExpanded, setIsLearnMoreExpanded] = useState(false)
 
   // Selected board states
   const [boardToDelete, setBoardToDelete] = useState<{ id: string; title: string } | null>(null)
@@ -197,10 +201,11 @@ export default function BoardsPage() {
                 </div>
               </section>
 
+
               {isEmpty ? (
                 <div className="space-y-16">
                   <EmptyState onCreateClick={() => navigate('/new')} />
-                  <div className="relative">
+                  <div id="learn-more" className="relative">
                     <div className="absolute inset-0 flex items-center" aria-hidden="true">
                       <div className="w-full border-t border-gray-200" />
                     </div>
@@ -221,12 +226,38 @@ export default function BoardsPage() {
                     onDuplicate={handleDuplicateClick}
                     onHistory={handleHistoryClick}
                   />
+
+                  <div className="mt-24 pt-12 border-t border-border">
+                    <div className="flex justify-center mb-8">
+                      <button
+                        onClick={() => setIsLearnMoreExpanded(!isLearnMoreExpanded)}
+                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-secondary/50 hover:bg-secondary text-foreground font-medium transition-colors"
+                      >
+                        {isLearnMoreExpanded ? (
+                          <>
+                            Hide Details <ChevronUp className="w-4 h-4" />
+                          </>
+                        ) : (
+                          <>
+                            Learn More About Liva <ChevronDown className="w-4 h-4" />
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {isLearnMoreExpanded && (
+                      <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+                        <LandingPageContent />
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
             </>
           )}
         </div>
       </main>
+      <Footer />
 
       {/* Delete Confirmation Modal */}
       <Dialog.Root open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>

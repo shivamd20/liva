@@ -48,7 +48,6 @@ export function LandingPageContent() {
             <div className="section-divider" />
             <TechnicalCredibility />
             <CTASection />
-            <Footer />
         </div>
     )
 }
@@ -58,6 +57,7 @@ export function LandingPage() {
         <>
             <Navbar />
             <LandingPageContent />
+            <Footer />
         </>
     )
 }
@@ -292,8 +292,8 @@ export function LandingPage_old() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className={`px-8 py-4 rounded-xl font-semibold text-lg transition-all ${i === 0
-                                        ? "bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] text-white hover:from-[#2563EB] hover:to-[#0891B2] shadow-lg hover:shadow-xl"
-                                        : "bg-white text-gray-900 border border-gray-200 hover:border-gray-400"
+                                    ? "bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] text-white hover:from-[#2563EB] hover:to-[#0891B2] shadow-lg hover:shadow-xl"
+                                    : "bg-white text-gray-900 border border-gray-200 hover:border-gray-400"
                                     }`}
                             >
                                 {btn.text}
