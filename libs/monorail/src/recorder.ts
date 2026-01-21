@@ -106,7 +106,7 @@ export class MonorailRecorder {
             }
         };
 
-        this.mediaRecorder.start(2000); // 2 second chunks
+        this.mediaRecorder.start(10000); // 10 second chunks
     }
 
     async stop() {

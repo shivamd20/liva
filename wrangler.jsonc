@@ -47,6 +47,12 @@
 				"YouTubeIntegrationDO"
 			],
 			"tag": "v6"
+		},
+		{
+			"new_sqlite_classes": [
+				"YouTubePublishSessionDO"
+			],
+			"tag": "v7"
 		}
 	],
 	"assets": {
@@ -86,6 +92,10 @@
 			{
 				"class_name": "YouTubeIntegrationDO",
 				"name": "YOUTUBE_INTEGRATION_DO"
+			},
+			{
+				"class_name": "YouTubePublishSessionDO",
+				"name": "YOUTUBE_PUBLISH_SESSION_DO"
 			}
 		]
 	},

@@ -42,4 +42,30 @@ export const monorailRouter = router({
             const stub = ctx.env.MONORAIL_SESSION_DO.get(idObj);
             return await stub.getSessionState();
         }),
+
+    initPublish: publicProcedure
+        .input(z.object({ monorailSessionId: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+            const publishId = crypto.randomUUID();
+            const idObj = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.idFromName(publishId);
+            const stub = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.get(idObj) as any;
+            const state = await stub.init(input.monorailSessionId, ctx.userId);
+            return state;
+        }),
+
+    startPublish: publicProcedure
+        .input(z.object({ publishId: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+            const idObj = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.idFromString(input.publishId);
+            const stub = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.get(idObj) as any;
+            return await stub.start();
+        }),
+
+    getPublishProgress: publicProcedure
+        .input(z.object({ publishId: z.string() }))
+        .query(async ({ ctx, input }) => {
+            const idObj = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.idFromString(input.publishId);
+            const stub = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.get(idObj) as any;
+            return await stub.getState();
+        }),
 });

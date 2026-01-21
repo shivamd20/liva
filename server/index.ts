@@ -10,6 +10,7 @@ export { ConversationDurableObject } from "./do/ConversationDurableObject";
 export { RecordingDurableObject } from "./do/RecordingDurableObject";
 export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
+export { YouTubePublishSessionDO } from "./monorail/publish-do";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
