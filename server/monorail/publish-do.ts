@@ -154,7 +154,14 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
             const channelId = listData.channels[0].channelId;
 
             const tokenRes = await ytStub.fetch(`http://fake/get-token?channelId=${channelId}`);
-            if (!tokenRes.ok) throw new Error("Failed to get token");
+
+            // log the error if tokenRes is not ok
+            if (!tokenRes.ok) {
+                console.error("Failed to get token", await tokenRes.text());
+                throw new Error("Failed to get token");
+            }
+
+
             const { accessToken } = await tokenRes.json() as any;
 
             // 2. Create Resumable Upload Session if not exists

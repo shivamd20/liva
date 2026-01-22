@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from "react"
 import { Link, useNavigate, useLocation } from "react-router-dom"
+import { useBoards } from "../../hooks/useBoards"
+
 import { useSession, signOut, signIn } from "../../lib/auth-client"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { LogOut } from "lucide-react"
 import { queryClient } from "../../main"
 import { ModeToggle } from "../ui/mode-toggle"
+
 
 interface BoardsHeaderProps {
   searchQuery: string
@@ -18,6 +21,9 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
   const [showSwitchConfirm, setShowSwitchConfirm] = useState(false)
 
   const { data: session, isPending: isAuthPending } = useSession()
+  const { data: boards = [] } = useBoards()
+  const hasBoards = boards.length > 0
+
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -237,14 +243,22 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
 
                             {/* Option 2: Switch/Login Fresh */}
                             <DropdownMenu.Item
-                              onSelect={(e) => {
-                                e.preventDefault();
-                                setShowSwitchConfirm(true);
+                              onSelect={async (e) => {
+                                if (hasBoards) {
+                                  e.preventDefault();
+                                  setShowSwitchConfirm(true);
+                                } else {
+                                  await signOut();
+                                  await signIn.social({
+                                    provider: 'google',
+                                    callbackURL: '/boards'
+                                  });
+                                }
                               }}
                               className="flex items-center gap-2 px-2 py-2 text-sm text-foreground hover:bg-muted rounded-md cursor-pointer outline-none transition-all"
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-muted-foreground"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" /></svg>
-                              Log in to another account
+                              Log in with Google
                             </DropdownMenu.Item>
                           </>
                         )}
@@ -278,7 +292,7 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
                           className="flex items-center gap-2 px-2 py-2 text-sm text-foreground hover:bg-muted rounded-md cursor-pointer outline-none transition-all"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-muted-foreground"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
-                          Switch Google Account
+                          Switch Account
                         </DropdownMenu.Item>
                         <DropdownMenu.Item
                           onSelect={async () => {
@@ -312,6 +326,6 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
           </div>
         </div>
       </div>
-    </header>
+    </header >
   )
 }
