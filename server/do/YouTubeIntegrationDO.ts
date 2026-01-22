@@ -11,10 +11,13 @@ export interface YouTubeChannel {
 
 export class YouTubeIntegrationDO extends DurableObject {
     private sql: SqlStorage;
+
     env: Env;
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
+        super(ctx, env);
+
         this.sql = ctx.storage.sql;
         this.env = env;
         this.initializeTables();
@@ -62,8 +65,9 @@ export class YouTubeIntegrationDO extends DurableObject {
             // Internal method to refresh token for a specific channel
             if (path === "/get-token") {
                 const channelId = url.searchParams.get("channelId");
+                const force = url.searchParams.get("force") === "true";
                 if (!channelId) return new Response("Missing channelId", { status: 400 });
-                return this.handleGetToken(channelId);
+                return this.handleGetToken(channelId, force);
             }
 
             return new Response("Not found", { status: 404 });
@@ -167,8 +171,11 @@ export class YouTubeIntegrationDO extends DurableObject {
             tokens.scope,
             'connected',
             now,
+            now,
             now
         );
+
+        await this.scheduleNextRefresh();
 
         return Response.redirect(`${this.env.AUTH_BASE_URL}/app/integrations?status=success`, 302);
     }
@@ -217,36 +224,21 @@ export class YouTubeIntegrationDO extends DurableObject {
         });
     }
 
-    private async handleGetToken(channelId: string): Promise<Response> {
+    private async handleGetToken(channelId: string, force: boolean): Promise<Response> {
         const row = this.sql.exec("SELECT * FROM youtube_integrations WHERE channel_id = ? AND status = 'connected'", channelId).one() as any;
         if (!row) return new Response("Channel not found", { status: 404 });
 
-        // Check expiry
-        if (row.token_expiry && Date.now() > row.token_expiry) {
-            // Refresh
-            if (!row.refresh_token) {
-                return new Response("Token expired and no refresh token", { status: 401 });
-            }
+        // Check expiry or force refresh
+        if (force || (row.token_expiry && Date.now() > row.token_expiry)) {
             try {
-                const client = this.getOAuthClient();
-                client.setCredentials({
-                    refresh_token: row.refresh_token
-                });
-                const { credentials } = await client.refreshAccessToken();
-
-                // Update DB
-                this.sql.exec(`
-                    UPDATE youtube_integrations 
-                    SET access_token = ?, token_expiry = ?, updated_at = ?
-                    WHERE id = ?
-                `, credentials.access_token, credentials.expiry_date, Date.now(), row.id);
+                const credentials = await this.refreshChannelToken(row);
+                // Reschedule alarm since expiry changed
+                await this.scheduleNextRefresh();
 
                 return new Response(JSON.stringify({ accessToken: credentials.access_token }), {
                     headers: { "Content-Type": "application/json" }
                 });
             } catch (e) {
-                // Mark error
-                this.sql.exec("UPDATE youtube_integrations SET status = 'error' WHERE id = ?", row.id);
                 return new Response("Failed to refresh token", { status: 500 });
             }
         }
@@ -254,5 +246,67 @@ export class YouTubeIntegrationDO extends DurableObject {
         return new Response(JSON.stringify({ accessToken: row.access_token }), {
             headers: { "Content-Type": "application/json" }
         });
+    }
+
+    async alarm() {
+        const BUFFER_MS = 10 * 60 * 1000; // 10 minutes
+        const now = Date.now();
+        const threshold = now + BUFFER_MS;
+
+        // Find tokens expiring soon
+        const rows = this.sql.exec("SELECT * FROM youtube_integrations WHERE status = 'connected' AND token_expiry < ?", threshold).toArray();
+
+        for (const row of rows) {
+            try {
+                await this.refreshChannelToken(row);
+                console.log(`[YouTubeIntegrationDO] Refreshed token for ${row.id}`);
+            } catch (e) {
+                console.error(`[YouTubeIntegrationDO] Failed to refresh token for ${row.id}`, e);
+            }
+        }
+
+        await this.scheduleNextRefresh();
+    }
+
+    private async scheduleNextRefresh() {
+        const row = this.sql.exec("SELECT token_expiry FROM youtube_integrations WHERE status = 'connected' ORDER BY token_expiry ASC LIMIT 1").one() as any;
+        if (row && row.token_expiry) {
+            const BUFFER_MS = 5 * 60 * 1000; // 5 minutes prior to expiry
+            let alarmTime = row.token_expiry - BUFFER_MS;
+            if (alarmTime <= Date.now()) {
+                alarmTime = Date.now() + 1000; // Trigger almost immediately
+            }
+            // console.log(`[YouTubeIntegrationDO] Scheduling next refresh at ${new Date(alarmTime).toISOString()}`);
+            await this.ctx.storage.setAlarm(alarmTime);
+        } else {
+            await this.ctx.storage.deleteAlarm();
+        }
+    }
+
+    private async refreshChannelToken(row: any) {
+        if (!row.refresh_token) {
+            throw new Error("No refresh token");
+        }
+
+        try {
+            const client = this.getOAuthClient();
+            client.setCredentials({
+                refresh_token: row.refresh_token
+            });
+            const { credentials } = await client.refreshAccessToken();
+
+            this.sql.exec(`
+                UPDATE youtube_integrations 
+                SET access_token = ?, token_expiry = ?, updated_at = ?
+                WHERE id = ?
+            `, credentials.access_token, credentials.expiry_date, Date.now(), row.id);
+
+            return credentials;
+        } catch (e) {
+            // Mark error if it's a permanent failure? 
+            // Maybe not auto-revoke, but log it.
+            this.sql.exec("UPDATE youtube_integrations SET status = 'error' WHERE id = ?", row.id);
+            throw e;
+        }
     }
 }
