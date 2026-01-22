@@ -153,7 +153,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
             }
             const channelId = listData.channels[0].channelId;
 
-            const tokenRes = await ytStub.fetch(`http://fake/get-token?channelId=${channelId}`);
+            let tokenRes = await ytStub.fetch(`http://fake/get-token?channelId=${channelId}`);
 
             // log the error if tokenRes is not ok
             if (!tokenRes.ok) {
@@ -162,7 +162,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
             }
 
 
-            const { accessToken } = await tokenRes.json() as any;
+            let { accessToken } = await tokenRes.json() as any;
 
             // 2. Create Resumable Upload Session if not exists
             if (!session.youtube.uploadUrl) {
@@ -176,7 +176,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                     }
                 };
 
-                const initRes = await fetch(`https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, {
+                let initRes = await fetch(`https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
@@ -185,6 +185,26 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                     },
                     body: JSON.stringify(metadata)
                 });
+
+                if (initRes.status === 401) {
+                    console.log("Token expired during upload init, forcing refresh...");
+                    tokenRes = await ytStub.fetch(`http://fake/get-token?channelId=${channelId}&force=true`);
+                    if (tokenRes.ok) {
+                        const data = await tokenRes.json() as any;
+                        accessToken = data.accessToken;
+
+                        // Retry Init
+                        initRes = await fetch(`https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status`, {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json',
+                                'X-Upload-Content-Length': session.totalBytes.toString()
+                            },
+                            body: JSON.stringify(metadata)
+                        });
+                    }
+                }
 
                 if (!initRes.ok) {
                     const error = await initRes.text();
