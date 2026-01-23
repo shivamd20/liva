@@ -76,11 +76,17 @@ export class YouTubeIntegrationDO extends DurableObject {
         }
     }
 
+    private getCallbackUrl() {
+        // Ensure strictly one slash between base and path
+        const baseUrl = this.env.AUTH_BASE_URL.replace(/\/+$/, "");
+        return `${baseUrl}/api/auth/youtube/callback`;
+    }
+
     private getOAuthClient() {
         return new OAuth2Client(
             this.env.GOOGLE_CLIENT_ID,
             this.env.GOOGLE_CLIENT_SECRET,
-            `${this.env.AUTH_BASE_URL}/api/auth/youtube/callback`
+            this.getCallbackUrl()
         );
     }
 
@@ -119,7 +125,24 @@ export class YouTubeIntegrationDO extends DurableObject {
         if (!userId) return new Response("Missing User ID", { status: 400 });
 
         const client = this.getOAuthClient();
-        const { tokens } = await client.getToken(code);
+
+        // --- LOGGING FOR DEBUGGING ---
+        console.log(`[YouTubeIntegrationDO] Exchanging code: ${code.substring(0, 5)}...`);
+        console.log(`[YouTubeIntegrationDO] Redirect URI used: ${this.getCallbackUrl()}`);
+
+        let tokens: any;
+        try {
+            const response = await client.getToken(code);
+            tokens = response.tokens;
+        } catch (e: any) {
+            console.error(`[YouTubeIntegrationDO] Token Exchange Failed:`, e);
+            // Dump more info if available
+            if (e.response) {
+                console.error(`[YouTubeIntegrationDO] Error Data:`, await e.response.text().catch(() => "No body"));
+            }
+            return Response.redirect(`${this.env.AUTH_BASE_URL}/app/integrations?status=error&reason=exception`, 302);
+        }
+
         client.setCredentials(tokens);
 
         // Fetch channel info
@@ -169,7 +192,6 @@ export class YouTubeIntegrationDO extends DurableObject {
             tokens.expiry_date,
             tokens.scope,
             'connected',
-            now,
             now,
             now
         );
