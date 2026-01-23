@@ -16,7 +16,6 @@ export class YouTubeIntegrationDO extends DurableObject {
 
     constructor(ctx: DurableObjectState, env: Env) {
         super(ctx, env);
-        super(ctx, env);
 
         this.sql = ctx.storage.sql;
         this.env = env;
