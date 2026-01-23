@@ -476,6 +476,14 @@ export class NoteDurableObject extends DurableObject {
         title?: string;
     }): Promise<void> {
         this.db.addRecording(params);
+        // We could broadcast here if we had a "recordings_update" event
+    }
+
+    /**
+     * Update recording YouTube ID
+     */
+    async updateRecordingYouTubeId(sessionId: string, videoId: string): Promise<void> {
+        this.db.updateRecordingYouTubeId(sessionId, videoId);
     }
 
     /**
@@ -486,6 +494,7 @@ export class NoteDurableObject extends DurableObject {
         duration: number;
         createdAt: number;
         title: string | null;
+        youtubeVideoId?: string;
     }>> {
         return this.db.getRecordings();
     }

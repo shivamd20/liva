@@ -45,6 +45,8 @@ interface TopBarProps {
     isVideoEnabled?: boolean;
     recordingSessionId?: string | null;
     onConnectYouTube?: () => void;
+    uploadStatus?: 'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null;
+    uploadProgress?: number;
 }
 
 export function TopBar({
@@ -67,7 +69,9 @@ export function TopBar({
     onToggleVideo,
     isVideoEnabled = true,
     recordingSessionId,
-    onConnectYouTube
+    onConnectYouTube,
+    uploadStatus,
+    uploadProgress
 }: TopBarProps) {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -205,6 +209,24 @@ export function TopBar({
                     >
                         <span className="text-xs font-medium">Connect YouTube</span>
                     </Button>
+                )}
+
+                {/* Upload Status */}
+                {uploadStatus && uploadStatus !== 'DONE' && uploadStatus !== 'FAILED' && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-950/30 rounded-full border border-blue-100 dark:border-blue-900/50">
+                        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                        <span className="text-xs font-medium text-blue-700 dark:text-blue-300">
+                            {uploadStatus === 'INIT' ? 'Preparing...' : `Uploading ${uploadProgress ? Math.round(uploadProgress * 100) : 0}%`}
+                        </span>
+                    </div>
+                )}
+                {uploadStatus === 'DONE' && (
+                    <div className="flex items-center gap-2 px-3 py-1 bg-green-50 dark:bg-green-950/30 rounded-full border border-green-100 dark:border-green-900/50">
+                        <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                        <span className="text-xs font-medium text-green-700 dark:text-green-300">
+                            Uploaded
+                        </span>
+                    </div>
                 )}
 
                 {/* Recording Controls */}

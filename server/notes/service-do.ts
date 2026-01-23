@@ -295,6 +295,12 @@ export class NotesServiceDO {
 		return { success: true };
 	}
 
+	async updateRecordingYouTubeId(id: string, sessionId: string, videoId: string) {
+		const stub = this.getStub(id);
+		await (stub as any).updateRecordingYouTubeId(sessionId, videoId);
+		return { success: true };
+	}
+
 	async getRecordings(id: string) {
 		const stub = this.getStub(id);
 		return await (stub as any).getRecordings() as Array<{
@@ -302,6 +308,7 @@ export class NotesServiceDO {
 			duration: number;
 			createdAt: number;
 			title: string | null;
+			youtubeVideoId?: string;
 		}>;
 	}
 

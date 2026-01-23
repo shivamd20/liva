@@ -38,6 +38,7 @@ import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
 import { MonorailRecorder } from '@shvm/monorail';
 import { RecordingsDialog } from './RecordingsDialog';
+import { useMutation } from '@tanstack/react-query';
 
 interface BoardEditorProps {
   board: Board;
@@ -95,6 +96,60 @@ export function BoardEditor({
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [isRecordingsOpen, setIsRecordingsOpen] = useState(false);
+
+  // Auto-Upload State
+  const [uploadStatus, setUploadStatus] = useState<'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadPublishId, setUploadPublishId] = useState<string | null>(null);
+
+  const { createSession } = trpcClient.monorail;
+
+  // Mutations for upload
+  const { mutateAsync: initPublish } = useMutation({
+    mutationFn: (sessionId: string) => trpcClient.monorail.initPublish.mutate({ monorailSessionId: sessionId })
+  });
+
+  const { mutateAsync: startPublish } = useMutation({
+    mutationFn: (pId: string) => trpcClient.monorail.startPublish.mutate({ publishId: pId })
+  });
+
+  const { mutateAsync: updateRecordingYouTubeId } = useMutation({
+    mutationFn: (data: { id: string, sessionId: string, videoId: string }) =>
+      trpcClient.updateRecordingYouTubeId.mutate(data)
+  });
+
+  // Polling for upload progress
+  useQuery({
+    queryKey: ['publish-progress', uploadPublishId],
+    queryFn: async () => {
+      if (!uploadPublishId) return null;
+      const progress = await trpcClient.monorail.getPublishProgress.query({ publishId: uploadPublishId });
+
+      setUploadStatus(progress.status as any);
+      if (progress.youtube?.bytesUploaded && progress.totalBytes) {
+        setUploadProgress(progress.youtube.bytesUploaded / progress.totalBytes);
+      }
+
+      if (progress.status === 'DONE' && progress.youtube?.videoId) {
+        // Persist video ID
+        await updateRecordingYouTubeId({
+          id: board.id,
+          sessionId: progress.monorailSessionId,
+          videoId: progress.youtube.videoId
+        });
+        setUploadPublishId(null); // Stop polling
+        toast.success("Recording uploaded to YouTube!");
+        queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
+      } else if (progress.status === 'FAILED') {
+        setUploadPublishId(null); // Stop polling
+        toast.error("YouTube upload failed: " + progress.error);
+      }
+
+      return progress;
+    },
+    enabled: !!uploadPublishId,
+    refetchInterval: 1000
+  });
 
   const recorderRef = useRef<MonorailRecorder | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -314,6 +369,25 @@ export function BoardEditor({
           console.error('[Recording] Failed to finalize/save recording:', saveError);
           toast.error("Recording completed but failed to save to board");
         }
+
+        // Auto-Upload Logic
+        try {
+          // Check if connected
+          const res = await fetch('/api/integrations/youtube');
+          if (res.ok) {
+            const data = await res.json() as { connected: boolean };
+            if (data.connected) {
+              console.log('[Recording] YouTube connected, starting auto-upload...');
+              setUploadStatus('INIT');
+              const init = await initPublish(sessionId);
+              setUploadPublishId(init.publishId);
+              await startPublish(init.publishId);
+            }
+          }
+        } catch (uploadError) {
+          console.error('[Recording] Auto-upload failed to start:', uploadError);
+          // Don't toast error here to avoid noise, user can check status
+        }
       }
     } catch (e) {
       console.error("[Recording] Stop error:", e);
@@ -479,6 +553,9 @@ export function BoardEditor({
           onToggleVideo={toggleVideo}
           isVideoEnabled={isVideoEnabled}
           recordingSessionId={recordingSessionId}
+
+          uploadStatus={uploadStatus}
+          uploadProgress={uploadProgress}
         />
 
         <div className="flex-1 relative flex overflow-hidden w-full h-full">

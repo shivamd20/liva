@@ -51,6 +51,15 @@ export const notesRouter = router({
 		return await service.addRecording(input.id, input.sessionId, input.duration, input.title);
 	}),
 
+	updateRecordingYouTubeId: publicProcedure.input(z.object({
+		id: z.string(),
+		sessionId: z.string(),
+		videoId: z.string(),
+	})).mutation(async ({ input, ctx }) => {
+		const service = new NotesServiceDO(ctx.env);
+		return await service.updateRecordingYouTubeId(input.id, input.sessionId, input.videoId);
+	}),
+
 	// --- Queries ---
 
 	getNote: publicProcedure.input(idInput).query(async ({ input, ctx }) => {

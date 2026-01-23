@@ -106,7 +106,8 @@ export const QUERIES = {
       session_id TEXT PRIMARY KEY,
       duration INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
-      title TEXT
+      title TEXT,
+      youtube_video_id TEXT
     );
   `,
 
@@ -115,9 +116,20 @@ export const QUERIES = {
     ON note_recordings(created_at);
   `,
 
+  ADD_YOUTUBE_VIDEO_ID_COLUMN: `
+    ALTER TABLE note_recordings
+    ADD COLUMN youtube_video_id TEXT
+  `,
+
   INSERT_RECORDING: `
     INSERT OR REPLACE INTO note_recordings(session_id, duration, created_at, title)
     VALUES(?, ?, ?, ?)
+  `,
+
+  UPDATE_RECORDING_YOUTUBE_ID: `
+    UPDATE note_recordings
+    SET youtube_video_id = ?
+    WHERE session_id = ?
   `,
 
   GET_RECORDINGS: `

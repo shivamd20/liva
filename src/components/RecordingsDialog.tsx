@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Play, Calendar, Clock, Film } from "lucide-react";
+import { Play, Calendar, Clock, Film, ExternalLink } from "lucide-react";
 import { trpcClient } from '../trpcClient';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { MonorailPlayer } from './MonorailPlayer';
@@ -137,6 +137,12 @@ export function RecordingsDialog({ open, onOpenChange, boardId }: RecordingsDial
                                                     <Clock className="w-3 h-3" />
                                                     {formatDuration(rec.duration)}
                                                 </span>
+                                                {rec.youtubeVideoId && (
+                                                    <span className="flex items-center gap-1 text-red-500">
+                                                        <ExternalLink className="w-3 h-3" />
+                                                        YouTube
+                                                    </span>
+                                                )}
                                             </div>
                                         </button>
                                     ))
@@ -205,6 +211,25 @@ export function RecordingsDialog({ open, onOpenChange, boardId }: RecordingsDial
                                                     </Button>
                                                 )}
                                             </>
+                                        )}
+
+                                        {/* Show existing link if already uploaded */}
+                                        {recordings?.find(r => r.sessionId === selectedSessionId)?.youtubeVideoId && !publishId && (
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                asChild
+                                                className="gap-2 text-red-600 border-red-200 hover:bg-red-50"
+                                            >
+                                                <a
+                                                    href={`https://youtu.be/${recordings.find(r => r.sessionId === selectedSessionId)?.youtubeVideoId}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                >
+                                                    <ExternalLink className="w-4 h-4" />
+                                                    View on YouTube
+                                                </a>
+                                            </Button>
                                         )}
                                     </div>
                                 </div>

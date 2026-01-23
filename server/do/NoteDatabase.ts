@@ -44,6 +44,13 @@ export class NoteDatabase {
         // Initialize Recordings Table
         this.sql.exec(QUERIES.CREATE_NOTE_RECORDINGS_TABLE);
         this.sql.exec(QUERIES.CREATE_RECORDINGS_INDEX);
+
+        // Migration: Add youtube_video_id column if it doesn't exist
+        try {
+            this.sql.exec(QUERIES.ADD_YOUTUBE_VIDEO_ID_COLUMN);
+        } catch (e) {
+            // Column already exists, ignore
+        }
     }
 
     /**
@@ -267,6 +274,13 @@ export class NoteDatabase {
     }
 
     /**
+     * Update recording YouTube Video ID
+     */
+    updateRecordingYouTubeId(sessionId: string, videoId: string): void {
+        this.sql.exec(QUERIES.UPDATE_RECORDING_YOUTUBE_ID, videoId, sessionId);
+    }
+
+    /**
      * Get all recordings for this note
      */
     getRecordings(): Array<{
@@ -281,6 +295,7 @@ export class NoteDatabase {
             duration: row.duration,
             createdAt: row.created_at,
             title: row.title,
+            youtubeVideoId: row.youtube_video_id,
         }));
     }
 }
