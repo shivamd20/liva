@@ -61,9 +61,10 @@ export default {
 				console.error("Auth check failed", e);
 			}
 
-			if (!userId) {
-				userId = request.headers.get("X-Liva-User-Id") || undefined;
-			}
+			// SECURITY: The following bypass is for testing in dev mode only.
+			// if (!userId) {
+			// 	userId = request.headers.get("X-Liva-User-Id") || undefined;
+			// }
 
 			if (!userId) {
 				return new Response("Unauthorized", { status: 401 });
@@ -130,9 +131,10 @@ export default {
 			}
 
 			// If no session, try extracting from query parameters or headers (for custom clients)
-			if (!userId) {
-				userId = url.searchParams.get("x-liva-user-id") || request.headers.get("X-LIVA-USER-ID") || undefined;
-			}
+			// SECURITY: The following bypass is for testing in dev mode only.
+			// if (!userId) {
+			// 	userId = url.searchParams.get("x-liva-user-id") || request.headers.get("X-LIVA-USER-ID") || undefined;
+			// }
 
 			// Forward to the NoteDurableObject for this note
 			let doId: DurableObjectId;
@@ -166,9 +168,10 @@ export default {
 				const session = await auth.api.getSession({ headers: request.headers });
 				let userId = session?.user?.id;
 
-				if (!userId) {
-					userId = request.headers.get("X-Liva-User-Id") || undefined;
-				}
+				// SECURITY: The following bypass is for testing in dev mode only.
+				// if (!userId) {
+				// 	userId = request.headers.get("X-Liva-User-Id") || undefined;
+				// }
 
 				if (!userId) {
 					return new Response("Unauthorized", { status: 401 });
@@ -250,10 +253,10 @@ export default {
 					const session = await auth.api.getSession({ headers: request.headers });
 					let userId = session?.user?.id;
 
-					// TODO: remove this
-					if (!userId) {
-						userId = request.headers.get('X-LIVA-USER-ID') || undefined;
-					}
+					// SECURITY: The following bypass is for testing in dev mode only.
+					// if (!userId) {
+					// 	userId = request.headers.get('X-LIVA-USER-ID') || undefined;
+					// }
 
 					if (!userId) {
 						throw new Error('User authentication required');
