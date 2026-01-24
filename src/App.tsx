@@ -142,7 +142,7 @@ function BoardView({
   }, [board, registerCommand, unregisterCommand, id]);
 
   if (!session?.user) {
-    return <div className="h-screen w-full bg-gray-50" />; // Placeholder behind auth dialog
+    return <LoadingScreen />;
   }
 
   if (isLoading) return <LoadingScreen />;
