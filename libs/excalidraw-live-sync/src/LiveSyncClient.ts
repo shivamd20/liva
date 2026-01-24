@@ -1,10 +1,12 @@
 import { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
+import { BinaryFileData } from '@excalidraw/excalidraw/types';
 
 // Minimal types needed for sync
 export interface LiveSyncBoard {
     id: string;
     title: string;
     excalidrawElements: OrderedExcalidrawElement[];
+    files?: Record<string, BinaryFileData>;
     updatedAt: number;
 }
 
@@ -21,6 +23,7 @@ const parseBoardData = (data: any): LiveSyncBoard => {
         id: data.id,
         title: data.title || 'Untitled',
         excalidrawElements: blob.excalidrawElements || [],
+        files: blob.files || {},
         updatedAt: data.updatedAt || Date.now(),
     };
 };
@@ -28,6 +31,7 @@ const parseBoardData = (data: any): LiveSyncBoard => {
 const boardToBlob = (board: LiveSyncBoard) => ({
     content: '',
     excalidrawElements: board.excalidrawElements || [],
+    files: board.files || {},
 });
 
 export class LiveSyncClient {

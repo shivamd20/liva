@@ -159,6 +159,87 @@ export default {
 			return stub.fetch(wsRequest);
 		}
 
+		// File Upload API
+		if (url.pathname === "/api/files/upload" && request.method === "POST") {
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				let userId = session?.user?.id;
+
+				if (!userId) {
+					userId = request.headers.get("X-Liva-User-Id") || undefined;
+				}
+
+				if (!userId) {
+					return new Response("Unauthorized", { status: 401 });
+				}
+
+				const formData = await request.formData();
+				const file = formData.get("file");
+				const boardId = formData.get("boardId");
+
+				if (!file || !(file instanceof File) || !boardId || typeof boardId !== "string") {
+					return new Response("Invalid request", { status: 400 });
+				}
+
+				const fileId = crypto.randomUUID();
+				const key = `boards/${boardId}/${fileId}`;
+
+				await env.files.put(key, file, {
+					httpMetadata: {
+						contentType: file.type,
+					},
+					customMetadata: {
+						userId: userId,
+						originalName: file.name,
+					}
+				});
+
+				const publicUrl = `/api/files/${boardId}/${fileId}`;
+
+				return new Response(JSON.stringify({
+					url: publicUrl,
+					fileId: fileId,
+				}), {
+					headers: { "Content-Type": "application/json" }
+				});
+
+			} catch (e) {
+				console.error("Upload error:", e);
+				return new Response("Upload failed", { status: 500 });
+			}
+		}
+
+		// File Download API
+		if (url.pathname.startsWith("/api/files/") && request.method === "GET") {
+			const parts = url.pathname.split("/");
+			// /api/files/:boardId/:fileId
+			const boardId = parts[3];
+			const fileId = parts[4];
+
+			if (!boardId || !fileId) {
+				return new Response("Invalid URL", { status: 400 });
+			}
+
+			const key = `boards/${boardId}/${fileId}`;
+			const object = await env.files.get(key);
+
+			if (!object) {
+				return new Response("File not found", { status: 404 });
+			}
+
+			const headers = new Headers();
+			object.writeHttpMetadata(headers);
+			headers.set("etag", object.httpEtag);
+			// Cache for 1 year immutable as files are content-addressed by ID (practically) 
+			// though here ID is random, but content doesn't change for same ID.
+			headers.set("Cache-Control", "public, max-age=31536000, immutable");
+
+			return new Response(object.body, {
+				headers,
+			});
+		}
+
 		if (url.pathname.startsWith("/api/v1")) {
 			const response = await fetchRequestHandler({
 				endpoint: "/api/v1",

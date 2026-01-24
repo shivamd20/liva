@@ -39,6 +39,7 @@ import { TopBarMenuItem } from './TopBar';
 import { MonorailRecorder } from '@shvm/monorail';
 import { RecordingsDialog } from './RecordingsDialog';
 import { useMutation } from '@tanstack/react-query';
+import { useRemoteFileHandler } from '../hooks/useRemoteFileHandler';
 
 interface BoardEditorProps {
   board: Board;
@@ -411,6 +412,8 @@ export function BoardEditor({
     baseUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
   });
 
+  useRemoteFileHandler({ excalidrawAPI, boardId: board.id });
+
   useEffect(() => {
     window.document.title = board.title
   }, [
@@ -576,8 +579,8 @@ export function BoardEditor({
               initialData={{
                 elements: board.excalidrawElements || [],
               }}
-              onChange={(elements) => {
-                handleChange(elements);
+              onChange={(elements, appState, files) => {
+                handleChange(elements, appState, files);
               }}
               isCollaborating={board.access === 'public'}
               UIOptions={uiOptions}

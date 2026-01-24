@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { ExcalidrawImperativeAPI, Collaborator, SocketId } from '@excalidraw/excalidraw/types';
+import { ExcalidrawImperativeAPI, Collaborator, SocketId, AppState, BinaryFileData } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import { liveSyncClient, ConnectionStatus } from './LiveSyncClient';
 
@@ -92,24 +92,31 @@ export function useExcalidrawLiveSync({
 
     // -- 1. Handle Local Changes (onChange) --
     // We accept any here to match Excalidraw's onChange(elements, appState, files)
-    const handleChange = useCallback((elements: readonly any[]) => {
+    const handleChange = useCallback((elements: readonly any[], appState: AppState, files: Record<string, BinaryFileData>) => {
         // Snapshot immediately
+        // We track both elements and files state
         const elementsSnapshot = JSON.stringify(elements);
+        const filesSnapshot = JSON.stringify(files);
+        const combinedSnapshot = elementsSnapshot + filesSnapshot;
 
         if (debounceTimeoutRef.current) clearTimeout(debounceTimeoutRef.current);
 
         debounceTimeoutRef.current = setTimeout(() => {
-            const lastStr = JSON.stringify(lastElementsRef.current);
-            if (elementsSnapshot !== lastStr) {
+            if (combinedSnapshot !== lastRemoteUpdateRef.current) {
+                // Determine if it was just an element change or files change or both
+                // Actually we just send everything current state
                 const parsedElements = JSON.parse(elementsSnapshot) as OrderedExcalidrawElement[];
+
+                // Update our last known state to avoid echo
                 lastElementsRef.current = parsedElements;
-                lastRemoteUpdateRef.current = elementsSnapshot; // Mark as our change
+                lastRemoteUpdateRef.current = combinedSnapshot; // Mark as our change
 
                 // Send to server
                 liveSyncClient.sendUpdate({
                     id: boardId,
                     title: 'Untitled', // We can improve this if needed
                     excalidrawElements: parsedElements,
+                    files: files as unknown as Record<string, BinaryFileData>,
                     updatedAt: Date.now()
                 });
             }
@@ -123,17 +130,25 @@ export function useExcalidrawLiveSync({
         if (!effectiveUserId) return; // Wait for user ID
 
         const unsubscribe = liveSyncClient.subscribe(boardId, (remoteBoard) => {
-            // Prevent loop: if version is same as what we last processed
+            // Prevent loop: if version is self-same
             if (remoteBoard.updatedAt === lastBoardVersionRef.current) return;
 
             // Prevent loop: if content is exactly what we just sent
-            const incomingStr = JSON.stringify(remoteBoard.excalidrawElements);
-            if (incomingStr === lastRemoteUpdateRef.current) {
+            const incomingElementsStr = JSON.stringify(remoteBoard.excalidrawElements);
+            const incomingFilesStr = JSON.stringify(remoteBoard.files || {});
+            const incomingSnapshot = incomingElementsStr + incomingFilesStr;
+
+            if (incomingSnapshot === lastRemoteUpdateRef.current) {
                 lastBoardVersionRef.current = remoteBoard.updatedAt;
                 return;
             }
 
-            // It is a real remote update
+            // Sync Files
+            if (remoteBoard.files) {
+                excalidrawAPI.addFiles(Object.values(remoteBoard.files));
+            }
+
+            // Sync Elements
             const currentElements = excalidrawAPI.getSceneElements();
             const merged = mergeElements(currentElements, remoteBoard.excalidrawElements);
 

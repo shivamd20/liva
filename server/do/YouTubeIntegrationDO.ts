@@ -99,7 +99,7 @@ export class YouTubeIntegrationDO extends DurableObject {
                 'https://www.googleapis.com/auth/youtube.upload',
                 'https://www.googleapis.com/auth/youtube'
             ],
-            // prompt: 'consent' // Force refresh token
+            prompt: 'consent' // Force refresh token
         });
 
         // We might want to store state to validate callback, 
@@ -178,7 +178,7 @@ export class YouTubeIntegrationDO extends DurableObject {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 access_token = excluded.access_token,
-                refresh_token = excluded.refresh_token,
+                refresh_token = CASE WHEN excluded.refresh_token != '' THEN excluded.refresh_token ELSE youtube_integrations.refresh_token END,
                 token_expiry = excluded.token_expiry,
                 updated_at = excluded.updated_at,
                 status = 'connected'
