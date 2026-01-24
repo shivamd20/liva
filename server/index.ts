@@ -97,12 +97,54 @@ export default {
 		// Route all /api/recording/* to a singleton or session-based DO.
 		// For now, let's use a "GLOBAL_RECORDER" singleton for MVP simplicity to hold all sessions.
 		if (url.pathname.startsWith("/api/recording")) {
+			// Security: Ensure user is authenticated
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed for recording", e);
+			}
+
+			// SECURITY: The following bypass is for testing in dev mode only.
+			// if (!userId) {
+			//     userId = request.headers.get("X-Liva-User-Id") || undefined;
+			// }
+
+			if (!userId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+
 			const doId = env.RECORDING_DURABLE_OBJECT.idFromName("GLOBAL_RECORDER");
 			const stub = env.RECORDING_DURABLE_OBJECT.get(doId);
-			return stub.fetch(request);
+
+			// Forward request with User ID header
+			const newRequest = new Request(request);
+			newRequest.headers.set("X-Liva-User-Id", userId);
+			return stub.fetch(newRequest);
 		}
 
 		if (url.pathname.startsWith("/api/monorail/session/")) {
+			// Security: Ensure user is authenticated
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed for monorail session", e);
+			}
+
+			// SECURITY: The following bypass is for testing in dev mode only.
+			// if (!userId) {
+			//     userId = request.headers.get("X-Liva-User-Id") || undefined;
+			// }
+
+			if (!userId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+
 			const parts = url.pathname.split("/");
 			// /api/monorail/session/:sessionId/...
 			const sessionId = parts[4];
@@ -110,7 +152,11 @@ export default {
 
 			const idObj = env.MONORAIL_SESSION_DO.idFromName(sessionId);
 			const stub = env.MONORAIL_SESSION_DO.get(idObj);
-			return stub.fetch(request);
+
+			// Forward request with User ID header
+			const newRequest = new Request(request);
+			newRequest.headers.set("X-Liva-User-Id", userId);
+			return stub.fetch(newRequest);
 		}
 
 		// Handle WebSocket connections for real-time note updates

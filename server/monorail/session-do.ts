@@ -4,6 +4,7 @@ import { DurableObject } from "cloudflare:workers";
 
 export interface SessionState {
     id: string;
+    userId?: string; // Owner of the session
     createdAt: number;
     status: "active" | "finalizing" | "completed";
     chunks_uploaded: number;
@@ -22,9 +23,18 @@ export class MonorailSessionDO extends DurableObject<Env> {
         return stored || null;
     }
 
-    async createSession(id: string): Promise<SessionState> {
+    async createSession(id: string, userId: string): Promise<SessionState> {
         const existing = await this.getSessionState();
         if (existing) {
+            // Verify ownership if existing session
+            if (existing.userId && existing.userId !== userId) {
+                // If we want to strictly fail:
+                // throw new Error("Unauthorized access to session");
+                // For now, let's just log and return existing (or maybe fail?)
+                // Security Audit says: restrict access.
+                throw new Error("Unauthorized: Session belongs to another user");
+            }
+
             // Reset alarm on access/re-creation attempt? Maybe not needed, but good practice if active.
             if (existing.status === 'active') {
                 await this.state.storage.setAlarm(Date.now() + 10 * 60 * 1000);
@@ -34,6 +44,7 @@ export class MonorailSessionDO extends DurableObject<Env> {
 
         const newState: SessionState = {
             id,
+            userId,
             createdAt: Date.now(),
             status: "active",
             chunks_uploaded: 0,

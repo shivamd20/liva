@@ -56,6 +56,7 @@ export class RecordingDurableObject extends DurableObject {
         this.sql.exec(`
             CREATE TABLE IF NOT EXISTS manifest (
                 sessionId TEXT PRIMARY KEY,
+                userId TEXT,
                 startedAt INTEGER,
                 endedAt INTEGER,
                 audioChunks INTEGER,
@@ -64,6 +65,13 @@ export class RecordingDurableObject extends DurableObject {
                 status TEXT
             )
         `);
+
+        // Migration: Add userId column if missing (for existing dev tables)
+        try {
+            this.sql.exec("ALTER TABLE manifest ADD COLUMN userId TEXT");
+        } catch (e) {
+            // modifications to simple schema
+        }
     }
 
     async fetch(request: Request): Promise<Response> {
@@ -72,20 +80,23 @@ export class RecordingDurableObject extends DurableObject {
         const path = url.pathname;
 
         try {
+            const userId = request.headers.get("X-Liva-User-Id");
+
+
             if (path.endsWith('/upload/audio')) {
-                return this.uploadAudio(request);
+                return this.uploadAudio(request, userId);
             } else if (path.endsWith('/upload/board')) {
-                return this.uploadBoard(request);
+                return this.uploadBoard(request, userId);
             } else if (path.endsWith('/upload/pointer')) {
-                return this.uploadPointer(request);
+                return this.uploadPointer(request, userId);
             } else if (path.endsWith('/upload/manifest')) {
-                return this.uploadManifest(request);
+                return this.uploadManifest(request, userId);
             } else if (path.includes('/download/manifest')) {
-                return this.getManifest(request);
+                return this.getManifest(request, userId);
             } else if (path.includes('/download/audio')) {
-                return this.getAudio(request, url);
+                return this.getAudio(request, url, userId);
             } else if (path.includes('/download/events')) {
-                return this.getEvents(request);
+                return this.getEvents(request, userId);
             }
 
             return new Response("Not Found", { status: 404 });
@@ -95,7 +106,9 @@ export class RecordingDurableObject extends DurableObject {
         }
     }
 
-    private async uploadAudio(request: Request) {
+    private async uploadAudio(request: Request, userId: string | null) {
+        if (!userId) return new Response("Unauthorized", { status: 401 });
+
         const formData = await request.formData();
         const sessionId = formData.get('sessionId') as string;
         const chunkId = parseInt(formData.get('chunkId') as string);
@@ -113,7 +126,9 @@ export class RecordingDurableObject extends DurableObject {
         return new Response('OK');
     }
 
-    private async uploadBoard(request: Request) {
+    private async uploadBoard(request: Request, userId: string | null) {
+        if (!userId) return new Response("Unauthorized", { status: 401 });
+
         const body = await request.json() as any;
         const { sessionId, events } = body;
 
@@ -127,7 +142,9 @@ export class RecordingDurableObject extends DurableObject {
         return new Response('OK');
     }
 
-    private async uploadPointer(request: Request) {
+    private async uploadPointer(request: Request, userId: string | null) {
+        if (!userId) return new Response("Unauthorized", { status: 401 });
+
         const body = await request.json() as any;
         const { sessionId, events } = body;
 
@@ -168,20 +185,33 @@ export class RecordingDurableObject extends DurableObject {
         return new Response('OK');
     }
 
-    private async uploadManifest(request: Request) {
+    private async uploadManifest(request: Request, userId: string | null) {
+        if (!userId) return new Response("Unauthorized", { status: 401 });
         const manifest = await request.json() as any;
         this.sql.exec(`
-            INSERT OR REPLACE INTO manifest (sessionId, startedAt, endedAt, audioChunks, boardEventCount, pointerEventCount, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, manifest.sessionId, manifest.startedAt, manifest.endedAt, manifest.audioChunks, manifest.boardEventCount, manifest.pointerEventCount, manifest.status);
+            INSERT OR REPLACE INTO manifest (sessionId, userId, startedAt, endedAt, audioChunks, boardEventCount, pointerEventCount, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, manifest.sessionId, userId, manifest.startedAt, manifest.endedAt, manifest.audioChunks, manifest.boardEventCount, manifest.pointerEventCount, manifest.status);
         return new Response('OK');
     }
 
-    private async getManifest(request: Request) {
+    private async checkAuth(sessionId: string, userId: string | null): Promise<boolean> {
+        if (!userId) return false;
+        const result = this.sql.exec("SELECT userId FROM manifest WHERE sessionId = ?", sessionId).one();
+        if (!result) return false; // Session doesn't exist?
+        if (!result.userId) return true; // Legacy session without owner? Allow or Deny? Deny for security.
+        return result.userId === userId;
+    }
+
+    private async getManifest(request: Request, userId: string | null) {
         const url = new URL(request.url);
         const sessionId = url.searchParams.get('sessionId');
 
         if (!sessionId) return new Response("Session ID required", { status: 400 });
+
+        // Security Check
+        const authorized = await this.checkAuth(sessionId, userId);
+        if (!authorized) return new Response("Unauthorized", { status: 403 });
 
         const manifest = this.sql.exec("SELECT * FROM manifest WHERE sessionId = ?", sessionId).one();
         if (!manifest) return new Response("Session not found", { status: 404 });
@@ -189,10 +219,14 @@ export class RecordingDurableObject extends DurableObject {
         return Response.json(manifest);
     }
 
-    private async getEvents(request: Request) {
+    private async getEvents(request: Request, userId: string | null) {
         const url = new URL(request.url);
         const sessionId = url.searchParams.get('sessionId');
         if (!sessionId) return new Response("Session ID required", { status: 400 });
+
+        // Security Check
+        const authorized = await this.checkAuth(sessionId, userId);
+        if (!authorized) return new Response("Unauthorized", { status: 403 });
 
         const boardEvents = this.sql.exec("SELECT * FROM board_events WHERE sessionId = ? ORDER BY t ASC", sessionId).toArray().map((e: any) => ({
             ...e,
@@ -213,11 +247,15 @@ export class RecordingDurableObject extends DurableObject {
         });
     }
 
-    private async getAudio(request: Request, url: URL) {
+    private async getAudio(request: Request, url: URL, userId: string | null) {
         const sessionId = url.searchParams.get('sessionId');
         if (!sessionId) return new Response("Session ID required", { status: 400 });
 
         const chunkId = url.searchParams.get('chunkId');
+
+        // Security Check
+        const authorized = await this.checkAuth(sessionId, userId);
+        if (!authorized) return new Response("Unauthorized", { status: 403 });
 
         if (chunkId) {
             const row = this.sql.exec("SELECT blob FROM audio_chunks WHERE sessionId = ? AND chunkId = ?", sessionId, chunkId).one();

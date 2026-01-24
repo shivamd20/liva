@@ -9,7 +9,9 @@ export const monorailRouter = router({
             const id = input.sessionId || crypto.randomUUID();
             const idObj = ctx.env.MONORAIL_SESSION_DO.idFromName(id);
             const stub = ctx.env.MONORAIL_SESSION_DO.get(idObj);
-            return await stub.createSession(id);
+
+            if (!ctx.userId) throw new Error("Unauthorized");
+            return await stub.createSession(id, ctx.userId);
         }),
 
     /**
