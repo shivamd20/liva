@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Board } from '../types';
 import { cn } from '../lib/utils';
-import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft, Mic, MicOff, Video, VideoOff, Square, Circle, Clock } from 'lucide-react';
+import { Menu, Share2, MessageCircle, X, ChevronRight, Check, ChevronLeft, Mic, MicOff, Video, VideoOff, Square, Circle, Clock, Wifi, WifiOff, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -13,6 +13,7 @@ import {
     DropdownMenuGroup,
     DropdownMenuShortcut
 } from '@/components/ui/dropdown-menu';
+import { ConnectionStatus } from '@shvm/excalidraw-live-sync';
 
 export interface TopBarMenuItem {
     label: string;
@@ -47,6 +48,10 @@ interface TopBarProps {
     onConnectYouTube?: () => void;
     uploadStatus?: 'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null;
     uploadProgress?: number;
+
+    // Connection Status
+    connectionStatus?: ConnectionStatus;
+    onReconnect?: () => void;
 }
 
 export function TopBar({
@@ -71,7 +76,9 @@ export function TopBar({
     recordingSessionId,
     onConnectYouTube,
     uploadStatus,
-    uploadProgress
+    uploadProgress,
+    connectionStatus,
+    onReconnect
 }: TopBarProps) {
     const [timeLeft, setTimeLeft] = useState<number | null>(null);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -122,6 +129,32 @@ export function TopBar({
             setTempTitle(board.title);
         }
     };
+
+    // Helper to render the colored dot/indicator
+    const renderConnectionIndicator = () => {
+        if (!connectionStatus) return null;
+        switch (connectionStatus) {
+            case 'connected':
+                return <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />;
+            case 'connecting':
+            case 'reconnecting':
+                return <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />;
+            case 'disconnected':
+                return <div className="w-2.5 h-2.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />;
+            default:
+                return null;
+        }
+    };
+
+    const getConnectionStatusLabel = () => {
+        switch (connectionStatus) {
+            case 'connected': return 'Connected';
+            case 'connecting': return 'Connecting...';
+            case 'reconnecting': return 'Reconnecting...';
+            case 'disconnected': return 'Disconnected';
+            default: return 'Unknown';
+        }
+    }
 
     return (
         <div className="h-12 w-full relative flex items-center justify-between px-4 select-none bg-white/80 dark:bg-neutral-950/80 backdrop-blur-md border-b border-neutral-200/50 dark:border-neutral-800/50 transition-all duration-300">
@@ -200,6 +233,45 @@ export function TopBar({
 
             {/* 2. Right: Controls */}
             <div className="flex-1 flex justify-end items-center gap-3">
+                {/* Connection Status Indicator */}
+                {connectionStatus && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <button className="group outline-none relative flex items-center justify-center p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors cursor-pointer">
+                                {renderConnectionIndicator()}
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel className="flex items-center justify-between">
+                                <span>Sync Status</span>
+                                <span className={cn(
+                                    "text-xs font-normal px-2 py-0.5 rounded-full capitalize",
+                                    connectionStatus === 'connected' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
+                                        connectionStatus === 'disconnected' ? "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" :
+                                            "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                )}>
+                                    {getConnectionStatusLabel()}
+                                </span>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <div className="px-2 py-2 text-xs text-neutral-500 dark:text-neutral-400 font-mono break-all">
+                                Board ID: {board.id.substring(0, 8)}...
+                            </div>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                onClick={onReconnect}
+                                disabled={connectionStatus === 'connected' || connectionStatus === 'connecting'}
+                                className="cursor-pointer"
+                            >
+                                <RefreshCcw className={cn("w-4 h-4 mr-2", (connectionStatus === 'connecting' || connectionStatus === 'reconnecting') && "animate-spin")} />
+                                <span>
+                                    {(connectionStatus === 'connecting' || connectionStatus === 'reconnecting') ? 'Connecting...' : 'Reconnect Now'}
+                                </span>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                )}
+
                 {onConnectYouTube && (
                     <Button
                         variant="outline"

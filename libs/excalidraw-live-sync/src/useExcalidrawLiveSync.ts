@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { ExcalidrawImperativeAPI, Collaborator, SocketId } from '@excalidraw/excalidraw/types';
 import { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
-import { liveSyncClient } from './LiveSyncClient';
+import { liveSyncClient, ConnectionStatus } from './LiveSyncClient';
 
 export interface UserInfo {
     username?: string;
@@ -51,11 +51,34 @@ export function useExcalidrawLiveSync({
     baseUrl = 'https://liva.shvm.in',
 }: UseExcalidrawLiveSyncProps) {
 
+    // -- Resolve Effective User ID --
+    // We want a persistent ID for guests so that their cursors don't flicker or conflict
+    const [effectiveUserId, setEffectiveUserId] = useState<string>('');
+
+    useEffect(() => {
+        if (userId && userId !== 'anonymous') {
+            setEffectiveUserId(userId);
+        } else {
+            // Check for stored guest ID
+            if (typeof window !== 'undefined') {
+                let guestId = localStorage.getItem('liva_guest_id');
+                if (!guestId) {
+                    guestId = `guest_${Math.random().toString(36).substring(2, 9)}`;
+                    localStorage.setItem('liva_guest_id', guestId);
+                }
+                setEffectiveUserId(guestId);
+            } else {
+                setEffectiveUserId('anonymous');
+            }
+        }
+    }, [userId]);
+
     // Set base URL and User ID
     useEffect(() => {
+        if (!effectiveUserId) return;
         liveSyncClient.setBaseUrl(baseUrl);
-        liveSyncClient.setUserId(userId);
-    }, [baseUrl, userId]);
+        liveSyncClient.setUserId(effectiveUserId);
+    }, [baseUrl, effectiveUserId]);
 
     // -- Sync State --
     const lastElementsRef = useRef<readonly OrderedExcalidrawElement[]>([]);
@@ -65,6 +88,7 @@ export function useExcalidrawLiveSync({
 
     // -- Collaborators State --
     const [collaborators, setCollaborators] = useState<Map<SocketId, Collaborator>>(new Map());
+    const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('disconnected');
 
     // -- 1. Handle Local Changes (onChange) --
     // We accept any here to match Excalidraw's onChange(elements, appState, files)
@@ -93,9 +117,10 @@ export function useExcalidrawLiveSync({
     }, [boardId, debounceMs]);
 
 
-    // -- 2. Handle Remote Changes --
+    // -- 2. Handle Remote Changes & Connection Status --
     useEffect(() => {
         if (!excalidrawAPI) return;
+        if (!effectiveUserId) return; // Wait for user ID
 
         const unsubscribe = liveSyncClient.subscribe(boardId, (remoteBoard) => {
             // Prevent loop: if version is same as what we last processed
@@ -122,13 +147,22 @@ export function useExcalidrawLiveSync({
             lastBoardVersionRef.current = remoteBoard.updatedAt;
         });
 
-        return () => unsubscribe();
-    }, [excalidrawAPI, boardId]);
+        // Subscribe to status updates
+        const unsubscribeStatus = liveSyncClient.subscribeStatus(boardId, (status) => {
+            setConnectionStatus(status);
+        });
+
+        return () => {
+            unsubscribe();
+            unsubscribeStatus();
+        };
+    }, [excalidrawAPI, boardId, effectiveUserId]);
 
 
     // -- 3. Handle Cursors & Ephemeral State --
     useEffect(() => {
         if (!excalidrawAPI) return;
+        if (!effectiveUserId) return;
 
         const handleEphemeral = (msg: any) => {
             if (msg.type === 'ephemeral') {
@@ -144,7 +178,7 @@ export function useExcalidrawLiveSync({
                 }
 
                 if (data.type === 'pointer') {
-                    if (data.payload.userId === userId) return;
+                    if (data.payload.userId === effectiveUserId) return;
 
                     setCollaborators(prev => {
                         const next = new Map(prev);
@@ -168,7 +202,7 @@ export function useExcalidrawLiveSync({
                 const newCalls = new Map<SocketId, Collaborator>();
                 Object.entries(msg.data).forEach(([id, data]: [string, any]) => {
                     if (data && data.type === 'pointer') {
-                        if (data.payload.userId === userId) return;
+                        if (data.payload.userId === effectiveUserId) return;
 
                         newCalls.set(id as SocketId, {
                             id: id,
@@ -189,7 +223,7 @@ export function useExcalidrawLiveSync({
 
         const unsubscribe = liveSyncClient.subscribeEphemeral(boardId, handleEphemeral);
         return () => unsubscribe();
-    }, [excalidrawAPI, boardId]);
+    }, [excalidrawAPI, boardId, effectiveUserId]);
 
 
     // -- 4. Update Collaborators in Excalidraw --
@@ -202,22 +236,29 @@ export function useExcalidrawLiveSync({
 
     // -- 5. Pointer Updates --
     const onPointerUpdate = useCallback((payload: { pointer: { x: number; y: number }, button: 'down' | 'up', pointersMap: any }) => {
+        if (!effectiveUserId) return;
+
         liveSyncClient.sendEphemeral(boardId, {
             type: 'pointer',
             payload: {
                 pointer: payload.pointer,
                 button: payload.button,
-                userId: userId,
+                userId: effectiveUserId,
                 username: userInfo.username,
                 avatarUrl: userInfo.avatarUrl,
                 color: userInfo.color,
             }
         });
-    }, [boardId, userInfo, userId]);
+    }, [boardId, userInfo, effectiveUserId]);
 
+    const reconnect = useCallback(() => {
+        liveSyncClient.reconnect(boardId);
+    }, [boardId]);
 
     return {
         handleChange,
-        onPointerUpdate
+        onPointerUpdate,
+        connectionStatus,
+        reconnect
     };
 }

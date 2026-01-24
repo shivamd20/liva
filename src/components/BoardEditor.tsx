@@ -397,8 +397,10 @@ export function BoardEditor({
 
 
   // Use the library for syncing
-  const { handleChange, onPointerUpdate } = useExcalidrawLiveSync({
-    excalidrawAPI: excalidrawAPIRef.current,
+  // Use the library for syncing
+  // Use the library for syncing
+  const { handleChange, onPointerUpdate, connectionStatus, reconnect } = useExcalidrawLiveSync({
+    excalidrawAPI: excalidrawAPI, // FIX: Pass state, not ref!!
     boardId: board.id,
     userId: userId || 'anonymous',
     userInfo: {
@@ -556,6 +558,8 @@ export function BoardEditor({
 
           uploadStatus={uploadStatus}
           uploadProgress={uploadProgress}
+          connectionStatus={connectionStatus}
+          onReconnect={reconnect}
         />
 
         <div className="flex-1 relative flex overflow-hidden w-full h-full">
