@@ -18,6 +18,8 @@ import { NewBoardRedirect } from './components/NewBoardRedirect';
 import { TestAI } from './components/TestAI';
 import { IntegrationsPage } from './components/IntegrationsPage';
 import { useQuery } from '@tanstack/react-query';
+import { LoadingScreen } from './components/LoadingScreen';
+import { BoardNotFound } from './components/BoardNotFound';
 
 import { useDuplicateBoard } from './hooks/useBoards';
 import { HistoryModal } from './components/HistoryModal';
@@ -42,7 +44,7 @@ function BoardView({
 }) {
   const { id } = useParams<{ id: string }>();
   const { data: session } = useSession();
-  const { data: board, isLoading } = useBoard(id);
+  const { data: board, isPending: isLoading } = useBoard(id);
   const updateBoard = useUpdateBoard();
   const duplicateBoard = useDuplicateBoard();
   const navigate = useNavigate();
@@ -143,8 +145,8 @@ function BoardView({
     return <div className="h-screen w-full bg-gray-50" />; // Placeholder behind auth dialog
   }
 
-  if (isLoading) return <div>Loading...</div>;
-  if (!board) return <div>Board not found</div>;
+  if (isLoading) return <LoadingScreen />;
+  if (!board) return <BoardNotFound />;
 
   const handleRenameBoard = () => {
     const newTitle = window.prompt('Enter new board name:', board.title || 'Untitled');

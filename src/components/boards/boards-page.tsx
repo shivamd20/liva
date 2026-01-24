@@ -5,6 +5,7 @@ import BoardsFilters from "./boards-filters"
 import BoardsGrid from "./boards-grid"
 import EmptyState from "./empty-state"
 import { IntegrationsPage } from "../IntegrationsPage"
+import { LoadingScreen } from "../LoadingScreen"
 import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
 import * as Dialog from "@radix-ui/react-dialog"
@@ -17,7 +18,7 @@ import Footer from "../../components/footer"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 export default function BoardsPage() {
-  const { data: boards = [], isLoading } = useBoards()
+  const { data: boards = [], isPending: isLoading } = useBoards()
   const { data: session } = useSession()
   const updateBoard = useUpdateBoard()
   const deleteBoard = useDeleteBoard()
@@ -153,14 +154,7 @@ export default function BoardsPage() {
   const isEmpty = boards.length === 0
 
   if (isLoading) {
-    return (
-      <div className="flex w-screen items-center justify-center h-screen bg-background">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="h-8 w-8 bg-accent/20 rounded-full mb-4"></div>
-          <div className="h-4 w-32 bg-muted rounded"></div>
-        </div>
-      </div>
-    )
+    return <LoadingScreen />
   }
 
   return (
