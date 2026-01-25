@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import BoardsHeader from "./boards-header"
 import BoardsFilters from "./boards-filters"
@@ -7,10 +7,11 @@ import EmptyState from "./empty-state"
 import { IntegrationsPage } from "../IntegrationsPage"
 import { VideosPage } from "../videos/VideosPage"
 import { LoadingScreen } from "../LoadingScreen"
-import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from "../../hooks/useBoards"
+import { useBoardsList, useUpdateBoard, useDeleteBoard, useDuplicateBoard, useRemoveSharedBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
+import { BoardIndexEntry } from "../../boards"
 import * as Dialog from "@radix-ui/react-dialog"
-import { X, AlertTriangle, Copy, Plus } from "lucide-react"
+import { X, AlertTriangle, Copy, Plus, Loader2 } from "lucide-react"
 import { HistoryModal } from "../HistoryModal"
 import { useSession, signIn } from "../../lib/auth-client"
 import { mixpanelService, MixpanelEvents } from "../../lib/mixpanel"
@@ -19,11 +20,7 @@ import Footer from "../../components/footer"
 import { ChevronDown, ChevronUp } from "lucide-react"
 
 export default function BoardsPage() {
-  const { data: boards = [], isPending: isLoading } = useBoards()
   const { data: session } = useSession()
-  const updateBoard = useUpdateBoard()
-  const deleteBoard = useDeleteBoard()
-  const duplicateBoard = useDuplicateBoard()
   const navigate = useNavigate()
   const location = useLocation()
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -32,23 +29,79 @@ export default function BoardsPage() {
   const isIntegrationsView = location.pathname === '/app/integrations';
   const isVideosView = location.pathname === '/app/videos';
 
-  const [filter, setFilter] = useState<"all" | "owned" | "shared" | "recent">("all")
-  const [sortBy, setSortBy] = useState<"lastOpened" | "lastUpdated" | "alphabetical">("lastOpened")
+  // Filter state
+  const [filter, setFilter] = useState<"all" | "owned" | "shared">("all")
+  const [sortBy, setSortBy] = useState<"lastAccessed" | "lastUpdated" | "alphabetical" | "created">("lastAccessed")
+  const [visibility, setVisibility] = useState<"all" | "public" | "private">("all")
   const [searchQuery, setSearchQuery] = useState("")
+  const [debouncedSearch, setDebouncedSearch] = useState("")
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Use paginated boards list
+  const {
+    data: boardsData,
+    isPending: isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useBoardsList({
+    search: debouncedSearch || undefined,
+    filter,
+    visibility,
+    sortBy,
+    sortOrder: sortBy === 'alphabetical' ? 'asc' : 'desc',
+  })
+
+  const updateBoard = useUpdateBoard()
+  const deleteBoard = useDeleteBoard()
+  const duplicateBoard = useDuplicateBoard()
+  const removeSharedBoard = useRemoveSharedBoard()
+
+  // Flatten paginated data
+  const boardEntries = useMemo(() => {
+    if (!boardsData?.pages) return []
+    return boardsData.pages.flatMap(page => page.items)
+  }, [boardsData])
+
+  const totalCount = boardsData?.pages?.[0]?.totalCount ?? 0
+
+  // Infinite scroll observer
+  const observerRef = useRef<IntersectionObserver | null>(null)
+  const loadMoreRef = useCallback((node: HTMLDivElement | null) => {
+    if (isFetchingNextPage) return
+    if (observerRef.current) observerRef.current.disconnect()
+
+    observerRef.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasNextPage) {
+        fetchNextPage()
+      }
+    })
+
+    if (node) observerRef.current.observe(node)
+  }, [isFetchingNextPage, hasNextPage, fetchNextPage])
 
   // Modal states
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false)
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false)
+  const [isRemoveSharedModalOpen, setIsRemoveSharedModalOpen] = useState(false)
 
   const [isLearnMoreExpanded, setIsLearnMoreExpanded] = useState(false)
 
   // Selected board states
   const [boardToDelete, setBoardToDelete] = useState<{ id: string; title: string } | null>(null)
-  const [boardToRename, setBoardToRename] = useState<Board | null>(null)
-  const [boardToDuplicate, setBoardToDuplicate] = useState<Board | null>(null)
+  const [boardToRename, setBoardToRename] = useState<BoardIndexEntry | null>(null)
+  const [boardToDuplicate, setBoardToDuplicate] = useState<BoardIndexEntry | null>(null)
   const [boardForHistory, setBoardForHistory] = useState<{ id: string; title: string } | null>(null)
+  const [boardToRemove, setBoardToRemove] = useState<BoardIndexEntry | null>(null)
 
   // Input states
   const [renameTitle, setRenameTitle] = useState("")
@@ -61,10 +114,22 @@ export default function BoardsPage() {
     }
   }, [searchParams, navigate]);
 
+  // Convert entry to Board for mutations that need it
+  const entryToBoard = (entry: BoardIndexEntry): Board => ({
+    id: entry.noteId,
+    title: entry.title || 'Untitled',
+    content: '',
+    excalidrawElements: [],
+    createdAt: entry.createdAt,
+    updatedAt: entry.updatedAt,
+    userId: entry.ownerUserId,
+    access: entry.visibility,
+  })
+
   // Handlers
-  const handleRenameClick = (board: Board) => {
-    setBoardToRename(board)
-    setRenameTitle(board.title || "Untitled")
+  const handleRenameClick = (entry: BoardIndexEntry) => {
+    setBoardToRename(entry)
+    setRenameTitle(entry.title || "Untitled")
     setIsRenameModalOpen(true)
   }
 
@@ -72,18 +137,19 @@ export default function BoardsPage() {
     e.preventDefault()
     if (!renameTitle.trim() || !boardToRename) return
 
-    updateBoard.mutate({ ...boardToRename, title: renameTitle.trim() }, {
+    const board = entryToBoard(boardToRename)
+    updateBoard.mutate({ ...board, title: renameTitle.trim() }, {
       onSuccess: () => {
         setIsRenameModalOpen(false)
         setBoardToRename(null)
         setRenameTitle("")
-        mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: boardToRename.id, newTitle: renameTitle.trim() });
+        mixpanelService.track(MixpanelEvents.BOARD_RENAME, { boardId: boardToRename.noteId, newTitle: renameTitle.trim() });
       }
     })
   }
 
-  const handleDeleteClick = (board: Board) => {
-    setBoardToDelete({ id: board.id, title: board.title })
+  const handleDeleteClick = (entry: BoardIndexEntry) => {
+    setBoardToDelete({ id: entry.noteId, title: entry.title || 'Untitled' })
     setIsDeleteModalOpen(true)
   }
 
@@ -96,64 +162,51 @@ export default function BoardsPage() {
     }
   }
 
-  const handleDuplicateClick = (board: Board) => {
-    setBoardToDuplicate(board)
-    setDuplicateTitle(`${board.title} (Copy)`)
+  const handleDuplicateClick = (entry: BoardIndexEntry) => {
+    setBoardToDuplicate(entry)
+    setDuplicateTitle(`${entry.title || 'Untitled'} (Copy)`)
     setIsDuplicateModalOpen(true)
   }
 
-  const handleDuplicateSubmit = (e: React.FormEvent) => {
+  const handleDuplicateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!duplicateTitle.trim() || !boardToDuplicate) return
 
-    duplicateBoard.mutate({ board: boardToDuplicate, title: duplicateTitle.trim() }, {
+    // Need to fetch full board content for duplication
+    const board = entryToBoard(boardToDuplicate)
+    duplicateBoard.mutate({ board, title: duplicateTitle.trim() }, {
       onSuccess: () => {
         setIsDuplicateModalOpen(false)
         setBoardToDuplicate(null)
         setDuplicateTitle("")
-        mixpanelService.track(MixpanelEvents.BOARD_DUPLICATE, { sourceId: boardToDuplicate.id });
+        mixpanelService.track(MixpanelEvents.BOARD_DUPLICATE, { sourceId: boardToDuplicate.noteId });
       }
     })
   }
 
-  const handleHistoryClick = (board: Board) => {
-    setBoardForHistory({ id: board.id, title: board.title || "Untitled" })
-    mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id, source: 'Boards Page' });
+  const handleHistoryClick = (entry: BoardIndexEntry) => {
+    setBoardForHistory({ id: entry.noteId, title: entry.title || "Untitled" })
+    mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: entry.noteId, source: 'Boards Page' });
     setIsHistoryModalOpen(true)
   }
 
-  // Filter and sort boards
-  const filteredBoards = boards
-    .filter((board) => {
-      if (searchQuery) {
-        return board.title.toLowerCase().includes(searchQuery.toLowerCase())
-      }
-      switch (filter) {
-        case "owned":
-          return session?.user?.id ? board.userId === session.user.id : true
-        case "shared":
-          return session?.user?.id ? board.userId !== session.user.id : false
-        case "recent":
-          // Show boards from last 7 days
-          const weekAgo = new Date()
-          weekAgo.setDate(weekAgo.getDate() - 7)
-          return new Date(board.updatedAt) > weekAgo
-        default:
-          return true
-      }
-    })
-    .sort((a, b) => {
-      switch (sortBy) {
-        case "alphabetical":
-          return a.title.localeCompare(b.title)
-        case "lastUpdated":
-        case "lastOpened":
-        default:
-          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      }
-    })
+  const handleRemoveSharedClick = (entry: BoardIndexEntry) => {
+    setBoardToRemove(entry)
+    setIsRemoveSharedModalOpen(true)
+  }
 
-  const isEmpty = boards.length === 0
+  const handleRemoveSharedConfirm = () => {
+    if (boardToRemove) {
+      removeSharedBoard.mutate(boardToRemove.noteId, {
+        onSuccess: () => {
+          setIsRemoveSharedModalOpen(false)
+          setBoardToRemove(null)
+        }
+      })
+    }
+  }
+
+  const isEmpty = totalCount === 0 && !isLoading
 
   if (isLoading) {
     return <LoadingScreen />
@@ -200,57 +253,133 @@ export default function BoardsPage() {
               </section>
 
 
-              {isEmpty ? (
-                <div className="space-y-16">
-                  <EmptyState onCreateClick={() => navigate('/new')} />
-                  <div id="learn-more" className="relative">
-                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                      <div className="w-full border-t border-gray-200" />
-                    </div>
-                    <div className="relative flex justify-center">
-                      <span className="bg-background px-3 text-base font-semibold leading-6 text-gray-900">Learn More About Liva</span>
-                    </div>
-                  </div>
-                  <LandingPageContent />
-                </div>
-              ) : (
-                <>
-                  <BoardsFilters filter={filter} onFilterChange={setFilter} sortBy={sortBy} onSortChange={setSortBy} />
-                  <BoardsGrid
-                    boards={filteredBoards}
-                    onCreateClick={() => navigate('/new')}
-                    onRename={handleRenameClick}
-                    onDelete={handleDeleteClick}
-                    onDuplicate={handleDuplicateClick}
-                    onHistory={handleHistoryClick}
-                  />
 
-                  <div className="mt-24 pt-12 border-t border-border">
-                    <div className="flex justify-center mb-8">
-                      <button
-                        onClick={() => setIsLearnMoreExpanded(!isLearnMoreExpanded)}
-                        className="flex items-center gap-2 px-6 py-3 rounded-full bg-secondary/50 hover:bg-secondary text-foreground font-medium transition-colors"
+              {/* Check if any filters are applied */}
+              {(() => {
+                const hasFiltersApplied = debouncedSearch || filter !== 'all' || visibility !== 'all';
+                const noResults = boardEntries.length === 0 && !isLoading;
+
+                if (noResults && !hasFiltersApplied) {
+                  // No boards at all - show full empty state
+                  return (
+                    <div className="space-y-16">
+                      <EmptyState onCreateClick={() => navigate('/new')} />
+                      <div id="learn-more" className="relative">
+                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                          <div className="w-full border-t border-gray-200" />
+                        </div>
+                        <div className="relative flex justify-center">
+                          <span className="bg-background px-3 text-base font-semibold leading-6 text-gray-900">Learn More About Liva</span>
+                        </div>
+                      </div>
+                      <LandingPageContent />
+                    </div>
+                  );
+                }
+
+                if (noResults && hasFiltersApplied) {
+                  // Filters applied but no results
+                  return (
+                    <>
+                      <BoardsFilters
+                        filter={filter}
+                        onFilterChange={setFilter}
+                        sortBy={sortBy}
+                        onSortChange={setSortBy}
+                        visibility={visibility}
+                        onVisibilityChange={setVisibility}
+                      />
+                      <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                        <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
+                          <svg className="w-8 h-8 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                          </svg>
+                        </div>
+                        <h3 className="text-lg font-semibold text-foreground mb-2">No results found</h3>
+                        <p className="text-muted-foreground max-w-sm mb-6">
+                          {debouncedSearch
+                            ? `No boards matching "${debouncedSearch}"`
+                            : "No boards match your current filters"}
+                        </p>
+                        <button
+                          onClick={() => {
+                            setSearchQuery('')
+                            setFilter('all')
+                            setVisibility('all')
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-accent hover:text-accent/80 transition-colors"
+                        >
+                          <X className="w-4 h-4" />
+                          Clear all filters
+                        </button>
+                      </div>
+                    </>
+                  );
+                }
+
+                // Has boards - show normal view
+                return (
+                  <>
+                    <BoardsFilters
+                      filter={filter}
+                      onFilterChange={setFilter}
+                      sortBy={sortBy}
+                      onSortChange={setSortBy}
+                      visibility={visibility}
+                      onVisibilityChange={setVisibility}
+                    />
+                    <BoardsGrid
+                      entries={boardEntries}
+                      onCreateClick={() => navigate('/new')}
+                      onRename={handleRenameClick}
+                      onDelete={handleDeleteClick}
+                      onDuplicate={handleDuplicateClick}
+                      onHistory={handleHistoryClick}
+                      onRemoveShared={handleRemoveSharedClick}
+                    />
+
+                    {/* Load more trigger */}
+                    {hasNextPage && (
+                      <div
+                        ref={loadMoreRef}
+                        className="flex justify-center py-8"
                       >
-                        {isLearnMoreExpanded ? (
-                          <>
-                            Hide Details <ChevronUp className="w-4 h-4" />
-                          </>
-                        ) : (
-                          <>
-                            Learn More About Liva <ChevronDown className="w-4 h-4" />
-                          </>
+                        {isFetchingNextPage && (
+                          <div className="flex items-center gap-2 text-muted-foreground">
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>Loading more boards...</span>
+                          </div>
                         )}
-                      </button>
-                    </div>
-
-                    {isLearnMoreExpanded && (
-                      <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                        <LandingPageContent />
                       </div>
                     )}
-                  </div>
-                </>
-              )}
+
+                    <div className="mt-24 pt-12 border-t border-border">
+                      <div className="flex justify-center mb-8">
+                        <button
+                          onClick={() => setIsLearnMoreExpanded(!isLearnMoreExpanded)}
+                          className="flex items-center gap-2 px-6 py-3 rounded-full bg-secondary/50 hover:bg-secondary text-foreground font-medium transition-colors"
+                        >
+                          {isLearnMoreExpanded ? (
+                            <>
+                              Hide Details <ChevronUp className="w-4 h-4" />
+                            </>
+                          ) : (
+                            <>
+                              Learn More About Liva <ChevronDown className="w-4 h-4" />
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {isLearnMoreExpanded && (
+                        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+                          <LandingPageContent />
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
         </div>
@@ -285,6 +414,41 @@ export default function BoardsPage() {
                   className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   {deleteBoard.isPending ? 'Deleting...' : 'Delete Board'}
+                </button>
+              </div>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Remove Shared Board Modal */}
+      <Dialog.Root open={isRemoveSharedModalOpen} onOpenChange={setIsRemoveSharedModalOpen}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+            <div className="flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+                <X className="w-8 h-8 text-amber-600" />
+              </div>
+              <Dialog.Title className="text-xl font-bold text-gray-900 mb-2">
+                Remove from Your List?
+              </Dialog.Title>
+              <Dialog.Description className="text-sm text-gray-600 mb-6">
+                Remove <span className="font-semibold text-gray-900">"{boardToRemove?.title || 'Untitled'}"</span> from your boards? You can access it again via the share link.
+              </Dialog.Description>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={() => setIsRemoveSharedModalOpen(false)}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRemoveSharedConfirm}
+                  disabled={removeSharedBoard.isPending}
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {removeSharedBoard.isPending ? 'Removing...' : 'Remove'}
                 </button>
               </div>
             </div>
@@ -357,7 +521,7 @@ export default function BoardsPage() {
               </button>
             </div>
             <Dialog.Description className="text-sm text-gray-600 mb-4">
-              Creating a copy of <span className="font-semibold text-gray-900">"{boardToDuplicate?.title}"</span>
+              Creating a copy of <span className="font-semibold text-gray-900">"{boardToDuplicate?.title || 'Untitled'}"</span>
             </Dialog.Description>
             <form onSubmit={handleDuplicateSubmit} className="space-y-4">
               <div>

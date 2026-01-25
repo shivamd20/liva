@@ -1,10 +1,54 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from '@tanstack/react-query';
 import { boards } from '../boardsConfig';
 import { Board } from '../types';
 import { useSession } from '../lib/auth-client';
+import { ListBoardsOptions, BoardIndexEntry } from '../boards';
 
 const BOARDS_QUERY_KEY = ['boards'];
+const BOARDS_LIST_KEY = ['boards-list'];
 
+/**
+ * Options for useBoards hook
+ */
+export interface UseBoardsOptions {
+  search?: string;
+  filter?: 'all' | 'owned' | 'shared';
+  visibility?: 'public' | 'private' | 'all';
+  sortBy?: 'lastAccessed' | 'lastUpdated' | 'alphabetical' | 'created';
+  sortOrder?: 'asc' | 'desc';
+}
+
+/**
+ * Hook for fetching paginated boards from user's index
+ * Uses infinite query for "load more" pagination
+ */
+export function useBoardsList(options: UseBoardsOptions = {}) {
+  const { data: session } = useSession();
+  const pageSize = 10;
+
+  return useInfiniteQuery({
+    queryKey: [...BOARDS_LIST_KEY, options],
+    queryFn: async ({ pageParam }) => {
+      return boards.list({
+        search: options.search,
+        filter: options.filter,
+        visibility: options.visibility,
+        sortBy: options.sortBy,
+        sortOrder: options.sortOrder,
+        limit: pageSize,
+        cursor: pageParam as string | undefined,
+      });
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    enabled: !!session?.user,
+  });
+}
+
+/**
+ * @deprecated Use useBoardsList for paginated results
+ * Legacy hook that fetches all boards (for backward compatibility)
+ */
 export function useBoards() {
   const { data: session } = useSession();
   return useQuery({
@@ -35,6 +79,7 @@ export function useCreateBoard(options?: {
     onSuccess: (newBoard) => {
       queryClient.setQueryData(['board', newBoard.id], newBoard);
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
       options?.onSuccess?.(newBoard);
     },
     onError: (error: Error) => {
@@ -60,6 +105,7 @@ export function useUpdateBoard() {
     onSuccess: () => {
       // Only invalidate the boards list (for sidebar, etc.)
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
   });
 }
@@ -71,6 +117,7 @@ export function useDeleteBoard() {
     mutationFn: (id: string) => boards.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
   });
 }
@@ -102,12 +149,11 @@ export function useDuplicateBoard() {
       if (newBoard) {
         queryClient.setQueryData(['board', newBoard.id], newBoard);
         queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+        queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
       }
     }
   });
 }
-
-import { useInfiniteQuery } from '@tanstack/react-query';
 
 export function useHistory(id: string | undefined) {
   const { data: session } = useSession();
@@ -133,6 +179,7 @@ export function useRevertBoard() {
       queryClient.setQueryData(['board', updatedBoard.id], updatedBoard);
       queryClient.invalidateQueries({ queryKey: ['history', updatedBoard.id] });
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
   });
 }
@@ -145,7 +192,53 @@ export function useToggleShare() {
     onSuccess: (updatedBoard) => {
       queryClient.setQueryData(['board', updatedBoard.id], updatedBoard);
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
   });
 }
 
+/**
+ * Hook to track board access (updates lastAccessedAt or adds shared board)
+ */
+export function useTrackBoardAccess() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (noteId: string) => boards.trackAccess(noteId),
+    onSuccess: () => {
+      // Refresh boards list to update lastAccessedAt
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
+    }
+  });
+}
+
+/**
+ * Hook to remove a shared board from user's list
+ */
+export function useRemoveSharedBoard() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (noteId: string) => boards.removeShared(noteId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
+    }
+  });
+}
+
+/**
+ * Hook to update thumbnail for a board
+ */
+export function useUpdateThumbnail() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (params: { noteId: string; thumbnailBase64: string; version: number }) =>
+      boards.updateThumbnail(params.noteId, params.thumbnailBase64, params.version),
+    onSuccess: (_, variables) => {
+      // Invalidate the specific board's entry in the list to refresh thumbnail
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
+    }
+  });
+}

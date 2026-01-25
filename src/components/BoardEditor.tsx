@@ -40,6 +40,7 @@ import { MonorailRecorder } from '@shvm/monorail';
 import { useMutation } from '@tanstack/react-query';
 import { useRemoteFileHandler } from '../hooks/useRemoteFileHandler';
 import { useNavigate } from 'react-router-dom';
+import { useTrackBoardAccess } from '../hooks/useBoards';
 
 interface BoardEditorProps {
   board: Board;
@@ -82,6 +83,16 @@ export function BoardEditor({
   const isOwner = !!(userId && userId === board.userId);
   const { isMobile, isTablet } = useResponsive();
   const { theme } = useTheme();
+
+  // Track board access for the user's personal index
+  const trackBoardAccess = useTrackBoardAccess();
+
+  // Track board access when component mounts (user opens the board)
+  useEffect(() => {
+    if (board.id && userId) {
+      trackBoardAccess.mutate(board.id);
+    }
+  }, [board.id, userId]); // Only run once when board/user is first available
 
   // ... imports
 

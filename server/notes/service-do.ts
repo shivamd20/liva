@@ -4,10 +4,12 @@ import type {
 	NoteCurrent,
 	createNoteInput,
 	updateNoteInput,
+	ListNotesResponse,
+	ListNotesInput,
 } from "./types";
 import type { z } from "zod";
 import type { NoteDurableObject } from "../do/NoteDurableObject";
-import type { NoteIndexDurableObject } from "../do/NoteIndexDurableObject";
+import type { NoteIndexDurableObject, ListNotesOptions } from "../do/NoteIndexDurableObject";
 
 // -----------------------------------------------------------------------------
 // PubSub System (for subscriptions)
@@ -67,8 +69,11 @@ export class NotesServiceDO {
 		return this.env.NOTE_DURABLE_OBJECT.get(doId);
 	}
 
-	private getIndexStub(): DurableObjectStub<NoteIndexDurableObject> {
-		const doId = this.env.NOTE_INDEX_DURABLE_OBJECT.idFromName("global-index");
+	/**
+	 * Get user-specific index stub
+	 */
+	private getUserIndexStub(userId: string): DurableObjectStub<NoteIndexDurableObject> {
+		const doId = this.env.NOTE_INDEX_DURABLE_OBJECT.idFromName(`user-index:${userId}`);
 		return this.env.NOTE_INDEX_DURABLE_OBJECT.get(doId);
 	}
 
@@ -82,7 +87,7 @@ export class NotesServiceDO {
 		}
 
 		const stub = this.getStub(id);
-		const indexStub = this.getIndexStub();
+		const indexStub = this.getUserIndexStub(userId);
 
 		try {
 			const current = (await stub.createNote({
@@ -95,14 +100,16 @@ export class NotesServiceDO {
 				templateId: input.templateId,
 			})) as NoteCurrent;
 
-			// Update index
-			await indexStub.upsertNote({
-				id: current.id,
+			// Update user's personal index
+			await indexStub.upsertOwnedNote({
+				noteId: current.id,
 				title: current.title,
+				ownerUserId: current.userId,
+				visibility: current.access,
 				version: current.version,
-				updatedAt: current.updatedAt,
+				thumbnailBase64: null,
 				createdAt: current.createdAt,
-				userId: current.userId,
+				updatedAt: current.updatedAt,
 			});
 
 			pubsub.emit(id, current);
@@ -117,7 +124,6 @@ export class NotesServiceDO {
 
 	async updateNote(input: z.infer<typeof updateNoteInput>, userId: string) {
 		const stub = this.getStub(input.id);
-		const indexStub = this.getIndexStub();
 
 		// Check permissions before updating
 		const existing = (await stub.getNote()) as unknown as NoteCurrent | null;
@@ -141,14 +147,12 @@ export class NotesServiceDO {
 				meta: input.meta ?? null,
 			})) as NoteCurrent;
 
-			// Update index
-			await indexStub.upsertNote({
-				id: current.id,
+			// Update owner's index
+			const ownerIndexStub = this.getUserIndexStub(current.userId);
+			await ownerIndexStub.updateNoteMetadata(current.id, {
 				title: current.title,
 				version: current.version,
 				updatedAt: current.updatedAt,
-				createdAt: current.createdAt,
-				userId: current.userId,
 			});
 
 			pubsub.emit(input.id, current);
@@ -168,7 +172,6 @@ export class NotesServiceDO {
 
 	async revertToVersion(id: string, version: number, userId: string) {
 		const stub = this.getStub(id);
-		const indexStub = this.getIndexStub();
 
 		// Check permissions before updating
 		const existing = (await stub.getNote()) as unknown as NoteCurrent | null;
@@ -187,14 +190,12 @@ export class NotesServiceDO {
 		try {
 			const current = (await stub.revertToVersion(version)) as NoteCurrent;
 
-			// Update index
-			await indexStub.upsertNote({
-				id: current.id,
+			// Update owner's index
+			const ownerIndexStub = this.getUserIndexStub(current.userId);
+			await ownerIndexStub.updateNoteMetadata(current.id, {
 				title: current.title,
 				version: current.version,
 				updatedAt: current.updatedAt,
-				createdAt: current.createdAt,
-				userId: current.userId,
 			});
 
 			pubsub.emit(id, current);
@@ -214,7 +215,6 @@ export class NotesServiceDO {
 
 	async deleteNote(id: string, userId: string) {
 		const stub = this.getStub(id);
-		const indexStub = this.getIndexStub();
 
 		// Check if note exists and user has permission
 		const note = (await stub.getNote()) as unknown as NoteCurrent | null;
@@ -228,7 +228,9 @@ export class NotesServiceDO {
 
 		try {
 			await stub.deleteNote();
-			await indexStub.deleteNote(id);
+			// Remove from owner's index
+			const indexStub = this.getUserIndexStub(userId);
+			await indexStub.removeNote(id);
 			return { success: true };
 		} catch (error) {
 			throw error;
@@ -265,17 +267,111 @@ export class NotesServiceDO {
 		}
 
 		const newAccess = note.access === 'public' ? 'private' : 'public';
-		// We cast because the Stub types might not be fully inferred in this context without full generation, 
-		// but NoteDurableObject has updateAccess.
 		const updated = (await stub.updateAccess(newAccess)) as NoteCurrent;
+
+		// Update owner's index with new visibility
+		const indexStub = this.getUserIndexStub(userId);
+		await indexStub.updateNoteMetadata(id, {
+			visibility: updated.access,
+			updatedAt: updated.updatedAt,
+		});
 
 		pubsub.emit(id, updated);
 		return updated;
 	}
 
-	async listNotes(userId?: string) {
-		const indexStub = this.getIndexStub();
-		return await indexStub.listNotes(userId);
+	/**
+	 * List notes for a user with filters, sorting, and pagination
+	 */
+	async listNotes(userId: string, options: ListNotesInput = {}): Promise<ListNotesResponse> {
+		const indexStub = this.getUserIndexStub(userId);
+
+		const listOptions: ListNotesOptions = {
+			search: options.search,
+			filter: options.filter,
+			visibility: options.visibility,
+			sortBy: options.sortBy,
+			sortOrder: options.sortOrder,
+			limit: options.limit,
+			cursor: options.cursor,
+		};
+
+		const result = await indexStub.listNotes(listOptions);
+
+		// Lazy cleanup: verify shared notes are still accessible
+		// For now, we'll just return the results and let the UI handle stale entries
+		// A more robust solution would verify each shared note is still public
+
+		return result;
+	}
+
+	/**
+	 * Track when a user accesses a board they don't own
+	 * This adds the board to their personal index as a "shared" board
+	 */
+	async trackBoardAccess(noteId: string, userId: string): Promise<void> {
+		const stub = this.getStub(noteId);
+		const note = (await stub.getNote()) as unknown as NoteCurrent | null;
+
+		if (!note) {
+			throw new TRPCError({ code: "NOT_FOUND", message: "Note not found" });
+		}
+
+		const isOwner = note.userId === userId;
+		const isCollaborator = note.collaborators.includes(userId);
+		const isPublic = note.access === 'public';
+
+		if (!isOwner && !isCollaborator && !isPublic) {
+			throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to access this note" });
+		}
+
+		const indexStub = this.getUserIndexStub(userId);
+
+		if (isOwner) {
+			// Update last accessed for owned note
+			await indexStub.updateLastAccessed(noteId);
+		} else {
+			// Add/update as shared note in user's index
+			await indexStub.upsertSharedNote({
+				noteId: note.id,
+				title: note.title,
+				ownerUserId: note.userId,
+				visibility: note.access,
+				version: note.version,
+				thumbnailBase64: null, // Will be populated by thumbnail update
+				createdAt: note.createdAt,
+				updatedAt: note.updatedAt,
+				lastAccessedAt: Date.now(),
+			});
+		}
+	}
+
+	/**
+	 * Remove a shared board from user's index
+	 * Users can manually remove boards others shared with them
+	 */
+	async removeSharedBoard(noteId: string, userId: string): Promise<void> {
+		const indexStub = this.getUserIndexStub(userId);
+
+		// Get the note entry to verify it's shared (not owned)
+		const entry = await indexStub.getNote(noteId);
+		if (!entry) {
+			throw new TRPCError({ code: "NOT_FOUND", message: "Board not found in your list" });
+		}
+
+		if (entry.isOwned) {
+			throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot remove a board you own. Use delete instead." });
+		}
+
+		await indexStub.removeNote(noteId);
+	}
+
+	/**
+	 * Update thumbnail for a board in a user's index
+	 */
+	async updateThumbnail(noteId: string, userId: string, thumbnailBase64: string, version: number): Promise<void> {
+		const indexStub = this.getUserIndexStub(userId);
+		await indexStub.updateThumbnail(noteId, thumbnailBase64, version);
 	}
 
 	async getHistory(id: string, limit?: number, cursor?: number, direction?: 'asc' | 'desc') {
@@ -290,7 +386,6 @@ export class NotesServiceDO {
 
 	async addRecording(id: string, sessionId: string, duration: number, title?: string) {
 		const stub = this.getStub(id);
-		// We cast as any because stub methods aren't auto-generated in this setup
 		await (stub as any).addRecording({ sessionId, duration, title });
 		return { success: true };
 	}
@@ -312,27 +407,54 @@ export class NotesServiceDO {
 		}>;
 	}
 
+	/**
+	 * Migrate notes from one user to another (for account linking)
+	 */
 	async migrateUserNotes(oldUserId: string, newUserId: string) {
-		const indexStub = this.getIndexStub();
-		const notes = await indexStub.listNotes(oldUserId);
+		const oldIndexStub = this.getUserIndexStub(oldUserId);
+		const newIndexStub = this.getUserIndexStub(newUserId);
 
-		console.log(`Migrating ${notes.length} notes from ${oldUserId} to ${newUserId}`);
+		let cursor: string | undefined;
+		let migratedCount = 0;
 
-		for (const note of notes) {
-			try {
-				// Update Note DO
-				const stub = this.getStub(note.id);
-				// We need to cast as any because updateOwner is newly added
-				await (stub as any).updateOwner(newUserId);
+		do {
+			// Get notes in batches of 50 (max allowed)
+			const result = await oldIndexStub.listNotes({ limit: 50, cursor });
 
-				// Update Index
-				await indexStub.upsertNote({
-					...note,
-					userId: newUserId
-				});
-			} catch (e) {
-				console.error(`Failed to migrate note ${note.id}`, e);
+			console.log(`Migrating batch of ${result.items.length} notes from ${oldUserId} to ${newUserId}`);
+
+			for (const entry of result.items) {
+				if (!entry.isOwned) continue; // Only migrate owned notes
+
+				try {
+					// Update Note DO owner
+					const stub = this.getStub(entry.noteId);
+					await (stub as any).updateOwner(newUserId);
+
+					// Add to new user's index
+					await newIndexStub.upsertOwnedNote({
+						noteId: entry.noteId,
+						title: entry.title,
+						ownerUserId: newUserId,
+						visibility: entry.visibility,
+						version: entry.version,
+						thumbnailBase64: entry.thumbnailBase64,
+						createdAt: entry.createdAt,
+						updatedAt: entry.updatedAt,
+						lastAccessedAt: entry.lastAccessedAt,
+					});
+
+					// Remove from old user's index
+					await oldIndexStub.removeNote(entry.noteId);
+					migratedCount++;
+				} catch (e) {
+					console.error(`Failed to migrate note ${entry.noteId}`, e);
+				}
 			}
-		}
+
+			cursor = result.nextCursor ?? undefined;
+		} while (cursor);
+
+		console.log(`Migration complete: ${migratedCount} notes migrated from ${oldUserId} to ${newUserId}`);
 	}
 }

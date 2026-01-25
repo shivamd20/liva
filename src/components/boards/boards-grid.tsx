@@ -1,25 +1,27 @@
 "use client"
 
-import type { Board } from "../../types"
+import { BoardIndexEntry } from "../../boards"
 import CreateBoardCard from "./create-board-card"
 import BoardCard from "./board-card"
 
 interface BoardsGridProps {
-  boards: Board[]
+  entries: BoardIndexEntry[]
   onCreateClick: () => void
-  onRename: (board: Board) => void
-  onDelete: (board: Board) => void
-  onDuplicate: (board: Board) => void
-  onHistory: (board: Board) => void
+  onRename: (entry: BoardIndexEntry) => void
+  onDelete: (entry: BoardIndexEntry) => void
+  onDuplicate: (entry: BoardIndexEntry) => void
+  onHistory: (entry: BoardIndexEntry) => void
+  onRemoveShared: (entry: BoardIndexEntry) => void
 }
 
 export default function BoardsGrid({
-  boards,
+  entries,
   onCreateClick,
   onRename,
   onDelete,
   onDuplicate,
-  onHistory
+  onHistory,
+  onRemoveShared
 }: BoardsGridProps) {
   return (
     <section>
@@ -30,9 +32,9 @@ export default function BoardsGrid({
         </li>
 
         {/* Board cards */}
-        {boards.map((board, index) => (
+        {entries.map((entry, index) => (
           <li
-            key={board.id}
+            key={entry.noteId}
             className="animate-fade-up"
             style={{
               animationDelay: `${(index + 1) * 50}ms`,
@@ -40,11 +42,12 @@ export default function BoardsGrid({
             }}
           >
             <BoardCard
-              board={board}
-              onRename={() => onRename(board)}
-              onDelete={() => onDelete(board)}
-              onDuplicate={() => onDuplicate(board)}
-              onHistory={() => onHistory(board)}
+              entry={entry}
+              onRename={() => onRename(entry)}
+              onDelete={() => onDelete(entry)}
+              onDuplicate={() => onDuplicate(entry)}
+              onHistory={() => onHistory(entry)}
+              onRemoveShared={() => onRemoveShared(entry)}
             />
           </li>
         ))}

@@ -4,7 +4,21 @@ import { File } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { thumbnailQueue } from '../utils/thumbnailQueue';
 
-export const BoardThumbnail = memo(function BoardThumbnail({ elements }: { elements?: any[] }) {
+interface BoardThumbnailProps {
+    // For generating thumbnails from elements
+    elements?: any[];
+    // For using cached thumbnail from index
+    cachedThumbnail?: string | null;
+    noteId?: string;
+    version?: number;
+}
+
+export const BoardThumbnail = memo(function BoardThumbnail({
+    elements,
+    cachedThumbnail,
+    noteId,
+    version
+}: BoardThumbnailProps) {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const { theme, resolvedTheme } = useTheme();
@@ -30,7 +44,18 @@ export const BoardThumbnail = memo(function BoardThumbnail({ elements }: { eleme
         return () => observer.disconnect();
     }, []);
 
+    // Use cached thumbnail if available
     useEffect(() => {
+        if (cachedThumbnail) {
+            setThumbnail(cachedThumbnail);
+            setLoading(false);
+        }
+    }, [cachedThumbnail]);
+
+    // Generate thumbnail from elements if no cached version
+    useEffect(() => {
+        // Skip if we already have a cached thumbnail
+        if (cachedThumbnail) return;
         if (!isVisible) return;
 
         let isMounted = true;
@@ -73,12 +98,14 @@ export const BoardThumbnail = memo(function BoardThumbnail({ elements }: { eleme
         return () => {
             isMounted = false;
         };
-    }, [elements, theme, resolvedTheme, isVisible]);
+    }, [elements, theme, resolvedTheme, isVisible, cachedThumbnail]);
 
-    // Cleanup object URL
+    // Cleanup object URL (only for blob URLs, not data URLs)
     useEffect(() => {
         return () => {
-            if (thumbnail) URL.revokeObjectURL(thumbnail);
+            if (thumbnail && thumbnail.startsWith('blob:')) {
+                URL.revokeObjectURL(thumbnail);
+            }
         };
     }, [thumbnail]);
 

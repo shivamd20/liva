@@ -1,5 +1,5 @@
 import { Board } from './types';
-import { BoardsAPI, BoardChangeCallback, EphemeralCallback, UnsubscribeFunction } from './boards';
+import { BoardsAPI, BoardChangeCallback, EphemeralCallback, UnsubscribeFunction, ListBoardsOptions, ListBoardsResponse, BoardIndexEntry } from './boards';
 import { trpcClient } from './trpcClient';
 import type { NoteCurrent, PaginatedHistoryResponse } from '../server/notes/types';
 
@@ -214,13 +214,38 @@ class WebSocketManager {
 const wsManager = new WebSocketManager();
 
 export const boardsRemote: BoardsAPI = {
-  getAll: async (): Promise<Board[]> => {
-    const notes = await trpcClient.listNotes.query();
+  /**
+   * List boards from user's personal index with filtering, sorting, and pagination
+   */
+  list: async (options: ListBoardsOptions = {}): Promise<ListBoardsResponse> => {
+    const result = await trpcClient.listNotes.query({
+      search: options.search,
+      filter: options.filter,
+      visibility: options.visibility,
+      sortBy: options.sortBy,
+      sortOrder: options.sortOrder,
+      limit: options.limit,
+      cursor: options.cursor,
+    });
 
-    // Fetch full details for each note
+    return {
+      items: result.items as BoardIndexEntry[],
+      nextCursor: result.nextCursor,
+      totalCount: result.totalCount,
+    };
+  },
+
+  /**
+   * @deprecated Use list() instead for paginated results
+   */
+  getAll: async (): Promise<Board[]> => {
+    // Use the new list API and fetch all items (for backward compatibility)
+    const result = await trpcClient.listNotes.query({ limit: 50 });
+
+    // For each item in the index, fetch full board details
     const boards = await Promise.all(
-      notes.map(async (noteInfo: any) => {
-        const fullNote = await trpcClient.getNote.query({ id: noteInfo.id });
+      result.items.map(async (entry: any) => {
+        const fullNote = await trpcClient.getNote.query({ id: entry.noteId });
         return fullNote ? noteToBoard(fullNote as NoteCurrent) : null;
       })
     );
@@ -292,9 +317,6 @@ export const boardsRemote: BoardsAPI = {
         version: item.version,
         timestamp: item.timestamp,
         title: item.title,
-        // We don't need full content for list, but might need it for preview if we want
-        // For now, let's keep it minimal or full depending on UI needs.
-        // The UI wants to render thumbnail, so we need elements.
         excalidrawElements: item.blob.excalidrawElements || [],
       })),
       nextCursor: result.nextCursor,
@@ -304,5 +326,26 @@ export const boardsRemote: BoardsAPI = {
   revert: async (id: string, version: number): Promise<Board> => {
     const note = await trpcClient.revertToVersion.mutate({ id, version });
     return noteToBoard(note as NoteCurrent);
-  }
+  },
+
+  /**
+   * Track when user accesses a board (updates lastAccessedAt or adds shared board to index)
+   */
+  trackAccess: async (noteId: string): Promise<void> => {
+    await trpcClient.trackBoardAccess.mutate({ noteId });
+  },
+
+  /**
+   * Remove a shared board from user's personal list
+   */
+  removeShared: async (noteId: string): Promise<void> => {
+    await trpcClient.removeSharedBoard.mutate({ noteId });
+  },
+
+  /**
+   * Update cached thumbnail for a board
+   */
+  updateThumbnail: async (noteId: string, thumbnailBase64: string, version: number): Promise<void> => {
+    await trpcClient.updateThumbnail.mutate({ noteId, thumbnailBase64, version });
+  },
 };
