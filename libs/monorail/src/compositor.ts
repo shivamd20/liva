@@ -27,6 +27,15 @@ export class MonorailCompositor {
         video.srcObject = stream;
         video.muted = true;
         video.play();
+
+        // Auto-resize canvas to match source dimensions
+        video.onloadedmetadata = () => {
+            if (video.videoWidth && video.videoHeight) {
+                this.canvas.width = video.videoWidth;
+                this.canvas.height = video.videoHeight;
+            }
+        };
+
         this.mainSource = { type: 'video', element: video };
     }
 
@@ -185,7 +194,19 @@ export class MonorailCompositor {
             if (this.mainSource && this.mainSource.type === 'video') {
                 const video = this.mainSource.element;
                 if (video.readyState >= 2) {
-                    this.ctx.drawImage(video, 0, 0, width, height);
+                    // Aspect Fit (Contain)
+                    const vW = video.videoWidth;
+                    const vH = video.videoHeight;
+
+                    if (vW && vH) {
+                        const scale = Math.min(width / vW, height / vH);
+                        const drawW = vW * scale;
+                        const drawH = vH * scale;
+                        const dx = (width - drawW) / 2;
+                        const dy = (height - drawH) / 2;
+
+                        this.ctx.drawImage(video, dx, dy, drawW, drawH);
+                    }
                 }
             }
         }

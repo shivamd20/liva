@@ -37,9 +37,9 @@ import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
 import { MonorailRecorder } from '@shvm/monorail';
-import { RecordingsDialog } from './RecordingsDialog';
 import { useMutation } from '@tanstack/react-query';
 import { useRemoteFileHandler } from '../hooks/useRemoteFileHandler';
+import { useNavigate } from 'react-router-dom';
 
 interface BoardEditorProps {
   board: Board;
@@ -51,7 +51,6 @@ interface BoardEditorProps {
   onLinkOpen?: (element: NonDeletedExcalidrawElement, event: CustomEvent<{ nativeEvent: MouseEvent | React.PointerEvent<HTMLCanvasElement> }>) => void;
   onBack?: () => void;
   onTitleChange?: (newTitle: string) => void;
-  onConnectYouTube?: () => void;
 }
 
 export function BoardEditor({
@@ -64,9 +63,9 @@ export function BoardEditor({
   boardsAPI = defaultBoardsAPI,
   onLinkOpen,
   onBack,
-  onTitleChange,
-  onConnectYouTube
+  onTitleChange
 }: BoardEditorProps) {
+  const navigate = useNavigate();
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI | null>(null);
   const excalidrawAPIRef = useRef<ExcalidrawImperativeAPI | null>(null);
 
@@ -92,11 +91,11 @@ export function BoardEditor({
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSessionId, setRecordingSessionId] = useState<string | null>(null);
+  const [recordingVideoId, setRecordingVideoId] = useState<string | null>(null); // VideosDO video ID
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
-  const [isRecordingsOpen, setIsRecordingsOpen] = useState(false);
 
   // Auto-Upload State
   const [uploadStatus, setUploadStatus] = useState<'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null>(null);
@@ -114,11 +113,6 @@ export function BoardEditor({
     mutationFn: (pId: string) => trpcClient.monorail.startPublish.mutate({ publishId: pId })
   });
 
-  const { mutateAsync: updateRecordingYouTubeId } = useMutation({
-    mutationFn: (data: { id: string, sessionId: string, videoId: string }) =>
-      trpcClient.updateRecordingYouTubeId.mutate(data)
-  });
-
   // Polling for upload progress
   useQuery({
     queryKey: ['publish-progress', uploadPublishId],
@@ -132,15 +126,10 @@ export function BoardEditor({
       }
 
       if (progress.status === 'DONE' && progress.youtube?.videoId) {
-        // Persist video ID
-        await updateRecordingYouTubeId({
-          id: board.id,
-          sessionId: progress.monorailSessionId,
-          videoId: progress.youtube.videoId
-        });
+        // Update video status in VideosDO - the backend handles this via monorail finalization
         setUploadPublishId(null); // Stop polling
         toast.success("Recording uploaded to YouTube!");
-        queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
+        queryClient.invalidateQueries({ queryKey: ['videos'] });
       } else if (progress.status === 'FAILED') {
         setUploadPublishId(null); // Stop polling
         toast.error("YouTube upload failed: " + progress.error);
@@ -221,7 +210,7 @@ export function BoardEditor({
   const startRecording = async () => {
     try {
       console.log("[Recording] Starting recording...");
-      // 1. Create Session
+      // 1. Create Monorail Session
       const res = await fetch('/api/v1/monorail.createSession', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -233,27 +222,30 @@ export function BoardEditor({
 
       setRecordingSessionId(session.id);
 
-      // 2. Associate recording with board IMMEDIATELY
-      console.log('[Recording] Associating with board:', {
+      // 2. Create video record in VideosDO with boardId linkage
+      const newVideoId = crypto.randomUUID();
+      console.log('[Recording] Creating video in VideosDO:', {
+        videoId: newVideoId,
         boardId: board.id,
         sessionId: session.id
       });
 
       try {
-        await trpcClient.addRecording.mutate({
-          id: board.id,
+        await trpcClient.videos.create.mutate({
+          id: newVideoId,
+          title: `Recording ${new Date().toLocaleString()}`,
           sessionId: session.id,
-          duration: 0, // Will be updated on finalization
-          title: `Recording ${new Date().toLocaleString()}`
+          boardId: board.id, // Link to current board
+          status: 'RECORDED'
         });
-        console.log('[Recording] Successfully associated with board');
+        setRecordingVideoId(newVideoId);
+        console.log('[Recording] Successfully created video in VideosDO');
 
-        // Invalidate recordings list to show the new (in-progress) recording
-        await queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
-      } catch (associateError) {
-        console.error('[Recording] Failed to associate with board:', associateError);
-        // Don't fail the recording start, but log it
-        toast.error("Recording started but not linked to board");
+        // Invalidate videos list to show the new (in-progress) recording
+        await queryClient.invalidateQueries({ queryKey: ['videos'] });
+      } catch (createError) {
+        console.error('[Recording] Failed to create video in VideosDO:', createError);
+        toast.error("Recording started but metadata not saved");
       }
 
       // 3. Setup Recorder
@@ -310,7 +302,7 @@ export function BoardEditor({
     if (!recorderRef.current) return;
     try {
       const sessionId = recordingSessionId;
-      const finalDuration = recordingDuration;
+      const videoId = recordingVideoId;
 
       console.log('[Recording] Stopping recorder...');
       await recorderRef.current.stop();
@@ -330,6 +322,7 @@ export function BoardEditor({
       setIsRecording(false);
       setRecordingStartTime(null);
       setRecordingDuration(0);
+      setRecordingVideoId(null);
 
       if (previewVideoRef.current) {
         previewVideoRef.current.srcObject = null;
@@ -346,29 +339,13 @@ export function BoardEditor({
 
           console.log('[Recording] Stop signal sent. Session will auto-finalize after pending uploads.');
 
-          console.log('[Recording] Updating recording duration:', {
-            boardId: board.id,
-            sessionId,
-            duration: finalDuration
-          });
-
-          // Update the recording with final duration
-          await trpcClient.addRecording.mutate({
-            id: board.id,
-            sessionId,
-            duration: finalDuration,
-            title: `Recording ${new Date().toLocaleString()}`
-          });
-
-          console.log('[Recording] Recording updated successfully');
-
-          await queryClient.invalidateQueries({ queryKey: ['board', board.id] });
-          await queryClient.invalidateQueries({ queryKey: ['recordings', board.id] });
+          // Invalidate videos query to refresh the list
+          await queryClient.invalidateQueries({ queryKey: ['videos'] });
 
           toast.success("Recording saved! Processing...");
         } catch (saveError) {
-          console.error('[Recording] Failed to finalize/save recording:', saveError);
-          toast.error("Recording completed but failed to save to board");
+          console.error('[Recording] Failed to finalize recording:', saveError);
+          toast.error("Recording completed but failed to finalize");
         }
 
         // Auto-Upload Logic
@@ -377,7 +354,7 @@ export function BoardEditor({
           const res = await fetch('/api/integrations/youtube');
           if (res.ok) {
             const data = await res.json() as { connected: boolean };
-            if (data.connected) {
+            if (data.connected && videoId) {
               console.log('[Recording] YouTube connected, starting auto-upload...');
               setUploadStatus('INIT');
               const init = await initPublish(sessionId);
@@ -549,9 +526,8 @@ export function BoardEditor({
           isChatOpen={activePanelTab === 'conversation'}
           onBack={onBack || (() => { })}
           onTitleChange={onTitleChange || (() => { })}
-          onConnectYouTube={onConnectYouTube}
 
-          onToggleRecordings={() => setIsRecordingsOpen(true)}
+          onViewRecordings={() => navigate(`/app/videos?boardId=${board.id}`)}
 
           isRecording={isRecording}
           onStartRecording={startRecording}
@@ -625,11 +601,6 @@ export function BoardEditor({
           </div>
         </div>
 
-        <RecordingsDialog
-          open={isRecordingsOpen}
-          onOpenChange={setIsRecordingsOpen}
-          boardId={board.id}
-        />
       </div >
     </SpeechProvider >
   );

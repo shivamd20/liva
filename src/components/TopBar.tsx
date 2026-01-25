@@ -33,7 +33,7 @@ interface TopBarProps {
     isChatOpen: boolean;
     onBack: () => void;
     onTitleChange: (newTitle: string) => void;
-    onToggleRecordings?: () => void;
+    onViewRecordings?: () => void; // Navigate to videos page
 
     // Recording props
     isRecording?: boolean;
@@ -45,7 +45,6 @@ interface TopBarProps {
     onToggleVideo?: () => void;
     isVideoEnabled?: boolean;
     recordingSessionId?: string | null;
-    onConnectYouTube?: () => void;
     uploadStatus?: 'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null;
     uploadProgress?: number;
 
@@ -63,7 +62,7 @@ export function TopBar({
     isChatOpen,
     onBack,
     onTitleChange,
-    onToggleRecordings,
+    onViewRecordings,
 
     isRecording = false,
     onStartRecording,
@@ -74,7 +73,6 @@ export function TopBar({
     onToggleVideo,
     isVideoEnabled = true,
     recordingSessionId,
-    onConnectYouTube,
     uploadStatus,
     uploadProgress,
     connectionStatus,
@@ -272,17 +270,6 @@ export function TopBar({
                     </DropdownMenu>
                 )}
 
-                {onConnectYouTube && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={onConnectYouTube}
-                        className="h-8 gap-2 text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-950/30 dark:hover:bg-red-950/50 hidden md:flex"
-                    >
-                        <span className="text-xs font-medium">Connect YouTube</span>
-                    </Button>
-                )}
-
                 {/* Upload Status */}
                 {uploadStatus && uploadStatus !== 'DONE' && uploadStatus !== 'FAILED' && (
                     <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 dark:bg-blue-950/30 rounded-full border border-blue-100 dark:border-blue-900/50">
@@ -383,11 +370,11 @@ export function TopBar({
                     <MessageCircle className="h-4 w-4" />
                 </Button>
 
-                {onToggleRecordings && (
+                {onViewRecordings && (
                     <Button
                         variant="ghost"
                         size="icon"
-                        onClick={onToggleRecordings}
+                        onClick={onViewRecordings}
                         className="h-8 w-8 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
                         title="View Recordings"
                     >

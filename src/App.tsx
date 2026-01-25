@@ -257,7 +257,6 @@ function BoardView({
         key={id}
         onBack={() => navigate('/board')}
         onTitleChange={handleTitleChange}
-        onConnectYouTube={ytStatus?.connected === false ? () => navigate('/app/integrations') : undefined}
       />
       {isHistoryOpen && (
         <HistoryModal
@@ -338,7 +337,7 @@ function AppContent() {
   };
 
   return (
-    <div className="flex h-screen min-w-screen bg-background w-screen ">
+    <div className=" h-screen  min-w-screen bg-background w-screen ">
       <CommandMenu />
       <Routes>
         <Route path="/" element={<BoardsPage />} />

@@ -188,10 +188,9 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
             } else if (recorderMode === 'audio') {
                 if (stream) await recorder.addAudio(stream);
             } else {
-                // Video
+                // Video - Treat as "Screen" (Main Content)
                 if (stream) {
-                    await recorder.addAudio(stream);
-                    await recorder.addCamera(stream);
+                    await recorder.addScreen(stream);
                 }
             }
 
