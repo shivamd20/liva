@@ -49,6 +49,13 @@ export function ChatBubble({ message }: ChatBubbleProps) {
             "flex w-full",
             isUser ? "justify-end" : "justify-start"
         )}>
+
+            <pre>
+
+                {/* {JSON.stringify(message, null, 2)} */}
+
+            </pre>
+
             <div className={cn(
                 "max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm",
                 isUser
@@ -65,19 +72,56 @@ export function ChatBubble({ message }: ChatBubbleProps) {
                     )}>{textContent}</div>
                 )}
 
-                {/* Render Tool Image - Robust check */}
-                {toolImage && (
+                {/* Render Tool Images from Parts */}
+                {message.parts?.map((part, idx) => {
+                    let partImage: string | null = null;
+
+                    // Case 1: Tool Call with direct output (Client Tool)
+                    if (part.type === 'tool-call' && part.output && (part.output as any).image) {
+                        partImage = (part.output as any).image;
+                    }
+
+                    // Case 2: Tool Result (Server or Client Tool Result)
+                    if (part.type === 'tool-result') {
+                        // Check explicit result obj
+                        if (part.result && (part.result as any).image) {
+                            partImage = (part.result as any).image;
+                        }
+                        // Or parse content string
+                        else if (typeof part.content === 'string') {
+                            try {
+                                const parsed = JSON.parse(part.content);
+                                if (parsed.image) partImage = parsed.image;
+                            } catch (e) { }
+                        }
+                    }
+
+                    if (partImage) {
+                        return (
+                            <div key={idx} className="mt-2 block w-full rounded-lg overflow-hidden border border-border bg-white shadow-sm">
+                                <img
+                                    src={partImage}
+                                    alt="Board Snapshot"
+                                    className="w-full h-auto block"
+                                    style={{ minHeight: '100px', maxHeight: '400px', objectFit: 'contain' }}
+                                />
+                                <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/30 border-t flex items-center gap-2">
+                                    <span>📷 Shared Board View</span>
+                                </div>
+                            </div>
+                        );
+                    }
+                    return null;
+                })}
+
+                {/* Fallback for standalone tool message content (legacy/simple) */}
+                {!message.parts?.length && toolImage && (
                     <div className="mt-2 block w-full rounded-lg overflow-hidden border border-border bg-white shadow-sm">
                         <img
                             src={toolImage}
                             alt="Board Snapshot"
                             className="w-full h-auto block"
                             style={{ minHeight: '100px', objectFit: 'contain' }}
-                            onError={(e) => {
-                                console.error("Failed to load tool image");
-                                e.currentTarget.style.display = 'none';
-                                e.currentTarget.parentElement?.insertAdjacentHTML('beforeend', '<div class="p-4 text-xs text-red-500">Failed to load image</div>');
-                            }}
                         />
                         <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/30 border-t flex items-center gap-2">
                             <span>📷 Shared Board View</span>
