@@ -95,15 +95,30 @@ export class ConversationV2DurableObject extends DurableObject {
                     persistedCount++;
 
                 } else if (msg.role === 'tool') {
-                    const exists = await this.eventExistsByContent('tool_result', msg.content);
+                    let contentToPersist = msg.content;
+                    // Ensure content is a string before persisting
+                    if (typeof contentToPersist !== 'string') {
+                        try {
+                            contentToPersist = JSON.stringify(contentToPersist);
+                        } catch (e) {
+                            console.error(`[ConversationV2] Failed to stringify tool content`, e);
+                            contentToPersist = ""; // Fallback
+                        }
+                    }
+
+                    const exists = await this.eventExistsByContent('tool_result', contentToPersist);
                     if (exists) continue;
 
                     const msgId = msg.id || crypto.randomUUID();
-                    this.persistEvent('tool_result', msg.content, {
+                    this.persistEvent('tool_result', contentToPersist, {
                         toolCallId: msg.toolCallId,
                         toolName: msg.name
                     }, msgId);
                     persistedCount++;
+                } else if (msg.role === 'assistant') {
+                    // Also persist assistant messages if they come from client (rare, but possible in some sync flows)
+                    // Usually assistant messages are generated. But if client sends full history including new assistant msg?
+                    // Ignoring for now as logic below handles generation.
                 }
             }
 
@@ -275,6 +290,20 @@ export class ConversationV2DurableObject extends DurableObject {
         const messages = events.map((e: any) => {
             const metadata = JSON.parse(e.metadata);
 
+            // Handle payload potential binary/string mismatch
+            let content = e.payload;
+            if (content && typeof content !== 'string') {
+                try {
+                    // Try decoding if it came back as buffer/array
+                    content = new TextDecoder().decode(content);
+                } catch (err) {
+                    // Fallback
+                    // console.warn("Failed to decode payload", err);
+                    content = "";
+                }
+            }
+
+
             // Map our internal event types to Vercel/TanStack AI message format
             let role = 'user';
             if (e.type === 'text_out' || e.type === 'assistant_message') role = 'assistant';
@@ -284,7 +313,7 @@ export class ConversationV2DurableObject extends DurableObject {
             return {
                 id: e.id,
                 role,
-                content: e.payload,
+                content: content,
                 // Add specific fields if role is 'tool'
                 ...(role === 'tool' ? {
                     toolCallId: metadata.toolCallId || 'unknown',
