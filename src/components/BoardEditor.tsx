@@ -608,6 +608,7 @@ export function BoardEditor({
               onClose={() => setActivePanelTab(null)}
               board={board}
               isOwner={isOwner}
+              excalidrawAPI={excalidrawAPI}
             />
           </div>
         </div>

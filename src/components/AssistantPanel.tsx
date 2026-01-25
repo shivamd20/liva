@@ -21,6 +21,7 @@ interface PanelProps {
     onClose: () => void;
     board: Board;
     isOwner: boolean;
+    excalidrawAPI: any | null; // Typed loosely to avoid circular deps or complex imports, or define properly if easy
 }
 
 const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
@@ -154,7 +155,7 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
     );
 };
 
-export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClose, board, isOwner }: PanelProps) => {
+export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClose, board, isOwner, excalidrawAPI }: PanelProps) => {
     // If closed, we don't render content to save resources, or we can keep it mounted but hidden.
     // Given the requirement for "slide over", usually it's better to keep it mounted and transform it off-screen,
     // but for now, we'll handle layout in the parent and just render the container here.
@@ -212,11 +213,11 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
             </div>
 
             <div className="flex-1 overflow-hidden relative">
-                {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} />}
+                {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} excalidrawAPI={excalidrawAPI} />}
                 {activeTab === 'conversation' && (
                     <div className="h-full flex flex-col">
                         {/* We just need the content, wrapper styles can be minimal */}
-                        <ConversationTab conversationId={board.id} />
+                        <ConversationTab conversationId={board.id} excalidrawAPI={excalidrawAPI} />
                     </div>
                 )}
             </div>

@@ -4,7 +4,7 @@
 declare namespace Cloudflare {
     interface GlobalProps {
         mainModule: typeof import("./server/index");
-        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO";
+        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO" | "ConversationV2DurableObject";
     }
     interface Env {
         BETTER_AUTH_SECRET: "CHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRET";
@@ -19,6 +19,7 @@ declare namespace Cloudflare {
         NOTE_DURABLE_OBJECT: DurableObjectNamespace<import("./server/index").NoteDurableObject>;
         NOTE_INDEX_DURABLE_OBJECT: DurableObjectNamespace<import("./server/index").NoteIndexDurableObject>;
         CONVERSATION_DURABLE_OBJECT: DurableObjectNamespace<import("./server/index").ConversationDurableObject>;
+        CONVERSATION_V2_DO: DurableObjectNamespace<import("./server/index").ConversationV2DurableObject>;
         RECORDING_DURABLE_OBJECT: DurableObjectNamespace<import("./server/index").RecordingDurableObject>;
         MONORAIL_SESSION_DO: DurableObjectNamespace<import("./server/index").MonorailSessionDO>;
         YOUTUBE_INTEGRATION_DO: DurableObjectNamespace<import("./server/index").YouTubeIntegrationDO>;

@@ -6,7 +6,8 @@ import { createAuth } from "./auth";
 // Export Durable Objects
 export { NoteDurableObject } from "./do/NoteDurableObject";
 export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
-export { ConversationDurableObject } from "./do/ConversationDurableObject";
+export { LegacyConversationDurableObject as ConversationDurableObject } from "./do/LegacyConversationDurableObject";
+export { ConversationV2DurableObject } from "./do/ConversationV2DurableObject";
 export { RecordingDurableObject } from "./do/RecordingDurableObject";
 export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
@@ -158,6 +159,43 @@ export default {
 			// Forward request with User ID header
 			const newRequest = new Request(request);
 			newRequest.headers.set("X-Liva-User-Id", userId);
+			return stub.fetch(newRequest);
+		}
+
+		// Conversation V2 API
+		if (url.pathname.startsWith("/api/conversation-v2/")) {
+			// Security: Ensure user is authenticated
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed for conversation-v2", e);
+			}
+
+			if (!userId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+
+			const parts = url.pathname.split("/");
+			// /api/conversation-v2/:conversationId/...
+			const conversationId = parts[3];
+			if (!conversationId) return new Response("Conversation ID missing", { status: 400 });
+
+			// Use idFromName for persistent conversations by ID
+			const idObj = env.CONVERSATION_V2_DO.idFromName(conversationId);
+			const stub = env.CONVERSATION_V2_DO.get(idObj);
+
+			// Rewrite URL to strip /api/conversation-v2/:id prefix to simplify DO routing
+			const doUrl = new URL(request.url);
+			// /api/conversation-v2/:id/chat -> /chat
+			doUrl.pathname = "/" + parts.slice(4).join("/");
+
+			const newRequest = new Request(doUrl.toString(), request);
+			newRequest.headers.set("X-Liva-User-Id", userId);
+			newRequest.headers.set("X-Conversation-Id", conversationId);
+
 			return stub.fetch(newRequest);
 		}
 

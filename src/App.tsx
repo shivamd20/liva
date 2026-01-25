@@ -33,7 +33,7 @@ import { useState, useEffect } from 'react';
 import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
 import { SpeechDemo } from './components/Speech';
 import { CanvasDrawDemo } from './components/CanvasDrawDemo';
-import { ConversationTest } from './components/ConversationTest';
+import { LegacyConversationTest } from './components/LegacyConversationTest';
 
 function BoardView({
   allBoards,
@@ -355,7 +355,7 @@ function AppContent() {
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
         <Route path="/demoLiveAPI" element={<Navigate to="/demoLiveAPI/new" replace />} />
         <Route path="/demoLiveAPI/:boardId" element={<DemoLiveBoard />} />
-        <Route path="/convo/:id" element={<ConversationTest />} />
+        <Route path="/convo/:id" element={<LegacyConversationTest />} />
         <Route
           path="/board/:id"
           element={

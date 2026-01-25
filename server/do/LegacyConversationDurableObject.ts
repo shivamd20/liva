@@ -13,7 +13,7 @@ interface State {
     value: string;
 }
 
-export class ConversationDurableObject extends DurableObject {
+export class LegacyConversationDurableObject extends DurableObject {
     private sql: any;
 
     constructor(ctx: DurableObjectState, env: Env) {

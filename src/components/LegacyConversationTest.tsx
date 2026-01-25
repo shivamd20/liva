@@ -53,7 +53,10 @@ interface ConversationProps {
     minimal?: boolean;
 }
 
-export function ConversationTest({ id: propId, className, minimal = false }: ConversationProps) {
+/**
+ * @deprecated Legacy conversation component. Use ConversationV2 instead.
+ */
+export function LegacyConversationTest({ id: propId, className, minimal = false }: ConversationProps) {
     const { id: paramId } = useParams<{ id: string }>();
     const conversationId = propId || paramId;
     const { token, hasToken, saveToken } = useGeminiToken();

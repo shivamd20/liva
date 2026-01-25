@@ -59,6 +59,12 @@
 				"VideosDO"
 			],
 			"tag": "v8"
+		},
+		{
+			"new_sqlite_classes": [
+				"ConversationV2DurableObject"
+			],
+			"tag": "v9"
 		}
 	],
 	"assets": {
@@ -106,6 +112,10 @@
 			{
 				"class_name": "VideosDO",
 				"name": "VIDEOS_DO"
+			},
+			{
+				"class_name": "ConversationV2DurableObject",
+				"name": "CONVERSATION_V2_DO"
 			}
 		]
 	},
