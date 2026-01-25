@@ -200,7 +200,7 @@ export function VideoDetailPage() {
                                 </span>
                                 {video.boardId && (
                                     <Link
-                                        to={`/app/boards/${video.boardId}`}
+                                        to={`/board/${video.boardId}`}
                                         className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
                                     >
                                         <Layout className="w-3 h-3" />
@@ -256,8 +256,8 @@ export function VideoDetailPage() {
                                         variant="outline"
                                         size="sm"
                                         className={`gap-2 w-full sm:w-auto transition-colors ${canExport
-                                                ? 'hover:bg-red-50 hover:text-red-600 hover:border-red-200'
-                                                : 'opacity-50'
+                                            ? 'hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                                            : 'opacity-50'
                                             }`}
                                         disabled={!canExport}
                                         onClick={handleExportToYouTube}
