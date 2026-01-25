@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import mermaid from 'mermaid';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Terminal } from 'lucide-react';
 import { exportToBlob } from '@excalidraw/excalidraw';
 
 // Initialize mermaid
@@ -18,6 +18,7 @@ interface ChatBubbleProps {
         content?: string;
         parts?: any[];
         toolCallId?: string;
+        toolCalls?: any[];
     };
     excalidrawAPI?: any;
 }
@@ -181,6 +182,8 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
         }
     });
 
+
+
     if (isTool && !toolImage && !mermaidCode && !textContent) return null;
 
     return (
@@ -202,6 +205,18 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
                         "whitespace-pre-wrap",
                         isTool ? "font-mono text-xs text-muted-foreground bg-muted p-2 rounded mb-2" : ""
                     )}>{textContent}</div>
+                )}
+
+                {/* Tool Calls (for assistant messages) */}
+                {message.toolCalls && message.toolCalls.length > 0 && (
+                    <div className="flex flex-col gap-1 my-1">
+                        {message.toolCalls.map((toolCall: any, idx: number) => (
+                            <div key={idx} className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-3 py-2 rounded-lg border border-border/50 font-mono">
+                                <Terminal className="w-3.5 h-3.5" />
+                                <span>Calling <span className="font-semibold text-foreground">{toolCall.function.name}</span>...</span>
+                            </div>
+                        ))}
+                    </div>
                 )}
 
                 {/* Images */}
