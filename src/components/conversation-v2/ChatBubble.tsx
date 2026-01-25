@@ -50,12 +50,6 @@ export function ChatBubble({ message }: ChatBubbleProps) {
             isUser ? "justify-end" : "justify-start"
         )}>
 
-            <pre>
-
-                {/* {JSON.stringify(message, null, 2)} */}
-
-            </pre>
-
             <div className={cn(
                 "max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-sm",
                 isUser
