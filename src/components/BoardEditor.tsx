@@ -359,24 +359,7 @@ export function BoardEditor({
           toast.error("Recording completed but failed to finalize");
         }
 
-        // Auto-Upload Logic
-        try {
-          // Check if connected
-          const res = await fetch('/api/integrations/youtube');
-          if (res.ok) {
-            const data = await res.json() as { connected: boolean };
-            if (data.connected && videoId) {
-              console.log('[Recording] YouTube connected, starting auto-upload...');
-              setUploadStatus('INIT');
-              const init = await initPublish(sessionId);
-              setUploadPublishId(init.publishId);
-              await startPublish(init.publishId);
-            }
-          }
-        } catch (uploadError) {
-          console.error('[Recording] Auto-upload failed to start:', uploadError);
-          // Don't toast error here to avoid noise, user can check status
-        }
+
       }
     } catch (e) {
       console.error("[Recording] Stop error:", e);

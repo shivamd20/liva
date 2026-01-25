@@ -51,6 +51,7 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
     const [progress, setProgress] = useState(0);
     const [publishId, setPublishId] = useState<string | null>(null);
     const [videoId, setVideoId] = useState<string | null>(null); // Local Video ID
+    const [isPublished, setIsPublished] = useState(false);
 
     const [error, setError] = useState<string | null>(null);
 
@@ -215,6 +216,23 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
         }
     };
 
+    const handleUpload = async () => {
+        if (!sessionId || !videoId) return;
+        try {
+            setUploadStatus('INIT');
+            const init = await trpcClient.monorail.initPublish.mutate({
+                monorailSessionId: sessionId,
+                videoId: videoId
+            });
+            setPublishId(init.publishId);
+            await trpcClient.monorail.startPublish.mutate({ publishId: init.publishId });
+        } catch (e: any) {
+            console.error(e);
+            setError(e.message);
+            setUploadStatus('FAILED');
+        }
+    };
+
     const stopRecording = async () => {
         if (!recorderRef.current || !videoId || !sessionId) return;
 
@@ -226,20 +244,9 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
             // Signal stop
             await trpcClient.monorail.signalStop.mutate({ sessionId });
 
-            // If YouTube connected, Start Upload
-            if (ytConnection?.connected) {
-                setUploadStatus('INIT');
-                const init = await trpcClient.monorail.initPublish.mutate({
-                    monorailSessionId: sessionId,
-                    videoId: videoId
-                });
-                setPublishId(init.publishId);
-                await trpcClient.monorail.startPublish.mutate({ publishId: init.publishId });
-            } else {
-                // Just Saved
-                setUploadStatus('DONE'); // Reusing DONE for success state, but simpler UI
-                toast.success("Recording saved to library");
-            }
+            // Just Saved
+            setUploadStatus('DONE');
+            toast.success("Recording saved to library");
 
         } catch (e: any) {
             console.error(e);
@@ -262,6 +269,7 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
 
             if (progress.status === 'DONE') {
                 setPublishId(null);
+                setIsPublished(true);
                 onSuccess(); // Parent can refresh list
             }
             if (progress.status === 'FAILED') {
@@ -309,18 +317,26 @@ export function ZeroFrictionRecorder({ onClose, onSuccess }: ZeroFrictionRecorde
 
                                     <div>
                                         <h3 className="text-xl font-bold text-foreground">
-                                            {ytConnection?.connected ? "Published!" : "Saved!"}
+                                            {isPublished ? "Published!" : "Saved!"}
                                         </h3>
                                         <p className="text-muted-foreground">
-                                            {ytConnection?.connected ? "Your video has been uploaded to YouTube." : "Video saved to your library."}
+                                            {isPublished ? "Your video has been uploaded to YouTube." : "Video saved to your library."}
                                         </p>
                                     </div>
-                                    <button onClick={() => {
-                                        onSuccess();
-                                        onClose();
-                                    }} className="px-6 py-2 bg-foreground text-background rounded-lg font-medium">
-                                        View in Library
-                                    </button>
+                                    <div className="flex gap-2">
+                                        {!isPublished && ytConnection?.connected && (
+                                            <button onClick={handleUpload} className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors flex items-center gap-2">
+                                                <VideoIcon className="w-4 h-4" />
+                                                Upload to YouTube
+                                            </button>
+                                        )}
+                                        <button onClick={() => {
+                                            onSuccess();
+                                            onClose();
+                                        }} className="px-6 py-2 bg-foreground text-background rounded-lg font-medium">
+                                            View in Library
+                                        </button>
+                                    </div>
                                 </>
                             ) : uploadStatus === 'FAILED' ? (
                                 <>
