@@ -59,6 +59,8 @@ export class ConversationV2DurableObject extends DurableObject {
             return this.getHistory(request);
         } else if (url.pathname.endsWith("/transcribe")) {
             return this.handleTranscription(request);
+        } else if (url.pathname.endsWith("/clear") && request.method === "DELETE") {
+            return this.handleClearHistory(request);
         }
 
         return new Response("Not Found", { status: 404 });
@@ -69,94 +71,101 @@ export class ConversationV2DurableObject extends DurableObject {
         console.log(`[ConversationV2] [${requestId}] handleChat called`);
         try {
             const body = await request.json() as any;
-            const messages = body.messages || [];
+            const incomingMessages = (body.messages || []) as any[];
             // We assume conversationId passed from client is the boardId
             const boardId = request.headers.get("X-Conversation-Id") || body.conversationId || body.boardId;
 
-            // Persist User Message
-            const lastUserMessage = messages[messages.length - 1];
-            if (lastUserMessage && lastUserMessage.role === 'user') {
-                this.persistEvent('text_in', lastUserMessage.content);
+            // 1. Identify and Persist New Messages
+            // deduplication logic: 
+            let persistedCount = 0;
+
+            for (const msg of incomingMessages) {
+                // Check by ID if present
+                if (msg.id && await this.eventExists(msg.id)) {
+                    continue;
+                }
+
+                // Check by Content
+                if (msg.role === 'user' && typeof msg.content === 'string') {
+                    const exists = await this.eventExistsByContent('text_in', msg.content);
+                    if (exists) continue;
+
+                    const msgId = msg.id || crypto.randomUUID();
+                    this.persistEvent('text_in', msg.content, {}, msgId);
+                    persistedCount++;
+
+                } else if (msg.role === 'tool') {
+                    const exists = await this.eventExistsByContent('tool_result', msg.content);
+                    if (exists) continue;
+
+                    const msgId = msg.id || crypto.randomUUID();
+                    this.persistEvent('tool_result', msg.content, {
+                        toolCallId: msg.toolCallId,
+                        toolName: msg.name
+                    }, msgId);
+                    persistedCount++;
+                }
+            }
+
+            // 2. Load History for Context
+            const historyResponse = await this.getHistory(new Request("http://internal/history"));
+            const historyMessages = await historyResponse.json() as any[];
+
+            // Guard: If we didn't persist anything new, and the last message in history is from Assistant,
+            // we assume this is a duplicate/redundant request and should not trigger a new generation.
+            // (If the last message is from User/Tool, we proceeded to generate response for it - Recovery scenario).
+            const lastHistoryMsg = historyMessages[historyMessages.length - 1];
+            if (persistedCount === 0 && incomingMessages.length > 0) {
+                if (lastHistoryMsg && lastHistoryMsg.role === 'assistant') {
+                    console.log(`[ConversationV2] [${requestId}] Skipping generation: No new messages and last history was assistant.`);
+                    // Return empty stream to close connection gracefully
+                    return new Response(toServerSentEventsStream((async function* () { })()), {
+                        headers: {
+                            'Content-Type': 'text/event-stream',
+                            'Cache-Control': 'no-cache',
+                            'Connection': 'keep-alive',
+                        },
+                    });
+                }
             }
 
             // --- Context Injection ---
             let systemContext = `Current Time: ${new Date().toLocaleString()}\n`;
             if (boardId) {
                 try {
-                    // Quick fetch of board title for context
-                    // Re-using logic from tools, but simplified
-                    let doId: DurableObjectId;
                     // @ts-ignore
-                    if (boardId.length === 64 && /^[0-9a-f]{64}$/.test(boardId)) {
-                        try {
-                            // @ts-ignore
-                            doId = this.env.NOTE_DURABLE_OBJECT.idFromString(boardId);
-                        } catch {
-                            // @ts-ignore
-                            doId = this.env.NOTE_DURABLE_OBJECT.idFromName(boardId);
-                        }
-                    } else {
-                        // @ts-ignore
-                        doId = this.env.NOTE_DURABLE_OBJECT.idFromName(boardId);
-                    }
+                    let doId = boardId.length === 64 ? this.env.NOTE_DURABLE_OBJECT.idFromString(boardId) : this.env.NOTE_DURABLE_OBJECT.idFromName(boardId);
                     // @ts-ignore
-                    const stub = this.env.NOTE_DURABLE_OBJECT.get(doId);
-                    const note = await stub.getNote();
-                    if (note) {
-                        systemContext += `Current Board Title: "${note.title || 'Untitled'}"\nBoard ID: ${boardId}\n`;
-                    }
-                } catch (e) {
-                    console.warn(`[ConversationV2] Failed to fetch context`, e);
-                }
+                    const note = await this.env.NOTE_DURABLE_OBJECT.get(doId).getNote();
+                    if (note) systemContext += `Current Board Title: "${note.title || 'Untitled'}"\nBoard ID: ${boardId}\n`;
+                } catch (e) { }
             }
 
-            // Prepend context to last user message or system prompt? 
-            // Better to prepend to the list of messages processed by streamChat as a system message
-            // But LivaAIModel handles system prompt. 
-            // We'll pass it as a "system" message at the start.
             const messagesWithContext = [
                 { role: 'system', content: systemContext },
-                ...messages
+                ...historyMessages
             ];
 
             // --- Multimodal Transformation ---
-            // Scan messages for tool results that contain images (from client tools)
-            // and convert them to proper multimodal content parts for the AI adapter.
             const processedMessages = messagesWithContext.map((msg: any) => {
                 if (msg.role === 'tool' && typeof msg.content === 'string') {
                     try {
-                        // Check if this is a read_board result
-                        // (We could check toolCallId if we had access to tool calls, but simple JSON check is robust enough for now)
                         if (msg.content.includes('"image":')) {
                             const parsed = JSON.parse(msg.content);
-                            if (parsed.image && typeof parsed.image === 'string' && parsed.image.startsWith('data:')) {
+                            if (parsed.image?.startsWith('data:')) {
                                 const match = parsed.image.match(/^data:(.+);base64,(.+)$/);
                                 if (match) {
-                                    const mimeType = match[1];
-                                    const base64Data = match[2];
-
                                     return {
                                         ...msg,
                                         content: [
                                             { type: 'text', content: 'Board snapshot captured:' },
-                                            {
-                                                type: 'image',
-                                                source: {
-                                                    type: 'data',
-                                                    value: base64Data
-                                                },
-                                                metadata: {
-                                                    mimeType: mimeType
-                                                }
-                                            }
+                                            { type: 'image', source: { type: 'data', value: match[2] }, metadata: { mimeType: match[1] } }
                                         ]
                                     };
                                 }
                             }
                         }
-                    } catch (e) {
-                        // Ignore parse errors, keep original message
-                    }
+                    } catch (e) { }
                 }
                 return msg;
             });
@@ -166,40 +175,44 @@ export class ConversationV2DurableObject extends DurableObject {
             const tools = boardId ? createTools(this.env, boardId, this.persistVisualization.bind(this)) : [];
 
             // Stream Response
-            console.log(`[ConversationV2] [${requestId}] Calling aiModel.streamChat with tools`);
-
             // @ts-ignore
             const stream = await this.aiModel.streamChat(processedMessages, tools);
 
-            // Capture 'this' context for persistence
             const persistEvent = this.persistEvent.bind(this);
 
             // Wrapper to persist assistant response
             const streamWithPersistence = async function* () {
                 let accumulatedText = "";
+                let accumulatedToolCalls: any[] = [];
 
                 try {
                     // @ts-ignore
                     for await (const chunk of stream) {
-                        // console.log(`[ConversationV2] [${requestId}] Chunk received:`, JSON.stringify(chunk));
                         yield chunk;
 
                         if (chunk.type === 'content') {
                             const contentChunk = chunk as { content?: string; delta?: string };
-                            if (contentChunk.delta) {
-                                accumulatedText += contentChunk.delta;
-                            } else if (contentChunk.content && !contentChunk.delta) {
-                                accumulatedText = contentChunk.content;
+                            if (contentChunk.delta) accumulatedText += contentChunk.delta;
+                            else if (contentChunk.content) accumulatedText = contentChunk.content;
+                        } else if (chunk.type === 'tool_call') {
+                            const toolChunk = chunk as any;
+                            if (toolChunk.toolCall) {
+                                accumulatedToolCalls.push(toolChunk.toolCall);
                             }
                         }
                     }
                 } catch (e) {
-                    console.error(`[ConversationV2] [${requestId}] Error inside generator:`, e);
+                    console.error(`[ConversationV2] Error in stream`, e);
                     throw e;
                 }
 
-                if (accumulatedText) {
-                    persistEvent('text_out', accumulatedText);
+                if (accumulatedText || accumulatedToolCalls.length > 0) {
+                    const assistantMsgId = crypto.randomUUID();
+                    if (accumulatedToolCalls.length > 0) {
+                        persistEvent('assistant_message', accumulatedText, { toolCalls: accumulatedToolCalls }, assistantMsgId);
+                    } else {
+                        persistEvent('text_out', accumulatedText, {}, assistantMsgId);
+                    }
                 }
             };
 
@@ -220,13 +233,27 @@ export class ConversationV2DurableObject extends DurableObject {
         }
     }
 
-    private persistEvent(type: string, payload: string, metadata: any = {}) {
-        const id = crypto.randomUUID();
+    private async eventExists(id: string): Promise<boolean> {
+        const results = this.sql.exec("SELECT 1 FROM conversation_events WHERE id = ?", id).toArray();
+        return results.length > 0;
+    }
+
+    private async eventExistsByContent(type: string, payload: string): Promise<boolean> {
+        const results = this.sql.exec("SELECT 1 FROM conversation_events WHERE type = ? AND payload = ?", type, payload).toArray();
+        return results.length > 0;
+    }
+
+    private persistEvent(type: string, payload: string, metadata: any = {}, id?: string) {
+        const eventId = id || crypto.randomUUID();
         const timestamp = Date.now();
-        this.sql.exec(`
-            INSERT INTO conversation_events (id, timestamp, type, payload, metadata)
-            VALUES (?, ?, ?, ?, ?)
-        `, id, timestamp, type, payload, JSON.stringify(metadata));
+        try {
+            this.sql.exec(`
+                INSERT OR IGNORE INTO conversation_events (id, timestamp, type, payload, metadata)
+                VALUES (?, ?, ?, ?, ?)
+            `, eventId, timestamp, type, payload, JSON.stringify(metadata));
+        } catch (e) {
+            console.error("Failed to persist event", e);
+        }
     }
 
     private async persistVisualization(mermaid: string, title?: string): Promise<{ id: string }> {
@@ -238,17 +265,47 @@ export class ConversationV2DurableObject extends DurableObject {
         `, id, "current", mermaid, title || null, timestamp);
 
         // Also persist as an event so it shows in history
-        this.persistEvent('tool_result', `Generated Visualization: ${title || 'Untitled'}`, { visualizationId: id, mermaid });
+        this.persistEvent('tool_result', `Generated Visualization: ${title || 'Untitled'}`, { visualizationId: id, mermaid }, id);
 
         return { id };
     }
 
     private async getHistory(request: Request): Promise<Response> {
         const events = this.sql.exec("SELECT * FROM conversation_events ORDER BY timestamp ASC").toArray();
-        return Response.json(events.map((e: any) => ({
-            ...e,
-            metadata: JSON.parse(e.metadata)
-        })));
+        const messages = events.map((e: any) => {
+            const metadata = JSON.parse(e.metadata);
+
+            // Map our internal event types to Vercel/TanStack AI message format
+            let role = 'user';
+            if (e.type === 'text_out' || e.type === 'assistant_message') role = 'assistant';
+            if (e.type === 'tool_result') role = 'tool';
+
+            // Reconstruct tool-specific fields if needed
+            return {
+                id: e.id,
+                role,
+                content: e.payload,
+                // Add specific fields if role is 'tool'
+                ...(role === 'tool' ? {
+                    toolCallId: metadata.toolCallId || 'unknown',
+                    name: metadata.toolName || 'unknown'
+                } : {}),
+                // Add tool calls if assistant message
+                ...(role === 'assistant' && metadata.toolCalls ? {
+                    toolCalls: metadata.toolCalls
+                } : {})
+            };
+        });
+        return Response.json(messages);
+    }
+
+    private async handleClearHistory(request: Request): Promise<Response> {
+        this.sql.exec("DELETE FROM conversation_events");
+        this.sql.exec("DELETE FROM visualizations");
+        // Also clear any other state if needed
+        return new Response(JSON.stringify({ success: true }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     private async handleTranscription(request: Request) {

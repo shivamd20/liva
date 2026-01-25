@@ -5,9 +5,10 @@ import { ChatBubble } from './ChatBubble';
 interface ChatTimelineProps {
     messages: any[];
     isLoading: boolean;
+    excalidrawAPI?: any;
 }
 
-export function ChatTimeline({ messages, isLoading }: ChatTimelineProps) {
+export function ChatTimeline({ messages, isLoading, excalidrawAPI }: ChatTimelineProps) {
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -32,6 +33,7 @@ export function ChatTimeline({ messages, isLoading }: ChatTimelineProps) {
                     <ChatBubble
                         key={idx}
                         message={msg}
+                        excalidrawAPI={excalidrawAPI}
                     />
                 ))}
 

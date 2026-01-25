@@ -57,6 +57,7 @@
 		"drizzle-orm": "^0.44.7",
 		"google-auth-library": "^10.5.0",
 		"lucide-react": "^0.555.0",
+		"mermaid": "^11.12.2",
 		"mixpanel-browser": "^2.72.0",
 		"next-themes": "^0.4.6",
 		"react": "^19.2.0",

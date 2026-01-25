@@ -3,14 +3,20 @@ import { z } from 'zod';
 // import { ExcalidrawElement } from '../ai/schemas';
 
 // Schemas
-const readBoardInput = z.object({
-    // No inputs needed
-}).describe("Read the current board state.");
+// Schemas (Plain JSON Schema to avoid Zod ~standard issues with Gemini)
+const readBoardInput = {
+    type: "object",
+    properties: {},
+};
 
-const generateVisualizationInput = z.object({
-    mermaid: z.string().describe("Mermaid JS diagram code"),
-    title: z.string().optional().describe("Title of the visualization"),
-}).describe("Generate a visualization for the chat.");
+const generateVisualizationInput = {
+    type: "object",
+    properties: {
+        mermaid: { type: "string", description: "Mermaid JS diagram code" },
+        title: { type: "string", description: "Title of the visualization" },
+    },
+    required: ["mermaid"],
+};
 
 // Definitions
 export const readBoardDef = toolDefinition({
@@ -43,16 +49,7 @@ export const createTools = (
         // The implementation is on the client.
         readBoardDef,
 
-        // Server implementation for visualization
-        generateVisualizationDef.server(async (args) => {
-            const { mermaid, title } = args;
-            // Persist locally in ConversationDO
-            // @ts-ignore
-            const result = await persistVisualization(mermaid, title);
-            return {
-                visualizationId: result.id,
-                success: true
-            };
-        }),
+        // Visualization is now client-side only (definition passed, execution on client)
+        generateVisualizationDef,
     ];
 };
