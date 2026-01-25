@@ -1,8 +1,8 @@
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { trpcClient } from '../../trpcClient';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Youtube, Loader2 } from 'lucide-react';
+import { ArrowLeft, Youtube, Loader2, ExternalLink, CheckCircle, AlertCircle, Layout } from 'lucide-react';
 import { MonorailPlayer } from '@/components/MonorailPlayer';
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,12 @@ import { toast } from 'sonner';
 export function VideoDetailPage() {
     const { videoId } = useParams<{ videoId: string }>();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
+
+    // YouTube publish state
+    const [publishId, setPublishId] = useState<string | null>(null);
+    const [publishStatus, setPublishStatus] = useState<'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null>(null);
+    const [uploadProgress, setUploadProgress] = useState(0);
 
     // Fetch Video
     const { data: video, isLoading, refetch } = useQuery({
@@ -20,8 +26,23 @@ export function VideoDetailPage() {
         enabled: !!videoId
     });
 
+    // Check YouTube integration status
+    const { data: ytStatus } = useQuery({
+        queryKey: ['youtube-status'],
+        queryFn: async () => {
+            try {
+                const res = await fetch('/api/integrations/youtube');
+                if (!res.ok) return { connected: false };
+                return (await res.json()) as { connected: boolean };
+            } catch (e) {
+                return { connected: false };
+            }
+        },
+        staleTime: 60000
+    });
+
     // Update Metadata Mutation
-    const updateMetadataCurrent = useMutation({
+    const updateMetadataMutation = useMutation({
         mutationFn: (data: { id: string; title: string; description?: string }) =>
             trpcClient.videos.updateMetadata.mutate(data),
         onSuccess: () => {
@@ -31,6 +52,34 @@ export function VideoDetailPage() {
         onError: () => {
             toast.error("Failed to save changes");
         }
+    });
+
+    // Polling for upload progress
+    useQuery({
+        queryKey: ['publish-progress', publishId],
+        queryFn: async () => {
+            if (!publishId) return null;
+            const progress = await trpcClient.monorail.getPublishProgress.query({ publishId });
+
+            setPublishStatus(progress.status as any);
+            if (progress.youtube?.bytesUploaded && progress.totalBytes) {
+                setUploadProgress(progress.youtube.bytesUploaded / progress.totalBytes);
+            }
+
+            if (progress.status === 'DONE' && progress.youtube?.videoId) {
+                setPublishId(null);
+                toast.success("Video uploaded to YouTube!");
+                queryClient.invalidateQueries({ queryKey: ['video', videoId] });
+                refetch();
+            } else if (progress.status === 'FAILED') {
+                setPublishId(null);
+                toast.error("YouTube upload failed: " + progress.error);
+            }
+
+            return progress;
+        },
+        enabled: !!publishId,
+        refetchInterval: 1000
     });
 
     // Local State for editing
@@ -47,11 +96,30 @@ export function VideoDetailPage() {
 
     const handleSave = async () => {
         if (!video) return;
-        updateMetadataCurrent.mutate({
+        updateMetadataMutation.mutate({
             id: video.id,
             title,
             description
         });
+    };
+
+    const handleExportToYouTube = async () => {
+        if (!video) return;
+
+        try {
+            setPublishStatus('INIT');
+            const init = await trpcClient.monorail.initPublish.mutate({
+                monorailSessionId: video.sessionId,
+                videoId: video.id
+            });
+            setPublishId(init.publishId);
+            await trpcClient.monorail.startPublish.mutate({ publishId: init.publishId });
+            toast.info("Upload started...");
+        } catch (error: any) {
+            console.error('[YouTube Export] Failed:', error);
+            setPublishStatus('FAILED');
+            toast.error("Failed to start upload: " + (error.message || "Unknown error"));
+        }
     };
 
     if (isLoading) {
@@ -74,6 +142,8 @@ export function VideoDetailPage() {
     }
 
     const hasChanges = video.title !== title || (video.description || "") !== description;
+    const isUploading = publishStatus === 'INIT' || publishStatus === 'UPLOADING_TO_YT';
+    const canExport = video.status === 'RECORDED' && ytStatus?.connected && !isUploading && !video.youtubeId;
 
     return (
         <div className="flex flex-col h-full bg-white dark:bg-zinc-950">
@@ -97,17 +167,17 @@ export function VideoDetailPage() {
                         variant={hasChanges ? "default" : "ghost"}
                         size="sm"
                         onClick={handleSave}
-                        disabled={updateMetadataCurrent.isPending || !hasChanges}
+                        disabled={updateMetadataMutation.isPending || !hasChanges}
                         className="transition-all"
                     >
-                        {updateMetadataCurrent.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+                        {updateMetadataMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
                     </Button>
                 </div>
             </header>
 
             <main className="flex-1 overflow-y-auto">
                 <div className="max-w-5xl mx-auto w-full pb-20">
-                    {/* Video Player Container - Not Full Screen, but Prominent */}
+                    {/* Video Player Container */}
                     <div className="w-full bg-black aspect-video relative shadow-lg z-10">
                         <MonorailPlayer sessionId={video.sessionId} autoPlay={false} />
                     </div>
@@ -117,7 +187,7 @@ export function VideoDetailPage() {
 
                         {/* Status & Actions Bar */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 flex-wrap">
                                 <div className={`px-3 py-1 rounded-full text-xs font-semibold border
                                     ${video.status === 'PUBLISHED' ? 'bg-green-50 text-green-700 border-green-200' :
                                         video.status === 'PROCESSING' ? 'bg-blue-50 text-blue-700 border-blue-200' :
@@ -128,20 +198,97 @@ export function VideoDetailPage() {
                                 <span className="text-xs text-zinc-400">
                                     {new Date(video.createdAt || Date.now()).toLocaleDateString()}
                                 </span>
+                                {video.boardId && (
+                                    <Link
+                                        to={`/app/boards/${video.boardId}`}
+                                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                                    >
+                                        <Layout className="w-3 h-3" />
+                                        View Board
+                                    </Link>
+                                )}
                             </div>
 
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="gap-2 w-full sm:w-auto hover:bg-red-50 hover:text-red-600 hover:border-red-200 transition-colors"
-                                disabled={video.status !== 'RECORDED'}
-                            >
-                                <Youtube className="w-4 h-4" />
-                                Export to YouTube
-                            </Button>
+                            <div className="flex items-center gap-2">
+                                {/* YouTube Link if uploaded */}
+                                {video.videoUrl && (
+                                    <a
+                                        href={video.videoUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors"
+                                    >
+                                        <Youtube className="w-4 h-4" />
+                                        Watch on YouTube
+                                        <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                )}
+
+                                {/* Upload Progress */}
+                                {isUploading && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-lg">
+                                        <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                                        <span className="text-sm font-medium text-blue-700">
+                                            {publishStatus === 'INIT' ? 'Preparing...' : `Uploading ${Math.round(uploadProgress * 100)}%`}
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Upload Success */}
+                                {publishStatus === 'DONE' && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
+                                        <CheckCircle className="w-4 h-4 text-green-600" />
+                                        <span className="text-sm font-medium text-green-700">Uploaded!</span>
+                                    </div>
+                                )}
+
+                                {/* Upload Failed */}
+                                {publishStatus === 'FAILED' && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-red-50 border border-red-200 rounded-lg">
+                                        <AlertCircle className="w-4 h-4 text-red-600" />
+                                        <span className="text-sm font-medium text-red-700">Upload failed</span>
+                                    </div>
+                                )}
+
+                                {/* Export Button */}
+                                {!video.videoUrl && !isUploading && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={`gap-2 w-full sm:w-auto transition-colors ${canExport
+                                                ? 'hover:bg-red-50 hover:text-red-600 hover:border-red-200'
+                                                : 'opacity-50'
+                                            }`}
+                                        disabled={!canExport}
+                                        onClick={handleExportToYouTube}
+                                        title={
+                                            !ytStatus?.connected
+                                                ? "Connect YouTube in Settings first"
+                                                : video.status !== 'RECORDED'
+                                                    ? "Wait for recording to be processed"
+                                                    : "Export to YouTube"
+                                        }
+                                    >
+                                        <Youtube className="w-4 h-4" />
+                                        Export to YouTube
+                                    </Button>
+                                )}
+
+                                {/* Connect YouTube prompt */}
+                                {!ytStatus?.connected && !video.videoUrl && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-xs text-zinc-500"
+                                        onClick={() => navigate('/app/integrations')}
+                                    >
+                                        Connect YouTube →
+                                    </Button>
+                                )}
+                            </div>
                         </div>
 
-                        {/* Metadata Editing - Clean Layout */}
+                        {/* Metadata Editing */}
                         <div className="space-y-6">
                             <div className="space-y-2">
                                 <Input
