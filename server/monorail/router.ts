@@ -46,12 +46,12 @@ export const monorailRouter = router({
         }),
 
     initPublish: publicProcedure
-        .input(z.object({ monorailSessionId: z.string() }))
+        .input(z.object({ monorailSessionId: z.string(), videoId: z.string().optional() }))
         .mutation(async ({ ctx, input }) => {
             const publishId = crypto.randomUUID();
             const idObj = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.idFromName(publishId);
             const stub = ctx.env.YOUTUBE_PUBLISH_SESSION_DO.get(idObj) as any;
-            const state = await stub.init(input.monorailSessionId, ctx.userId);
+            const state = await stub.init(input.monorailSessionId, ctx.userId, input.videoId);
             return state;
         }),
 

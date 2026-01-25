@@ -53,6 +53,12 @@
 				"YouTubePublishSessionDO"
 			],
 			"tag": "v7"
+		},
+		{
+			"new_sqlite_classes": [
+				"VideosDO"
+			],
+			"tag": "v8"
 		}
 	],
 	"assets": {
@@ -96,6 +102,10 @@
 			{
 				"class_name": "YouTubePublishSessionDO",
 				"name": "YOUTUBE_PUBLISH_SESSION_DO"
+			},
+			{
+				"class_name": "VideosDO",
+				"name": "VIDEOS_DO"
 			}
 		]
 	},

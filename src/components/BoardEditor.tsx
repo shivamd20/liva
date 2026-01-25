@@ -483,7 +483,11 @@ export function BoardEditor({
         });
 
         // Sync changes
-        handleChange(updatedElements);
+        const appState = excalidrawAPIRef.current?.getAppState();
+        const files = excalidrawAPIRef.current?.getFiles();
+        if (appState && files) {
+          handleChange(updatedElements, appState, files);
+        }
 
         toast.success("Board updated by AI", { id: toastId });
         mixpanelService.track(MixpanelEvents.AI_GENERATE_SUCCESS, { boardId: board.id });

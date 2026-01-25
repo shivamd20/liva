@@ -11,6 +11,8 @@ export { RecordingDurableObject } from "./do/RecordingDurableObject";
 export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
+export { VideosDO } from "./do/VideosDO";
+
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {

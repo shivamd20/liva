@@ -38,6 +38,7 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
   const navLinks = [
     { name: "Boards", href: "/boards" },
     { name: "Integrations", href: "/app/integrations" },
+    { name: "Videos", href: "/app/videos" },
   ]
 
   return (

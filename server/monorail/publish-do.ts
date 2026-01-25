@@ -1,10 +1,13 @@
+
 import { DurableObject } from "cloudflare:workers";
 import { YouTubeIntegrationDO } from "../do/YouTubeIntegrationDO";
 import { MonorailSessionDO } from "./session-do";
+import { VideosDO } from "../do/VideosDO";
 
 export interface PublishState {
     publishId: string;
     monorailSessionId: string;
+    videoId?: string;
     userId: string;
     createdAt: number;
 
@@ -44,7 +47,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
         return await this.state.storage.get<PublishState>("state") || null;
     }
 
-    async init(monorailSessionId: string, userId: string): Promise<PublishState> {
+    async init(monorailSessionId: string, userId: string, videoId?: string): Promise<PublishState> {
         const existing = await this.getState();
         if (existing) {
             if (existing.monorailSessionId !== monorailSessionId) {
@@ -56,13 +59,6 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
         // Fetch metadata from MonorailSessionDO
         const monorailId = this.env.MONORAIL_SESSION_DO.idFromName(monorailSessionId);
         const monorailStub = this.env.MONORAIL_SESSION_DO.get(monorailId) as unknown as MonorailSessionDO;
-
-        // We use the manifest endpoint or RPC if available. 
-        // `MonorailSessionDO` has `getSessionState` but it doesn't return list of chunks.
-        // It seems `MonorailSessionDO` doesn't track list of chunks explicitly in state, only `chunks_uploaded`.
-        // BUT the HLD says: "Enumerate chunks and sizes".
-        // Start of Selection
-        // Since `MonorailSessionDO` writes to `monorail/{sid}/chunk-{index}.webm`, we can list from R2 directly.
 
         const chunks: PublishState['chunks'] = [];
         let totalBytes = 0;
@@ -103,6 +99,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
         const newState: PublishState = {
             publishId: this.state.id.toString(),
             monorailSessionId,
+            videoId,
             userId,
             createdAt: Date.now(),
             chunks,
@@ -128,6 +125,17 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
         return session;
     }
 
+    private async updateVideoStatus(session: PublishState, status: 'PROCESSING' | 'PUBLISHED' | 'FAILED', youtubeId?: string, videoUrl?: string) {
+        if (!session.videoId) return;
+        try {
+            const doId = this.env.VIDEOS_DO.idFromName(session.userId);
+            const stub = this.env.VIDEOS_DO.get(doId) as unknown as VideosDO;
+            await stub.updateStatus(session.videoId, status, youtubeId, videoUrl);
+        } catch (e) {
+            console.error("Failed to update video status via VideosDO", e);
+        }
+    }
+
     async uploadLoop() {
         let session = await this.getState();
         if (!session) return;
@@ -141,6 +149,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                 };
             }
             await this.state.storage.put("state", session);
+            await this.updateVideoStatus(session, 'PROCESSING');
 
             // 1. Get Token
             const ytIntegrationId = this.env.YOUTUBE_INTEGRATION_DO.idFromName(session.userId);
@@ -238,6 +247,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                         session.status = 'DONE';
                         session.youtube.videoId = data.id;
                         await this.state.storage.put("state", session);
+                        await this.updateVideoStatus(session, 'PUBLISHED', data.id, `https://youtu.be/${data.id}`);
                         return;
                     }
                     // If incomplete, it will return 308 with Range
@@ -260,6 +270,9 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                         // If we are still here, and status check was 308 with full range? Rare.
                         session.status = 'DONE';
                         await this.state.storage.put("state", session);
+                        await this.updateVideoStatus(session, 'PUBLISHED', session.youtube.videoId || 'unknown');
+                        // Note: If falling through here without youtube ID, we might have an issue. 
+                        // But usually the 200 OK check above catches it.
                         break;
                     }
                 }
@@ -336,6 +349,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
                     session.youtube.videoId = data.id;
                     session.youtube.bytesUploaded = session.totalBytes;
                     await this.state.storage.put("state", session);
+                    await this.updateVideoStatus(session, 'PUBLISHED', data.id, `https://youtu.be/${data.id}`);
                     return;
                 } else {
                     // Error, attempt re-sync logic next loop by checking status
@@ -370,6 +384,7 @@ export class YouTubePublishSessionDO extends DurableObject<Env> {
             session.status = 'FAILED';
             session.error = e.message;
             await this.state.storage.put("state", session);
+            await this.updateVideoStatus(session, 'FAILED');
         }
     }
 }

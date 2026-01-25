@@ -3,6 +3,7 @@ import { aiRouter } from "./ai/router";
 import { conversationRouter } from "./conversation/router";
 import { templatesRouter } from "./templates/router";
 import { monorailRouter } from "./monorail/router";
+import { videosRouter } from "./videos/router";
 import { t } from "./trpc-config";
 
 // Export the app router
@@ -12,6 +13,7 @@ export const appRouter = t.mergeRouters(notesRouter, t.router({
     conversation: conversationRouter,
     templates: templatesRouter,
     monorail: monorailRouter,
+    videos: videosRouter,
 }));
 
 export type AppRouter = typeof appRouter;

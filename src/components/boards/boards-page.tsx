@@ -5,6 +5,7 @@ import BoardsFilters from "./boards-filters"
 import BoardsGrid from "./boards-grid"
 import EmptyState from "./empty-state"
 import { IntegrationsPage } from "../IntegrationsPage"
+import { VideosPage } from "../videos/VideosPage"
 import { LoadingScreen } from "../LoadingScreen"
 import { useBoards, useCreateBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
@@ -29,6 +30,7 @@ export default function BoardsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const isIntegrationsView = location.pathname === '/app/integrations';
+  const isVideosView = location.pathname === '/app/videos';
 
   const [filter, setFilter] = useState<"all" | "owned" | "shared" | "recent">("all")
   const [sortBy, setSortBy] = useState<"lastOpened" | "lastUpdated" | "alphabetical">("lastOpened")
@@ -165,6 +167,8 @@ export default function BoardsPage() {
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           {isIntegrationsView ? (
             <IntegrationsPage />
+          ) : isVideosView ? (
+            <VideosPage />
           ) : (
             <>
               <section className="mb-12">

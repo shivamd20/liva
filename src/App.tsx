@@ -20,6 +20,8 @@ import { IntegrationsPage } from './components/IntegrationsPage';
 import { useQuery } from '@tanstack/react-query';
 import { LoadingScreen } from './components/LoadingScreen';
 import { BoardNotFound } from './components/BoardNotFound';
+import { VideoDetailPage } from './components/videos/VideoDetailPage';
+
 
 import { useDuplicateBoard } from './hooks/useBoards';
 import { HistoryModal } from './components/HistoryModal';
@@ -347,6 +349,8 @@ function AppContent() {
         <Route path="/board" element={<BoardsPage />} />
         <Route path="/new" element={<NewBoardRedirect />} />
         <Route path="/app/integrations" element={<BoardsPage />} />
+        <Route path="/app/videos" element={<BoardsPage />} />
+        <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
