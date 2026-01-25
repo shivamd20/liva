@@ -2,6 +2,7 @@ import { chat } from '@tanstack/ai';
 import { geminiText } from '@tanstack/ai-gemini';
 import type { AnyTextAdapter } from '@tanstack/ai';
 import type { z } from 'zod';
+import { SYSTEM_PROMPT_STUDY } from './systemPrompt';
 
 export type Provider = 'gemini';
 
@@ -53,11 +54,11 @@ export class LivaAIModel {
             .filter((msg): msg is { role: 'user' | 'assistant'; content: string } => msg !== null);
 
         // System prompt injection logic (if needed globally)
-        const systemPrompt = `You are Liva, an intelligent assistant.
-CORE RULES:
-- Be concise and helpful.
-- When asked to visualize, use the generateVisualization tool.
-- You have access to a whiteboard.`;
+        const systemPrompt = `
+        ${SYSTEM_PROMPT_STUDY}
+        
+        Feel free to use to provided tools whenever you feel approprivate
+        `;
 
         // Prepend system prompt
         const messagesWithSystem = [
