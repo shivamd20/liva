@@ -8,16 +8,6 @@ const readBoardInput = {
     type: "object",
     properties: {},
 };
-
-const generateVisualizationInput = {
-    type: "object",
-    properties: {
-        mermaid: { type: "string", description: "Mermaid JS diagram code" },
-        title: { type: "string", description: "Title of the visualization" },
-    },
-    required: ["mermaid"],
-};
-
 // Definitions
 export const readBoardDef = toolDefinition({
     name: 'read_board',
@@ -28,15 +18,6 @@ export const readBoardDef = toolDefinition({
     }),
 });
 
-export const generateVisualizationDef = toolDefinition({
-    name: 'generateVisualization',
-    description: 'Generate an inline visualization/diagram using Mermaid.js. Call this when you want to show a diagram to the user.',
-    inputSchema: generateVisualizationInput,
-    outputSchema: z.object({
-        visualizationId: z.string(),
-        success: z.boolean(),
-    }),
-});
 
 // Factory
 export const createTools = (
@@ -48,8 +29,5 @@ export const createTools = (
         // For read_board, we only pass the DEFINITION to the server side (LLM).
         // The implementation is on the client.
         readBoardDef,
-
-        // Visualization is now client-side only (definition passed, execution on client)
-        generateVisualizationDef,
     ];
 };

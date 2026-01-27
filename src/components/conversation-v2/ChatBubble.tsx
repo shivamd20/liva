@@ -2,8 +2,10 @@ import React, { useEffect, useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import mermaid from 'mermaid';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Terminal } from 'lucide-react';
-import { exportToBlob } from '@excalidraw/excalidraw';
+import { Terminal, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { MermaidExcalidrawModal } from './MermaidExcalidrawModal';
 
 // Initialize mermaid
 mermaid.initialize({
@@ -26,8 +28,10 @@ interface ChatBubbleProps {
 function MermaidDiagram({ code, excalidrawAPI }: { code: string; excalidrawAPI?: any }) {
     const [svg, setSvg] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const [showModal, setShowModal] = useState(false);
 
     useEffect(() => {
+        if (!code) return;
         const renderDiagram = async () => {
             try {
                 const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
@@ -41,87 +45,75 @@ function MermaidDiagram({ code, excalidrawAPI }: { code: string; excalidrawAPI?:
         renderDiagram();
     }, [code]);
 
-    const handleInsert = async () => {
-        if (!excalidrawAPI || !svg) return;
-        try {
-            // Convert SVG to Blob/Image
-            const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(svgBlob);
+    return (
+        <>
+            <div
+                className="my-2 bg-white rounded-lg border border-border overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all"
+                onClick={() => setShowModal(true)}
+                title="Click to view detailed diagram and export"
+            >
+                <div
+                    ref={containerRef}
+                    className="p-4 overflow-x-auto flex justify-center bg-white"
+                    dangerouslySetInnerHTML={{ __html: svg || '<div class="animate-pulse h-20 bg-muted/20 w-full"></div>' }}
+                />
+                <div className="bg-muted/30 border-t px-3 py-2 flex justify-between items-center">
+                    <span className="text-xs text-muted-foreground font-mono">Mermaid Diagram (Click to Expand)</span>
+                </div>
+            </div>
+            <MermaidExcalidrawModal
+                isOpen={showModal}
+                onClose={() => setShowModal(false)}
+                mermaidCode={code}
+                excalidrawAPI={excalidrawAPI}
+            />
+        </>
+    );
+}
 
-            // We need to convert SVG to PNG/Canvas because Excalidraw handles images better
-            // Or insert as SVG if supported. Excalidraw supports image elements.
-            const img = new Image();
-            img.onload = () => {
-                // Calculate center of view
-                const appState = excalidrawAPI.getAppState();
-                const x = appState.scrollX + (appState.width / 2) - (img.width / 2);
-                const y = appState.scrollY + (appState.height / 2) - (img.height / 2);
-
-                const element = {
-                    type: "image",
-                    x: x, // Approximate center
-                    y: y,
-                    width: img.width,
-                    height: img.height,
-                    status: "saved",
-                    fileId: null, // let excalidraw handle it?
-                };
-                // Using a more robust method:
-                // We can use `convertToExcalidrawElements`? No, that's for parsing.
-                // We'll treat it as pasting an image.
-
-                // Simpler: Just convert to dataURL and insert properly
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                if (ctx) {
-                    ctx.drawImage(img, 0, 0);
-                    const dataURL = canvas.toDataURL('image/png');
-                    // Use API to insert (requires file handling)
-                    // Since we don't have easy access to `addFiles`, we might need a workaround.
-                    // But excalidraw usually needs `files` object updated.
-
-                    // For now, let's simpler alert or try to use specific defined method if available.
-                    // Or just copy to clipboard?
-
-                    // Trying a known method if API supports `updateScene`:
-                    alert("To insert, please copy the image (Right Click > Copy Image) and paste it onto the board.");
-                }
-                URL.revokeObjectURL(url);
-            };
-            img.src = url;
-
-        } catch (e) {
-            console.error("Insert failed", e);
-        }
-    };
-
-    // Better Insert Implementation if we can't easily access internal file state:
-    // We can't easily insert images without updating the `files` map in Excalidraw props/state.
-    // However, if we are inside `excalidrawAPI`, we might have `addFiles`.
-    // Let's assume for now valid insertion is complex and provide a "Copy" button or just show it.
-    // User asked for "Insert button".
-    // I will try to use `excalidrawAPI.updateScene` with `elements` and `files`?
-    // Not easy without `files`.
+function CollapsibleImage({ imageSrc }: { imageSrc: string }) {
+    const [isExpanded, setIsExpanded] = useState(false);
 
     return (
-        <div className="my-2 bg-white rounded-lg border border-border overflow-hidden">
-            <div
-                ref={containerRef}
-                className="p-4 overflow-x-auto flex justify-center bg-white"
-                dangerouslySetInnerHTML={{ __html: svg || '<div class="animate-pulse h-20 bg-muted/20 w-full"></div>' }}
-            />
-            <div className="bg-muted/30 border-t px-3 py-2 flex justify-between items-center">
-                <span className="text-xs text-muted-foreground font-mono">Mermaid Diagram</span>
-                {/* 
-                  Since direct insertion of images via API is tricky without file handling, 
-                  I'll omit the complex logic and just provide 'Copy SVG' or similar for now 
-                  unless I can find a straightforward API method.
-                  Actually, user said "with an insert button which inserts it into the board".
-                  I will assume I should try.
-                */}
-            </div>
+        <div className="mt-2 block w-full rounded-lg overflow-hidden border border-border bg-white shadow-sm">
+            {isExpanded ? (
+                <>
+                    <img
+                        src={imageSrc}
+                        alt="Board Snapshot"
+                        className="w-full h-auto block"
+                        style={{ minHeight: '100px', maxHeight: '400px', objectFit: 'contain' }}
+                    />
+                    <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/30 border-t flex items-center justify-between">
+                        <span>📷 Shared Board View</span>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 gap-1"
+                            onClick={() => setIsExpanded(false)}
+                        >
+                            <ChevronUp className="w-3 h-3" />
+                            <span className="text-xs">Collapse</span>
+                        </Button>
+                    </div>
+                </>
+            ) : (
+                <div className="px-3 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-muted-foreground">📷 Read current board</span>
+                        <span className="text-xs text-muted-foreground/70"></span>
+                    </div>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 gap-1"
+                        onClick={() => setIsExpanded(true)}
+                    >
+                        <ChevronDown className="w-3 h-3" />
+                        <span className="text-xs"></span>
+                    </Button>
+                </div>
+            )}
         </div>
     );
 }
@@ -131,60 +123,30 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
     const isTool = message.role === 'tool';
 
     let toolImage: string | null = null;
-    let mermaidCode: string | null = null;
-
     let textContent = message.content || '';
+
+    // Handle parts (common in Vercel AI SDK / Gemini)
     if (message.parts) {
-        textContent = message.parts.filter(p => p.type === 'text').map(p => p.content).join('');
-    }
+        textContent = message.parts
+            .filter(p => p.type === 'text')
+            .map(p => p.content)
+            .join('');
 
-    // --- Helper to parse content ---
-    const parseContent = (content: string) => {
-        try {
-            return JSON.parse(content);
-        } catch { return null; }
-    };
-
-    // --- 1. Standalone Tool Message (Legacy/Simple) ---
-    if (isTool && message.content) {
-        const parsed = parseContent(message.content);
-        if (parsed) {
-            if (parsed.image && typeof parsed.image === 'string') {
-                toolImage = parsed.image;
-                textContent = "";
-            }
-            if (parsed.mermaid && typeof parsed.mermaid === 'string') {
-                mermaidCode = parsed.mermaid;
-                textContent = "";
-            }
-        }
-    }
-
-    // --- 2. Parts (Standard) ---
-    // Check parts for tool-result or tool-call with client output
-    message.parts?.forEach(part => {
-        if (part.type === 'tool-result' || (part.type === 'tool-call' && part.output)) {
-            // For client tool call, output is in part.output
-            // For server tool result, result is in part.result or part.content
-            const payload = part.output || part.result;
-
-            if (payload) {
-                if (payload.image) toolImage = payload.image;
-                if (payload.mermaid) mermaidCode = payload.mermaid;
-            } else if (typeof part.content === 'string') {
-                // Try parsing string content
-                const parsed = parseContent(part.content);
-                if (parsed) {
-                    if (parsed.image) toolImage = parsed.image;
-                    if (parsed.mermaid) mermaidCode = parsed.mermaid;
+        // Check for tool images (read_board output)
+        message.parts.forEach(part => {
+            if (part.type === 'tool-result') {
+                const result = part.result || part.output;
+                if (result && result.image) {
+                    toolImage = result.image;
                 }
+            } else if (part.type === 'tool-call' && part.output && part.output.image) {
+                // Client side tool call that already has output attached
+                toolImage = part.output.image;
             }
-        }
-    });
+        });
+    }
 
-
-
-    if (isTool && !toolImage && !mermaidCode && !textContent) return null;
+    if (isTool && !toolImage && !textContent) return null;
 
     return (
         <div className={cn(
@@ -199,15 +161,49 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
                         ? "bg-transparent border-none shadow-none p-0 max-w-full w-full"
                         : "bg-white border border-border text-foreground rounded-tl-sm dark:bg-muted/40"
             )}>
-                {/* Text Content */}
+                {/* Text Content with Markdown */}
                 {textContent && (
                     <div className={cn(
-                        "whitespace-pre-wrap",
+                        "markdown-content",
                         isTool ? "font-mono text-xs text-muted-foreground bg-muted p-2 rounded mb-2" : ""
-                    )}>{textContent}</div>
+                    )}>
+                        {isTool ? (
+                            <div className="whitespace-pre-wrap">{textContent}</div>
+                        ) : (
+                            <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                    code({ node, className, children, ...props }) {
+                                        const match = /language-(\w+)/.exec(className || '');
+                                        const isMermaid = match && match[1] === 'mermaid';
+
+                                        if (isMermaid) {
+                                            const codeContent = String(children || '').trim();
+                                            if (!codeContent) return null;
+                                            return <MermaidDiagram code={codeContent} excalidrawAPI={excalidrawAPI} />;
+                                        }
+
+                                        return match ? (
+                                            <div className="rounded-md bg-muted/50 p-3 my-2 border border-border/50 overflow-x-auto">
+                                                <code className={className} {...props}>
+                                                    {children}
+                                                </code>
+                                            </div>
+                                        ) : (
+                                            <code className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                                {children}
+                                            </code>
+                                        );
+                                    }
+                                }}
+                            >
+                                {textContent}
+                            </ReactMarkdown>
+                        )}
+                    </div>
                 )}
 
-                {/* Tool Calls (for assistant messages) */}
+                {/* Tool Calls indicators (for assistant messages) */}
                 {message.toolCalls && message.toolCalls.length > 0 && (
                     <div className="flex flex-col gap-1 my-1">
                         {message.toolCalls.map((toolCall: any, idx: number) => (
@@ -219,24 +215,9 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
                     </div>
                 )}
 
-                {/* Images */}
+                {/* Images (from read_board) */}
                 {toolImage && (
-                    <div className="mt-2 block w-full rounded-lg overflow-hidden border border-border bg-white shadow-sm">
-                        <img
-                            src={toolImage}
-                            alt="Board Snapshot"
-                            className="w-full h-auto block"
-                            style={{ minHeight: '100px', maxHeight: '400px', objectFit: 'contain' }}
-                        />
-                        <div className="px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/30 border-t flex items-center gap-2">
-                            <span>📷 Shared Board View</span>
-                        </div>
-                    </div>
-                )}
-
-                {/* Mermaid */}
-                {mermaidCode && (
-                    <MermaidDiagram code={mermaidCode} excalidrawAPI={excalidrawAPI} />
+                    <CollapsibleImage imageSrc={toolImage} />
                 )}
             </div>
         </div>

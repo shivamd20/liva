@@ -123,25 +123,49 @@ export class ConversationV2DurableObject extends DurableObject {
             }
 
             // 2. Load History for Context
-            const historyResponse = await this.getHistory(new Request("http://internal/history"));
-            const historyMessages = await historyResponse.json() as any[];
+            // For chat context, we want all history, so fetch without limit
+            const historyResponse = await this.getHistory(new Request("http://internal/history?limit=1000"));
+            const historyData = await historyResponse.json() as { messages: any[]; hasMore: boolean; nextCursor: string | null };
+            const historyMessages = historyData.messages;
 
-            // Guard: If we didn't persist anything new, and the last message in history is from Assistant,
-            // we assume this is a duplicate/redundant request and should not trigger a new generation.
-            // (If the last message is from User/Tool, we proceeded to generate response for it - Recovery scenario).
+            // Check if we need to generate a response
+            // The key question: Is there a user message that needs a response?
             const lastHistoryMsg = historyMessages[historyMessages.length - 1];
-            if (persistedCount === 0 && incomingMessages.length > 0) {
-                if (lastHistoryMsg && lastHistoryMsg.role === 'assistant') {
-                    console.log(`[ConversationV2] [${requestId}] Skipping generation: No new messages and last history was assistant.`);
-                    // Return empty stream to close connection gracefully
-                    return new Response(toServerSentEventsStream((async function* () { })()), {
-                        headers: {
-                            'Content-Type': 'text/event-stream',
-                            'Cache-Control': 'no-cache',
-                            'Connection': 'keep-alive',
-                        },
-                    });
-                }
+            
+            // Find the last user message in incoming messages
+            const lastIncomingUserMsg = [...incomingMessages].reverse().find(msg => msg.role === 'user');
+            
+            // Check if the last incoming user message is new (not in history)
+            let hasNewUserMessage = false;
+            if (lastIncomingUserMsg && typeof lastIncomingUserMsg.content === 'string') {
+                // Check if this exact message exists in history
+                const existsInHistory = historyMessages.some(hMsg => 
+                    hMsg.role === 'user' && 
+                    typeof hMsg.content === 'string' && 
+                    hMsg.content === lastIncomingUserMsg.content
+                );
+                hasNewUserMessage = !existsInHistory;
+            }
+            
+            // Determine if we should generate:
+            // 1. If we persisted a new user message, definitely generate
+            // 2. If there's a new user message in incoming (even if not persisted yet), generate
+            // 3. If the last message in history is a user message (needs response), generate
+            // 4. Only skip if: no new messages, last history is assistant, and no new user message detected
+            const shouldGenerate = persistedCount > 0 || 
+                                   hasNewUserMessage || 
+                                   (lastHistoryMsg && lastHistoryMsg.role !== 'assistant');
+            
+            if (!shouldGenerate && incomingMessages.length > 0) {
+                console.log(`[ConversationV2] [${requestId}] Skipping generation: No new messages and last history was assistant.`);
+                // Return empty stream to close connection gracefully
+                return new Response(toServerSentEventsStream((async function* () { })()), {
+                    headers: {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache',
+                        'Connection': 'keep-alive',
+                    },
+                });
             }
 
             // --- Context Injection ---
@@ -286,8 +310,25 @@ export class ConversationV2DurableObject extends DurableObject {
     }
 
     private async getHistory(request: Request): Promise<Response> {
-        const events = this.sql.exec("SELECT * FROM conversation_events ORDER BY timestamp ASC").toArray();
-        const messages = events.map((e: any) => {
+        const url = new URL(request.url);
+        const limit = parseInt(url.searchParams.get('limit') || '15', 10);
+        const before = url.searchParams.get('before'); // timestamp cursor
+        
+        let query = "SELECT * FROM conversation_events";
+        const params: any[] = [];
+        
+        if (before) {
+            query += " WHERE timestamp < ?";
+            params.push(parseInt(before, 10));
+        }
+        
+        query += " ORDER BY timestamp DESC LIMIT ?";
+        params.push(limit);
+        
+        const events = this.sql.exec(query, ...params).toArray();
+        
+        // Reverse to get chronological order (oldest first)
+        const messages = events.reverse().map((e: any) => {
             const metadata = JSON.parse(e.metadata);
 
             // Handle payload potential binary/string mismatch
@@ -314,6 +355,7 @@ export class ConversationV2DurableObject extends DurableObject {
                 id: e.id,
                 role,
                 content: content,
+                timestamp: e.timestamp,
                 // Add specific fields if role is 'tool'
                 ...(role === 'tool' ? {
                     toolCallId: metadata.toolCallId || 'unknown',
@@ -325,7 +367,16 @@ export class ConversationV2DurableObject extends DurableObject {
                 } : {})
             };
         });
-        return Response.json(messages);
+        
+        // Return messages with pagination info
+        const oldestTimestamp = messages.length > 0 ? messages[0].timestamp : null;
+        const hasMore = oldestTimestamp ? this.sql.exec("SELECT 1 FROM conversation_events WHERE timestamp < ? LIMIT 1", oldestTimestamp).toArray().length > 0 : false;
+        
+        return Response.json({
+            messages,
+            hasMore,
+            nextCursor: oldestTimestamp ? String(oldestTimestamp) : null
+        });
     }
 
     private async handleClearHistory(request: Request): Promise<Response> {
