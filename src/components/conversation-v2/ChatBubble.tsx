@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import mermaid from 'mermaid';
 import { Button } from '@/components/ui/button';
@@ -8,11 +8,15 @@ import remarkGfm from 'remark-gfm';
 import { MermaidExcalidrawModal } from './MermaidExcalidrawModal';
 
 // Initialize mermaid
+
+// Initialize mermaid
 mermaid.initialize({
     startOnLoad: false,
     theme: 'base',
     securityLevel: 'loose',
+    suppressErrorRendering: true,
 });
+
 
 interface ChatBubbleProps {
     message: {
@@ -29,36 +33,63 @@ function MermaidDiagram({ code, excalidrawAPI }: { code: string; excalidrawAPI?:
     const [svg, setSvg] = useState<string | null>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const [showModal, setShowModal] = useState(false);
+    const [error, setError] = useState(false);
+    const [debouncedCode, setDebouncedCode] = useState(code);
 
     useEffect(() => {
-        if (!code) return;
+        const timer = setTimeout(() => {
+            setDebouncedCode(code);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [code]);
+
+    useEffect(() => {
+        if (!debouncedCode) return;
+
         const renderDiagram = async () => {
+            setError(false);
+
             try {
                 const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
-                const { svg } = await mermaid.render(id, code);
+                const { svg } = await mermaid.render(id, debouncedCode);
                 setSvg(svg);
-            } catch (error) {
-                console.error('Mermaid render error:', error);
-                setSvg(`<div class="text-xs text-red-500 p-2">Failed to render diagram</div>`);
+            } catch (err) {
+                console.error('Mermaid render error:', err);
+                setError(true);
             }
         };
+
         renderDiagram();
-    }, [code]);
+    }, [debouncedCode]);
+
+    if (error) {
+        return (
+            <div className="my-2 rounded-lg border border-destructive/20 bg-destructive/5 overflow-hidden">
+                <div className="px-3 py-2 text-xs font-medium text-destructive border-b border-destructive/10 flex items-center gap-2">
+                    <span>⚠️ Visualization Error</span>
+                </div>
+                <div className="p-3 overflow-x-auto">
+                    <pre className="text-xs font-mono text-muted-foreground whitespace-pre">{code}</pre>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <>
             <div
-                className="my-2 bg-white rounded-lg border border-border overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all"
+                className="my-2 bg-white rounded-lg border border-border overflow-hidden cursor-pointer hover:ring-2 hover:ring-primary/20 transition-all select-none"
                 onClick={() => setShowModal(true)}
                 title="Click to view detailed diagram and export"
             >
                 <div
                     ref={containerRef}
-                    className="p-4 overflow-x-auto flex justify-center bg-white"
-                    dangerouslySetInnerHTML={{ __html: svg || '<div class="animate-pulse h-20 bg-muted/20 w-full"></div>' }}
+                    className="p-4 overflow-x-auto flex justify-center bg-white min-h-[100px]"
+                    dangerouslySetInnerHTML={{ __html: svg || '<div class="flex items-center justify-center w-full h-20 text-xs text-muted-foreground animate-pulse">Rendering...</div>' }}
                 />
-                <div className="bg-muted/30 border-t px-3 py-2 flex justify-between items-center">
-                    <span className="text-xs text-muted-foreground font-mono">Mermaid Diagram (Click to Expand)</span>
+                <div className="bg-muted/30 border-t px-3 py-2 flex justify-between items-center text-xs text-muted-foreground">
+                    <span className="font-mono">Mermaid Diagram</span>
+                    <span className="opacity-70">Click to expand</span>
                 </div>
             </div>
             <MermaidExcalidrawModal
@@ -172,7 +203,7 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
                         ) : (
                             <ReactMarkdown
                                 remarkPlugins={[remarkGfm]}
-                                components={{
+                                components={useMemo(() => ({
                                     code({ node, className, children, ...props }) {
                                         const match = /language-(\w+)/.exec(className || '');
                                         const isMermaid = match && match[1] === 'mermaid';
@@ -195,7 +226,7 @@ export function ChatBubble({ message, excalidrawAPI }: ChatBubbleProps) {
                                             </code>
                                         );
                                     }
-                                }}
+                                }), [excalidrawAPI])}
                             >
                                 {textContent}
                             </ReactMarkdown>
