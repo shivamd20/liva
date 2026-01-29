@@ -6,8 +6,6 @@ Get up and running with real-time note updates in 5 minutes.
 
 ```bash
 npm run dev
-# or
-yarn dev
 ```
 
 The server will start at `http://localhost:8787`

@@ -77,7 +77,7 @@ For more detailed technical information, check out the following guides included
 
 ### Prerequisites
 *   Node.js (v18+ recommended)
-*   NPM or Yarn
+*   npm
 *   A Cloudflare account
 
 ### Installation

@@ -6,8 +6,6 @@ A lightweight, standalone React library to add real-time collaboration to Excali
 
 ```bash
 npm install @shvm/excalidraw-live-sync
-# or
-yarn add @shvm/excalidraw-live-sync
 ```
 
 You also need the peer dependencies:

@@ -2,6 +2,7 @@
 	"name": "liva",
 	"version": "0.0.0",
 	"private": true,
+	"packageManager": "npm@10.9.2",
 	"scripts": {
 		"deploy": "wrangler deploy",
 		"build-and-deploy": "npm run build:ui && npm run deploy",

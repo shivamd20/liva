@@ -31,8 +31,8 @@ ui/
 
 The UI is configured to work with the Cloudflare Worker backend:
 
-- **Dev Server**: `yarn dev:ui` (runs on port 5173)
-- **Build**: `yarn build:ui` (outputs to `../public`)
+- **Dev Server**: `npm run dev:ui` (runs on port 5173)
+- **Build**: `npm run build:ui` (outputs to `../public`)
 - **API Proxy**: `/api/v1` routes are proxied to `http://127.0.0.1:8787`
 
 ## Path Aliases
