@@ -175,7 +175,7 @@ export class ConversationV2DurableObject extends DurableObject {
                     // @ts-ignore
                     let doId = boardId.length === 64 ? this.env.NOTE_DURABLE_OBJECT.idFromString(boardId) : this.env.NOTE_DURABLE_OBJECT.idFromName(boardId);
                     // @ts-ignore
-                    const note = await this.env.NOTE_DURABLE_OBJECT.get(doId).getNote();
+                    const note = (await this.env.NOTE_DURABLE_OBJECT.get(doId).getNote()) as { title?: string } | null;
                     if (note) systemContext += `Current Board Title: "${note.title || 'Untitled'}"\nBoard ID: ${boardId}\n`;
                 } catch (e) { }
             }

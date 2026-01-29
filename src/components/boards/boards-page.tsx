@@ -6,6 +6,7 @@ import BoardsGrid from "./boards-grid"
 import EmptyState from "./empty-state"
 import { IntegrationsPage } from "../IntegrationsPage"
 import { VideosPage } from "../videos/VideosPage"
+import { SystemShotsPage } from "@/components/system-shots/SystemShotsPage"
 import { LoadingScreen } from "../LoadingScreen"
 import { useBoardsList, useUpdateBoard, useDeleteBoard, useDuplicateBoard, useRemoveSharedBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
@@ -28,6 +29,7 @@ export default function BoardsPage() {
 
   const isIntegrationsView = location.pathname === '/app/integrations';
   const isVideosView = location.pathname === '/app/videos';
+  const isSystemShotsView = location.pathname === '/app/system-shots';
 
   // Filter state
   const [filter, setFilter] = useState<"all" | "owned" | "shared">("all")
@@ -210,6 +212,14 @@ export default function BoardsPage() {
 
   if (isLoading) {
     return <LoadingScreen />
+  }
+
+  if (isSystemShotsView) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col bg-background">
+        <SystemShotsPage onBack={() => navigate("/boards")} />
+      </div>
+    )
   }
 
   return (

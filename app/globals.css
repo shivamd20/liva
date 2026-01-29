@@ -29,6 +29,7 @@
   --chart-4: oklch(0.65 0.15 50);
   --chart-5: oklch(0.6 0.18 150);
   --radius: 0.75rem;
+  --reel-secondary: oklch(0.42 0.02 250);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -50,6 +51,7 @@
 .dark {
   --background: oklch(0.06 0.015 250);
   --foreground: oklch(0.96 0 0);
+  --reel-secondary: oklch(0.88 0 0);
   --card: oklch(0.1 0.015 250);
   --card-foreground: oklch(0.96 0 0);
   --popover: oklch(0.1 0.015 250);
@@ -106,6 +108,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-reel-secondary: var(--reel-secondary);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -136,6 +139,27 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "ss01", "ss02", "cv01";
   }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-card,
+  .reel-card [class*="animate-in"] {
+    animation-duration: 0s !important;
+  }
+  .typeform-bg {
+    animation: none !important;
+  }
+}
+
+/* Typeform-style soothing dynamic background */
+.typeform-bg {
+  background-size: 200% 200%;
+  animation: typeform-gradient-shift 18s ease-in-out infinite;
+}
+
+@keyframes typeform-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
 }
 
 /* Premium glass morphism with depth */

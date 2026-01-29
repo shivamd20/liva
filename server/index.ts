@@ -13,6 +13,7 @@ export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
+export { LearningMemoryDO } from "./do/LearningMemoryDO";
 
 
 /** Example Durable Object (kept for reference) */

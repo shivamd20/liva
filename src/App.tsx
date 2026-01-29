@@ -350,6 +350,7 @@ function AppContent() {
         <Route path="/app/integrations" element={<BoardsPage />} />
         <Route path="/app/videos" element={<BoardsPage />} />
         <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
+        <Route path="/app/system-shots" element={<BoardsPage />} />
         <Route path="/test-ai" element={<TestAI />} />
         <Route path="/speech" element={<SpeechDemo />} />
         <Route path="/canvas-ai" element={<CanvasDrawDemo />} />

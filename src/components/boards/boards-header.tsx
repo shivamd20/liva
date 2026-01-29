@@ -39,6 +39,7 @@ export default function BoardsHeader({ searchQuery, onSearchChange }: BoardsHead
     { name: "Boards", href: "/boards" },
     { name: "Integrations", href: "/app/integrations" },
     { name: "Videos", href: "/app/videos" },
+    { name: "System Shots", href: "/app/system-shots" },
   ]
 
   return (

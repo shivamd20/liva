@@ -65,6 +65,12 @@
 				"ConversationV2DurableObject"
 			],
 			"tag": "v9"
+		},
+		{
+			"new_sqlite_classes": [
+				"LearningMemoryDO"
+			],
+			"tag": "v10"
 		}
 	],
 	"assets": {
@@ -116,6 +122,10 @@
 			{
 				"class_name": "ConversationV2DurableObject",
 				"name": "CONVERSATION_V2_DO"
+			},
+			{
+				"class_name": "LearningMemoryDO",
+				"name": "SYSTEM_SHOTS_DO"
 			}
 		]
 	},
@@ -144,7 +154,8 @@
 		"AUTH_BASE_URL": "https://liva.shvm.in",
 		"GOOGLE_CLIENT_ID": "590117253094-s8kso38hd3843apbs68gjei368ccrojp.apps.googleusercontent.com",
 		"VITE_CLARITY_PROJECT_ID": "ugfupp7ocg",
-		"VITE_MIXPANEL_TOKEN": "ba88a4da68ad14e815b9a5195b6a6dcf"
+		"VITE_MIXPANEL_TOKEN": "ba88a4da68ad14e815b9a5195b6a6dcf",
+		"USE_SYSTEM_SHOTS_MOCK": "false"
 	}
 	/**
 	 * Smart Placement

@@ -213,7 +213,7 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
             </div>
 
             <div className="flex-1 overflow-hidden relative">
-                {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} excalidrawAPI={excalidrawAPI} />}
+                {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} />}
                 {activeTab === 'conversation' && (
                     <div className="h-full flex flex-col">
                         {/* We just need the content, wrapper styles can be minimal */}
