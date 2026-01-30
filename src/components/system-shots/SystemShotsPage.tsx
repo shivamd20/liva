@@ -68,6 +68,9 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const skipObservedRef = useRef<Set<string>>(new Set())
   /** Only count as "skip" when a reel was in view and then left without being answered. Reels below the fold on load must not be marked skipped. */
   const reelHasBeenInViewRef = useRef<Set<string>>(new Set())
+  /** Reels to hide from feed: answered and continued from (or answered in a previous session). So the card stays visible until user clicks Continue. */
+  const [continuedReelIds, setContinuedReelIds] = useState<Set<string>>(new Set())
+  const hasInitializedContinuedRef = useRef(false)
 
   const {
     data,
@@ -127,10 +130,18 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     ? (mockReels as ApiReel[])
     : (data?.pages.flatMap((p) => p.reels) ?? []) as ApiReel[]
 
-  /** Feed newness: show only reels not yet answered (so refresh doesn't show already-answered reels). */
+  // Seed continuedReelIds from persisted answer state once on load (so refresh hides already-answered reels).
+  useEffect(() => {
+    if (USE_MOCK || hasInitializedContinuedRef.current) return
+    hasInitializedContinuedRef.current = true
+    const persisted = localAnswerState.submittedAnswerReelIds
+    setContinuedReelIds(new Set(persisted))
+  }, [localAnswerState.submittedAnswerReelIds])
+
+  /** Feed newness: hide reels only after user has continued (so card stays visible to show Correct/Incorrect + explanation until Continue). */
   const reelsToShow = useMemo(
-    () => reels.filter((r) => !submittedAnswerReelIds.has(r.id)),
-    [reels, submittedAnswerReelIds]
+    () => reels.filter((r) => !continuedReelIds.has(r.id)),
+    [reels, continuedReelIds]
   )
 
   const scrollToReel = useCallback((index: number) => {
@@ -165,7 +176,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     }, 50)
   }, [])
 
-  /** Continue: for MCQ only scroll (answer already submitted on select); for Flash submit then scroll. */
+  /** Continue: hide this reel from feed (so it disappears after Continue), then scroll to next. */
   const handleContinue = useCallback(
     (reel: ApiReel, _selectedIndex: number | undefined, index: number) => {
       const isFlash = reel.type === "flash"
@@ -183,6 +194,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           skipped: true,
         })
       }
+      // Hide this reel from feed only after Continue (so user saw Correct/Incorrect + explanation).
+      setContinuedReelIds((prev) => new Set(prev).add(reel.id))
       const nextIndex = index + 1
       if (nextIndex < reelsToShow.length) {
         scrollToNextReel(nextIndex)
