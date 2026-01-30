@@ -12,7 +12,6 @@ export interface BoardIndexEntry {
   isOwned: boolean;
   visibility: 'public' | 'private';
   version: number;
-  thumbnailBase64: string | null;
   createdAt: number;
   updatedAt: number;
   lastAccessedAt: number;
@@ -63,6 +62,5 @@ export interface BoardsAPI {
   // User-specific index operations
   trackAccess: (noteId: string) => Promise<void>;
   removeShared: (noteId: string) => Promise<void>;
-  updateThumbnail: (noteId: string, thumbnailBase64: string, version: number) => Promise<void>;
 }
 

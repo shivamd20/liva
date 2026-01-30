@@ -9,8 +9,7 @@ export interface UserNoteEntry {
     ownerUserId: string;         // Original owner's ID
     isOwned: boolean;            // true if user owns this board
     visibility: 'public' | 'private';
-    version: number;             // For thumbnail cache invalidation
-    thumbnailBase64: string | null; // Cached thumbnail (data URL)
+    version: number;             // For cache invalidation (used by client-side thumbnail cache)
     createdAt: number;           // Board creation time
     updatedAt: number;           // Last board modification
     lastAccessedAt: number;      // Last time THIS user opened it
@@ -64,7 +63,6 @@ export class NoteIndexDurableObject extends DurableObject {
                 is_owned INTEGER NOT NULL DEFAULT 0,
                 visibility TEXT NOT NULL DEFAULT 'private',
                 version INTEGER NOT NULL DEFAULT 1,
-                thumbnail_base64 TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 last_accessed_at INTEGER NOT NULL
@@ -77,6 +75,13 @@ export class NoteIndexDurableObject extends DurableObject {
             CREATE INDEX IF NOT EXISTS idx_notes_created_at ON notes(created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_notes_title ON notes(title COLLATE NOCASE);
         `);
+        
+        // Migration: drop thumbnail_base64 column if it exists (thumbnails now cached client-side)
+        try {
+            this.sql.exec(`ALTER TABLE notes DROP COLUMN thumbnail_base64`);
+        } catch {
+            // Column doesn't exist, ignore
+        }
     }
 
     /**
@@ -87,13 +92,12 @@ export class NoteIndexDurableObject extends DurableObject {
         const lastAccessed = entry.lastAccessedAt ?? now;
 
         this.sql.exec(`
-            INSERT INTO notes (note_id, title, owner_user_id, is_owned, visibility, version, thumbnail_base64, created_at, updated_at, last_accessed_at)
-            VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (note_id, title, owner_user_id, is_owned, visibility, version, created_at, updated_at, last_accessed_at)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
             ON CONFLICT(note_id) DO UPDATE SET
                 title = excluded.title,
                 visibility = excluded.visibility,
                 version = excluded.version,
-                thumbnail_base64 = CASE WHEN excluded.version > notes.version THEN excluded.thumbnail_base64 ELSE notes.thumbnail_base64 END,
                 updated_at = excluded.updated_at,
                 last_accessed_at = MAX(notes.last_accessed_at, excluded.last_accessed_at)
         `,
@@ -102,7 +106,6 @@ export class NoteIndexDurableObject extends DurableObject {
             entry.ownerUserId,
             entry.visibility,
             entry.version,
-            entry.thumbnailBase64,
             entry.createdAt,
             entry.updatedAt,
             lastAccessed
@@ -114,13 +117,12 @@ export class NoteIndexDurableObject extends DurableObject {
      */
     async upsertSharedNote(entry: Omit<UserNoteEntry, 'isOwned'>): Promise<void> {
         this.sql.exec(`
-            INSERT INTO notes (note_id, title, owner_user_id, is_owned, visibility, version, thumbnail_base64, created_at, updated_at, last_accessed_at)
-            VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
+            INSERT INTO notes (note_id, title, owner_user_id, is_owned, visibility, version, created_at, updated_at, last_accessed_at)
+            VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)
             ON CONFLICT(note_id) DO UPDATE SET
                 title = excluded.title,
                 visibility = excluded.visibility,
                 version = excluded.version,
-                thumbnail_base64 = CASE WHEN excluded.version > notes.version THEN excluded.thumbnail_base64 ELSE notes.thumbnail_base64 END,
                 updated_at = excluded.updated_at,
                 last_accessed_at = MAX(notes.last_accessed_at, excluded.last_accessed_at)
         `,
@@ -129,7 +131,6 @@ export class NoteIndexDurableObject extends DurableObject {
             entry.ownerUserId,
             entry.visibility,
             entry.version,
-            entry.thumbnailBase64,
             entry.createdAt,
             entry.updatedAt,
             entry.lastAccessedAt
@@ -141,17 +142,6 @@ export class NoteIndexDurableObject extends DurableObject {
      */
     async removeNote(noteId: string): Promise<void> {
         this.sql.exec(`DELETE FROM notes WHERE note_id = ?`, noteId);
-    }
-
-    /**
-     * Update only the thumbnail for a note (with version check)
-     */
-    async updateThumbnail(noteId: string, thumbnailBase64: string, version: number): Promise<void> {
-        this.sql.exec(`
-            UPDATE notes 
-            SET thumbnail_base64 = ?, version = ?
-            WHERE note_id = ? AND version <= ?
-        `, thumbnailBase64, version, noteId, version);
     }
 
     /**
@@ -341,7 +331,6 @@ export class NoteIndexDurableObject extends DurableObject {
             isOwned: row.is_owned === 1,
             visibility: row.visibility as 'public' | 'private',
             version: row.version as number,
-            thumbnailBase64: row.thumbnail_base64 as string | null,
             createdAt: row.created_at as number,
             updatedAt: row.updated_at as number,
             lastAccessedAt: row.last_accessed_at as number
@@ -370,7 +359,6 @@ export class NoteIndexDurableObject extends DurableObject {
             ownerUserId: entry.userId,
             visibility: 'private',
             version: entry.version,
-            thumbnailBase64: null,
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt
         });

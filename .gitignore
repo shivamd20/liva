@@ -170,3 +170,4 @@ public
 .idea
 .DS_Store
 .npmrc
+.cursor/debug.log

@@ -107,7 +107,6 @@ export class NotesServiceDO {
 				ownerUserId: current.userId,
 				visibility: current.access,
 				version: current.version,
-				thumbnailBase64: null,
 				createdAt: current.createdAt,
 				updatedAt: current.updatedAt,
 			});
@@ -338,7 +337,6 @@ export class NotesServiceDO {
 				ownerUserId: note.userId,
 				visibility: note.access,
 				version: note.version,
-				thumbnailBase64: null, // Will be populated by thumbnail update
 				createdAt: note.createdAt,
 				updatedAt: note.updatedAt,
 				lastAccessedAt: Date.now(),
@@ -364,14 +362,6 @@ export class NotesServiceDO {
 		}
 
 		await indexStub.removeNote(noteId);
-	}
-
-	/**
-	 * Update thumbnail for a board in a user's index
-	 */
-	async updateThumbnail(noteId: string, userId: string, thumbnailBase64: string, version: number): Promise<void> {
-		const indexStub = this.getUserIndexStub(userId);
-		await indexStub.updateThumbnail(noteId, thumbnailBase64, version);
 	}
 
 	async getHistory(id: string, limit?: number, cursor?: number, direction?: 'asc' | 'desc') {
@@ -438,7 +428,6 @@ export class NotesServiceDO {
 						ownerUserId: newUserId,
 						visibility: entry.visibility,
 						version: entry.version,
-						thumbnailBase64: entry.thumbnailBase64,
 						createdAt: entry.createdAt,
 						updatedAt: entry.updatedAt,
 						lastAccessedAt: entry.lastAccessedAt,

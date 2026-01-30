@@ -10,7 +10,6 @@ import {
 	listNotesInput,
 	trackBoardAccessInput,
 	removeSharedBoardInput,
-	updateThumbnailInput,
 	type NoteCurrent,
 } from "./types";
 import { z } from "zod";
@@ -87,15 +86,6 @@ export const notesRouter = router({
 	removeSharedBoard: authedProcedure.input(removeSharedBoardInput).mutation(async ({ input, ctx }) => {
 		const service = new NotesServiceDO(ctx.env);
 		await service.removeSharedBoard(input.noteId, ctx.userId);
-		return { success: true };
-	}),
-
-	/**
-	 * Update cached thumbnail for a board
-	 */
-	updateThumbnail: authedProcedure.input(updateThumbnailInput).mutation(async ({ input, ctx }) => {
-		const service = new NotesServiceDO(ctx.env);
-		await service.updateThumbnail(input.noteId, ctx.userId, input.thumbnailBase64, input.version);
 		return { success: true };
 	}),
 

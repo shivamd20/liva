@@ -92,7 +92,6 @@ export interface UserNoteEntryResponse {
     isOwned: boolean;
     visibility: 'public' | 'private';
     version: number;
-    thumbnailBase64: string | null;
     createdAt: number;
     updatedAt: number;
     lastAccessedAt: number;
@@ -110,10 +109,4 @@ export const trackBoardAccessInput = z.object({
 
 export const removeSharedBoardInput = z.object({
     noteId: z.string(),
-});
-
-export const updateThumbnailInput = z.object({
-    noteId: z.string(),
-    thumbnailBase64: z.string(),
-    version: z.number(),
 });

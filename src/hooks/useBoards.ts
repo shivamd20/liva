@@ -226,19 +226,3 @@ export function useRemoveSharedBoard() {
     }
   });
 }
-
-/**
- * Hook to update thumbnail for a board
- */
-export function useUpdateThumbnail() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (params: { noteId: string; thumbnailBase64: string; version: number }) =>
-      boards.updateThumbnail(params.noteId, params.thumbnailBase64, params.version),
-    onSuccess: (_, variables) => {
-      // Invalidate the specific board's entry in the list to refresh thumbnail
-      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
-    }
-  });
-}

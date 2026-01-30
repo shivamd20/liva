@@ -6,24 +6,31 @@
  * This uses useBoardsList which fetches from the user's index
  * without the waterfall of fetching full board details for each entry.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCommandMenu } from '@/lib/command-menu-context';
 import { useBoardsList } from './useBoards';
 
 export function useCommandMenuBoards() {
   const navigate = useNavigate();
-  const { registerCommand, unregisterCommand, isOpen } = useCommandMenu();
+  const { registerCommand, unregisterCommand } = useCommandMenu();
   const registeredIdsRef = useRef<Set<string>>(new Set());
 
-  // Only fetch when command menu has been opened at least once
   const { data: boardsData } = useBoardsList({
     sortBy: 'lastAccessed',
     sortOrder: 'desc',
   });
 
-  // Flatten paginated data
-  const boardEntries = boardsData?.pages?.flatMap(page => page.items) ?? [];
+  // Memoize boardEntries to prevent new array reference on every render
+  // Use boardsData as the dependency (stable reference from react-query)
+  const boardEntries = useMemo(() => {
+    return boardsData?.pages?.flatMap(page => page.items) ?? [];
+  }, [boardsData]);
+
+  // Create a stable key from board IDs to detect actual data changes
+  const boardIdsKey = useMemo(() => {
+    return boardEntries.map(e => e.noteId).join(',');
+  }, [boardEntries]);
 
   useEffect(() => {
     // Register new boards
@@ -60,7 +67,7 @@ export function useCommandMenuBoards() {
       });
       registeredIdsRef.current.clear();
     };
-  }, [boardEntries, registerCommand, unregisterCommand, navigate]);
+  }, [boardIdsKey, registerCommand, unregisterCommand, navigate, boardEntries]);
 
   return { boardEntries };
 }

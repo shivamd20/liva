@@ -1,23 +1,27 @@
 import { useState, useEffect, useRef, memo } from 'react';
-import { exportToBlob } from "@excalidraw/excalidraw";
 import { File } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { thumbnailQueue } from '../utils/thumbnailQueue';
+import { getThumbnail } from '../utils/thumbnailCache';
+import { boardsRemote } from '../boardsRemote';
 
 interface BoardThumbnailProps {
-    // For generating thumbnails from elements
-    elements?: any[];
-    // For using cached thumbnail from index
-    cachedThumbnail?: string | null;
-    noteId?: string;
-    version?: number;
+    noteId: string;
+    updatedAt: number;
 }
 
+/**
+ * BoardThumbnail - Generates and caches thumbnails client-side.
+ * 
+ * Features:
+ * - Client-side generation from Excalidraw elements
+ * - Persistent caching in IndexedDB (survives page refreshes)
+ * - Cache invalidation based on board's updatedAt
+ * - Deduplication of in-flight requests
+ * - Lazy loading via IntersectionObserver
+ */
 export const BoardThumbnail = memo(function BoardThumbnail({
-    elements,
-    cachedThumbnail,
     noteId,
-    version
+    updatedAt,
 }: BoardThumbnailProps) {
     const [thumbnail, setThumbnail] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -25,7 +29,7 @@ export const BoardThumbnail = memo(function BoardThumbnail({
     const [isVisible, setIsVisible] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Intersection Observer to load only when visible
+    // Intersection Observer - only fetch/generate thumbnail when visible
     useEffect(() => {
         const observer = new IntersectionObserver(
             (entries) => {
@@ -42,81 +46,49 @@ export const BoardThumbnail = memo(function BoardThumbnail({
         }
 
         return () => observer.disconnect();
-    }, []);
+    }, [noteId]);
 
-    // Use cached thumbnail if available
+    // Fetch/generate thumbnail when visible
     useEffect(() => {
-        if (cachedThumbnail) {
-            setThumbnail(cachedThumbnail);
-            setLoading(false);
-        }
-    }, [cachedThumbnail]);
-
-    // Generate thumbnail from elements if no cached version
-    useEffect(() => {
-        // Skip if we already have a cached thumbnail
-        if (cachedThumbnail) return;
         if (!isVisible) return;
 
         let isMounted = true;
+        const isDarkMode = resolvedTheme === 'dark' || theme === 'dark';
 
-        const generateThumbnail = async () => {
-            if (!elements || elements.length === 0) {
-                if (isMounted) {
-                    setThumbnail(null);
-                    setLoading(false);
-                }
-                return;
+        getThumbnail(
+            noteId,
+            updatedAt,
+            () => boardsRemote.getById(noteId),
+            isDarkMode
+        ).then((result) => {
+            if (isMounted) {
+                setThumbnail(result);
+                setLoading(false);
             }
-
-            try {
-                const isDarkMode = resolvedTheme === 'dark' || theme === 'dark';
-
-                const blob = await exportToBlob({
-                    elements: elements.filter((x) => !x.isDeleted),
-                    appState: {
-                        exportWithDarkMode: isDarkMode,
-                    },
-                    files: {},
-                    mimeType: "image/png",
-                    quality: 0.5,
-                });
-
-                if (isMounted && blob) {
-                    const url = URL.createObjectURL(blob);
-                    setThumbnail(url);
-                }
-            } catch (error) {
-                console.error("Failed to generate thumbnail", error);
-            } finally {
-                if (isMounted) setLoading(false);
+        }).catch((error) => {
+            console.error('Failed to get thumbnail:', error);
+            if (isMounted) {
+                setLoading(false);
             }
-        };
-
-        thumbnailQueue.enqueue(generateThumbnail);
+        });
 
         return () => {
             isMounted = false;
         };
-    }, [elements, theme, resolvedTheme, isVisible, cachedThumbnail]);
+    }, [noteId, updatedAt, theme, resolvedTheme, isVisible]);
 
-    // Cleanup object URL (only for blob URLs, not data URLs)
-    useEffect(() => {
-        return () => {
-            if (thumbnail && thumbnail.startsWith('blob:')) {
-                URL.revokeObjectURL(thumbnail);
-            }
-        };
-    }, [thumbnail]);
-
+    // Loading state (only show spinner when visible)
     if (loading || !isVisible) {
         return (
             <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-muted">
-                {isVisible && <div className="w-6 h-6 border-2 border-[#06B6D4]/30 border-t-[#3B82F6] rounded-full animate-spin"></div>}
+                {isVisible && (
+                    <div className="w-6 h-6 border-2 border-[#06B6D4]/30 border-t-[#3B82F6] rounded-full animate-spin" />
+                )}
             </div>
         );
     }
 
+    // Placeholder state (no elements or empty board)
     if (!thumbnail) {
         return (
             <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-muted group-hover:bg-muted/80 transition-colors">
@@ -126,6 +98,7 @@ export const BoardThumbnail = memo(function BoardThumbnail({
         );
     }
 
+    // Thumbnail rendered
     return (
         <div ref={containerRef} className="w-full h-full flex items-center justify-center bg-background overflow-hidden">
             <img

@@ -37,13 +37,9 @@ export default function BoardCard({ entry, onRename, onDelete, onDuplicate, onHi
 				to={`/board/${entry.noteId}`}
 				className="block w-full rounded-2xl overflow-hidden bg-card backdrop-blur-xl border border-border shadow-lg shadow-black/5 dark:shadow-black/50 hover:shadow-xl hover:shadow-black/10 dark:hover:shadow-black/60 transition-all duration-300  focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
 			>
-				{/* Thumbnail */}
+				{/* Thumbnail - client-side generation with caching */}
 				<div className="relative aspect-[16/10] overflow-hidden bg-muted">
-					<BoardThumbnail
-						cachedThumbnail={entry.thumbnailBase64}
-						noteId={entry.noteId}
-						version={entry.version}
-					/>
+					<BoardThumbnail noteId={entry.noteId} updatedAt={entry.updatedAt} />
 
 					{/* Gradient overlay for legibility */}
 					<div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/10 to-transparent" />

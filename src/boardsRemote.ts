@@ -341,11 +341,4 @@ export const boardsRemote: BoardsAPI = {
   removeShared: async (noteId: string): Promise<void> => {
     await trpcClient.removeSharedBoard.mutate({ noteId });
   },
-
-  /**
-   * Update cached thumbnail for a board
-   */
-  updateThumbnail: async (noteId: string, thumbnailBase64: string, version: number): Promise<void> => {
-    await trpcClient.updateThumbnail.mutate({ noteId, thumbnailBase64, version });
-  },
 };
