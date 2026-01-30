@@ -212,10 +212,6 @@ export default function BoardsPage() {
 
   const isEmpty = totalCount === 0 && !isLoading
 
-  if (isLoading) {
-    return <LoadingScreen />
-  }
-
   if (isSystemShotsView) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-background">
@@ -276,6 +272,30 @@ export default function BoardsPage() {
               {(() => {
                 const hasFiltersApplied = debouncedSearch || filter !== 'all' || visibility !== 'all';
                 const noResults = boardEntries.length === 0 && !isLoading;
+
+                if (isLoading) {
+                  // Show skeleton loader while fetching boards
+                  return (
+                    <section>
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        {/* Skeleton cards */}
+                        {Array.from({ length: 8 }).map((_, index) => (
+                          <li key={index} className="animate-pulse">
+                            <div className="rounded-2xl overflow-hidden bg-card border border-border shadow-lg">
+                              {/* Thumbnail skeleton */}
+                              <div className="aspect-[16/10] bg-muted" />
+                              {/* Content skeleton */}
+                              <div className="p-4 space-y-3">
+                                <div className="h-5 bg-muted rounded-md w-3/4" />
+                                <div className="h-4 bg-muted rounded-md w-1/2" />
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </section>
+                  );
+                }
 
                 if (noResults && !hasFiltersApplied) {
                   // No boards at all - show full empty state
