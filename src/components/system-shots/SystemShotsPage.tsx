@@ -46,6 +46,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const { segments, reelsToShow, loadSegment, markContinued } = feed
 
   const reelRefs = useRef<(HTMLElement | null)[]>([])
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const loadingIndicatorRef = useRef<HTMLDivElement | null>(null)
   const skipObservedRef = useRef<Set<string>>(new Set())
 
   const submittedReelIds = useMemo(
@@ -107,7 +109,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   }, [])
 
   const handleContinue = useCallback(
-    (reel: ApiReel, _selectedIndex: number | undefined, index: number) => {
+    (reel: ApiReel, _selectedIndex: number | undefined, index: number, totalRenderedReels: number) => {
       if (reel.type === "flash") {
         if (submittedAnswerReelIds.has(reel.id)) return
         updateLocalAnswerState((prev) => ({
@@ -120,9 +122,16 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
       // For MCQ, don't add to submittedAnswerReelIds - keep the card visible with feedback
       markContinued(reel.id)
       const nextIndex = index + 1
-      if (nextIndex < reelsToShow.length) scrollToReel(nextIndex)
+      if (nextIndex < totalRenderedReels) {
+        scrollToReel(nextIndex)
+      } else if (sentinelRef.current || loadingIndicatorRef.current) {
+        // On last reel, scroll to sentinel/loading section to trigger loading more or show progress
+        setTimeout(() => {
+          (sentinelRef.current || loadingIndicatorRef.current)?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }, 50)
+      }
     },
-    [reelsToShow.length, submittedAnswerReelIds, submitAnswerMutation, scrollToReel, updateLocalAnswerState, markContinued]
+    [submittedAnswerReelIds, submitAnswerMutation, scrollToReel, updateLocalAnswerState, markContinued]
   )
 
   const submitSkip = useCallback(
@@ -197,6 +206,17 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const hasNoReels = reelsToShow.length === 0 && !isInitialLoading && !isStreaming
 
   const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
+
+  // Compute total rendered reels count (based on submittedAnswerReelIds filter, matching the DOM)
+  const totalRenderedReels = useMemo(() => {
+    let count = 0
+    for (const segment of segments) {
+      if (segment.type === "reels" && segment.reels) {
+        count += segment.reels.filter((reel) => !submittedAnswerReelIds.has(reel.id)).length
+      }
+    }
+    return count
+  }, [segments, submittedAnswerReelIds])
 
   if (showProgressView) {
     return <ProgressView onBack={() => setShowProgressView(false)} />
@@ -288,7 +308,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                       reelIndex={i}
                       selectedIndex={reel.type === "mcq" ? answeredByReelId[reel.id] : undefined}
                       onSelectOption={reel.type === "mcq" ? (index) => handleSelectOption(reel, index) : undefined}
-                      onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i)}
+                      onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i, totalRenderedReels)}
                       microSignal={reel.microSignal}
                     />
                   </div>
@@ -300,6 +320,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
               return (
                 <div
                   key={`streaming-skeleton-${segment.id}`}
+                  ref={(el) => { loadingIndicatorRef.current = el }}
                   className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
                 >
                   <div className="w-full max-w-2xl space-y-4">
@@ -320,6 +341,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                 ...reelElements,
                 <div
                   key={`streaming-indicator-${segment.id}`}
+                  ref={(el) => { loadingIndicatorRef.current = el }}
                   className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
                 >
                   <div className="flex flex-col items-center gap-3">
@@ -340,6 +362,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                 segment={segment}
                 onLoad={() => loadSegment(segment.id)}
                 isInitial={segments.length === 1}
+                sentinelRef={segment.status === "idle" || segment.status === "loading" ? sentinelRef : undefined}
               />
             )
           }
@@ -363,18 +386,28 @@ function SentinelSection({
   segment,
   onLoad,
   isInitial,
+  sentinelRef: externalSentinelRef,
 }: {
   segment: FeedSegment
   onLoad: () => void
   isInitial: boolean
+  sentinelRef?: React.MutableRefObject<HTMLDivElement | null>
 }) {
-  const sentinelRef = useRef<HTMLDivElement>(null)
+  const internalSentinelRef = useRef<HTMLDivElement | null>(null)
   const { status } = segment
+  
+  // Combine internal and external refs
+  const setRefs = useCallback((el: HTMLDivElement | null) => {
+    internalSentinelRef.current = el
+    if (externalSentinelRef) {
+      externalSentinelRef.current = el
+    }
+  }, [externalSentinelRef])
 
   // Auto-load when sentinel becomes visible (infinite scroll)
   useEffect(() => {
     if (status !== "idle") return
-    const el = sentinelRef.current
+    const el = internalSentinelRef.current
     if (!el) return
 
     const observer = new IntersectionObserver(
@@ -454,7 +487,7 @@ function SentinelSection({
   // Idle - invisible trigger element with fallback button for accessibility
   return (
     <div 
-      ref={sentinelRef}
+      ref={setRefs}
       className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
     >
       {/* Fallback button for accessibility (hidden by default, shows if JS fails) */}
