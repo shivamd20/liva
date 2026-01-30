@@ -88,9 +88,11 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     (reel: ApiReel, index: number) => {
       if (submittedAnswerReelIds.has(reel.id)) return
       const correct = reel.correctIndex !== null && index === reel.correctIndex
+      // Only update answeredByReelId and submittedReelIds - do NOT add to submittedAnswerReelIds
+      // The card should remain visible so user can see feedback and click Continue
       updateLocalAnswerState((prev) => ({
         submittedReelIds: [...prev.submittedReelIds, reel.id],
-        submittedAnswerReelIds: [...prev.submittedAnswerReelIds, reel.id],
+        submittedAnswerReelIds: prev.submittedAnswerReelIds,
         answeredByReelId: { ...prev.answeredByReelId, [reel.id]: index },
       }))
       submitAnswerMutation.mutate({ reelId: reel.id, selectedIndex: index, correct, skipped: false })
@@ -115,6 +117,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         }))
         submitAnswerMutation.mutate({ reelId: reel.id, selectedIndex: null, correct: false, skipped: true })
       }
+      // For MCQ, don't add to submittedAnswerReelIds - keep the card visible with feedback
       markContinued(reel.id)
       const nextIndex = index + 1
       if (nextIndex < reelsToShow.length) scrollToReel(nextIndex)
