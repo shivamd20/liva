@@ -364,3 +364,5 @@ export function LandingPage_old() {
         </div>
     );
 }
+
+export default LandingPage;

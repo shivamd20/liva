@@ -1,13 +1,26 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
-import { parseMermaidToExcalidraw } from "@excalidraw/mermaid-to-excalidraw";
-import mermaid from "mermaid";
 import { Loader2 } from 'lucide-react';
-
 import { Button } from "@/components/ui/button";
 import { X, Plus, Download } from 'lucide-react';
 import { toast } from "sonner";
+
+// Lazy load Excalidraw since it's a heavy dependency
+const Excalidraw = lazy(() => import("@excalidraw/excalidraw").then(mod => ({ default: mod.Excalidraw })));
+
+// Dynamic import helpers for mermaid dependencies (reduces initial bundle)
+const getMermaid = async () => {
+    const { default: mermaid } = await import('mermaid');
+    return mermaid;
+};
+
+const getMermaidToExcalidraw = async () => {
+    const [{ parseMermaidToExcalidraw }, { convertToExcalidrawElements }] = await Promise.all([
+        import('@excalidraw/mermaid-to-excalidraw'),
+        import('@excalidraw/excalidraw'),
+    ]);
+    return { parseMermaidToExcalidraw, convertToExcalidrawElements };
+};
 
 interface MermaidExcalidrawModalProps {
     isOpen: boolean;
@@ -22,6 +35,7 @@ function MermaidRender({ code }: { code: string }) {
     useEffect(() => {
         const render = async () => {
             try {
+                const mermaid = await getMermaid();
                 const id = `mermaid-modal-${Math.random().toString(36).substr(2, 9)}`;
                 const { svg } = await mermaid.render(id, code);
                 setSvg(svg);
@@ -50,6 +64,7 @@ export function MermaidExcalidrawModal({ isOpen, onClose, mermaidCode, excalidra
         const convert = async () => {
             setLoading(true);
             try {
+                const { parseMermaidToExcalidraw, convertToExcalidrawElements } = await getMermaidToExcalidraw();
                 const { elements: parsedElements } = await parseMermaidToExcalidraw(mermaidCode, {
                 });
                 const excalidrawElements = convertToExcalidrawElements(parsedElements);
@@ -123,19 +138,26 @@ export function MermaidExcalidrawModal({ isOpen, onClose, mermaidCode, excalidra
                                 <span className="text-xs text-muted-foreground">Converting to Excalidraw...</span>
                             </div>
                         ) : (
-                            <Excalidraw
-                                initialData={{
-                                    elements: elements,
-                                    appState: {
-                                        viewBackgroundColor: "#ffffff",
-                                        currentItemFontFamily: 1,
-                                        gridSize: 20,
-                                    }
-                                }}
-                                viewModeEnabled={true}
-                                zenModeEnabled={true}
-                                key={JSON.stringify(elements)}
-                            />
+                            <Suspense fallback={
+                                <div className="h-full w-full flex items-center justify-center flex-col gap-2">
+                                    <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                                    <span className="text-xs text-muted-foreground">Loading Excalidraw...</span>
+                                </div>
+                            }>
+                                <Excalidraw
+                                    initialData={{
+                                        elements: elements,
+                                        appState: {
+                                            viewBackgroundColor: "#ffffff",
+                                            currentItemFontFamily: 1,
+                                            gridSize: 20,
+                                        }
+                                    }}
+                                    viewModeEnabled={true}
+                                    zenModeEnabled={true}
+                                    key={JSON.stringify(elements)}
+                                />
+                            </Suspense>
                         )}
                     </div>
                 </div>

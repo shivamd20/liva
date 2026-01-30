@@ -164,3 +164,5 @@ export function LegacyConversationTest({ id: propId, className, minimal = false 
         </div>
     );
 }
+
+export default LegacyConversationTest;

@@ -1,13 +1,15 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from "react"
 import { useNavigate, useSearchParams, useLocation } from "react-router-dom"
 import BoardsHeader from "./boards-header"
 import BoardsFilters from "./boards-filters"
 import BoardsGrid from "./boards-grid"
 import EmptyState from "./empty-state"
-import { IntegrationsPage } from "../IntegrationsPage"
-import { VideosPage } from "../videos/VideosPage"
-import { SystemShotsPage } from "@/components/system-shots/SystemShotsPage"
 import { LoadingScreen } from "../LoadingScreen"
+
+// Lazy load heavy conditional views to reduce initial bundle size
+const IntegrationsPage = lazy(() => import("../IntegrationsPage"))
+const VideosPage = lazy(() => import("../videos/VideosPage"))
+const SystemShotsPage = lazy(() => import("@/components/system-shots/SystemShotsPage"))
 import { useBoardsList, useUpdateBoard, useDeleteBoard, useDuplicateBoard, useRemoveSharedBoard } from "../../hooks/useBoards"
 import { Board } from "../../types"
 import { BoardIndexEntry } from "../../boards"
@@ -217,7 +219,9 @@ export default function BoardsPage() {
   if (isSystemShotsView) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col bg-background">
-        <SystemShotsPage onBack={() => navigate("/boards")} />
+        <Suspense fallback={<LoadingScreen />}>
+          <SystemShotsPage onBack={() => navigate("/boards")} />
+        </Suspense>
       </div>
     )
   }
@@ -229,9 +233,13 @@ export default function BoardsPage() {
       <main className="pt-24 pb-16">
         <div className="max-w-7xl mx-auto px-6 lg:px-8">
           {isIntegrationsView ? (
-            <IntegrationsPage />
+            <Suspense fallback={<LoadingScreen />}>
+              <IntegrationsPage />
+            </Suspense>
           ) : isVideosView ? (
-            <VideosPage />
+            <Suspense fallback={<LoadingScreen />}>
+              <VideosPage />
+            </Suspense>
           ) : (
             <>
               <section className="mb-12">

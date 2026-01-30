@@ -600,3 +600,5 @@ export function BoardEditor({
     </SpeechProvider >
   );
 }
+
+export default BoardEditor;

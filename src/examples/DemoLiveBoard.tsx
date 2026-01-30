@@ -88,3 +88,5 @@ export function DemoLiveBoard() {
         </div>
     );
 }
+
+export default DemoLiveBoard;

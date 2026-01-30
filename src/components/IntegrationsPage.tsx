@@ -169,3 +169,5 @@ export function IntegrationsPage() {
         </div>
     );
 }
+
+export default IntegrationsPage;

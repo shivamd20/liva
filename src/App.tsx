@@ -1,46 +1,39 @@
 import { Routes, Route, useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { DemoLiveBoard } from './examples/DemoLiveBoard';
-import { BoardEditor } from './components/BoardEditor';
-
-import { LandingPage } from './components/LandingPage';
-import { PrivacyPolicy } from './components/PrivacyPolicy';
-
-import { MainMenu } from '@excalidraw/excalidraw';
+import { lazy, Suspense, useCallback, useState, useEffect } from 'react';
 import { Board } from './types';
-import { useBoards, useBoard, useUpdateBoard, useDeleteBoard } from './hooks/useBoards';
-import { useCallback } from 'react';
+import { useBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from './hooks/useBoards';
+import { useCommandMenuBoards } from './hooks/useCommandMenuBoards';
 import { useSession, signIn } from './lib/auth-client';
 import BoardsPage from './components/boards/boards-page';
 import { useTheme } from 'next-themes';
 import { CommandMenuProvider } from '@/lib/command-menu-context';
 import { CommandMenu } from '@/components/command-menu';
 import { NewBoardRedirect } from './components/NewBoardRedirect';
-import { TestAI } from './components/TestAI';
-import { IntegrationsPage } from './components/IntegrationsPage';
 import { useQuery } from '@tanstack/react-query';
 import { LoadingScreen } from './components/LoadingScreen';
 import { BoardNotFound } from './components/BoardNotFound';
-import { VideoDetailPage } from './components/videos/VideoDetailPage';
-
-
-import { useDuplicateBoard } from './hooks/useBoards';
 import { HistoryModal } from './components/HistoryModal';
 import { boardsAPI } from './boardsConfig';
 import { toast } from 'sonner';
 import { useCommandMenu } from '@/lib/command-menu-context';
 import { Copy, Trash, History, Share2, Globe, Edit2 } from 'lucide-react';
-import { useState, useEffect } from 'react';
 import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
-import { SpeechDemo } from './components/Speech';
-import { CanvasDrawDemo } from './components/CanvasDrawDemo';
-import { LegacyConversationTest } from './components/LegacyConversationTest';
+
+// Lazy load heavy route components to reduce initial bundle size
+const BoardEditor = lazy(() => import('./components/BoardEditor'));
+const DemoLiveBoard = lazy(() => import('./examples/DemoLiveBoard'));
+const LandingPage = lazy(() => import('./components/LandingPage'));
+const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
+const TestAI = lazy(() => import('./components/TestAI'));
+const SpeechDemo = lazy(() => import('./components/Speech'));
+const CanvasDrawDemo = lazy(() => import('./components/CanvasDrawDemo'));
+const LegacyConversationTest = lazy(() => import('./components/LegacyConversationTest'));
+const VideoDetailPage = lazy(() => import('./components/videos/VideoDetailPage'));
 
 function BoardView({
-  allBoards,
   onNewBoard,
   onDeleteBoard
 }: {
-  allBoards: Board[];
   onNewBoard: () => void;
   onDeleteBoard: (id: string) => void;
 }) {
@@ -234,8 +227,8 @@ function BoardView({
       icon: null,
       separator: true
     },
-    // "Return to Boards" removed as we now have a dedicated Back button
-    ...(allBoards.length > 1 && id ? [{
+    // Delete board option (always available)
+    ...(id ? [{
       label: 'Delete Current Board',
       onClick: () => {
         if (window.confirm('Delete this board?')) {
@@ -271,29 +264,13 @@ function BoardView({
 }
 
 function AppContent() {
-  const { data: allBoards = [] } = useBoards();
   const deleteBoard = useDeleteBoard();
   const navigate = useNavigate();
   const location = useLocation();
   const { data: session, isPending: isAuthPending } = useSession();
-  const { registerCommand, unregisterCommand } = useCommandMenu();
 
-  // Register all boards as commands for quick navigation
-  useEffect(() => {
-    const commands = allBoards.map(board => ({
-      id: `nav-board-${board.id}`,
-      title: board.title || 'Untitled Board',
-      action: () => navigate(`/board/${board.id}`),
-      section: 'Go to Board',
-      keywords: ['board', 'switch', 'jump']
-    }));
-
-    commands.forEach(registerCommand);
-
-    return () => {
-      commands.forEach(c => unregisterCommand(c.id));
-    };
-  }, [allBoards, registerCommand, unregisterCommand, navigate]);
+  // Register boards in command menu using optimized hook (no N+1 waterfall)
+  useCommandMenuBoards();
 
   // Initialize Mixpanel
   useEffect(() => {
@@ -326,12 +303,8 @@ function AppContent() {
   const handleDeleteBoard = (id: string) => {
     deleteBoard.mutate(id, {
       onSuccess: () => {
-        if (allBoards.length > 1) {
-          const remaining = allBoards.filter(b => b.id !== id);
-          navigate(`/board/${remaining[0].id}`);
-        } else {
-          navigate('/board');
-        }
+        // Navigate to boards list after deletion
+        navigate('/board');
       }
     });
   };
@@ -339,35 +312,36 @@ function AppContent() {
   return (
     <div className=" h-screen  min-w-screen bg-background w-screen ">
       <CommandMenu />
-      <Routes>
-        <Route path="/" element={<BoardsPage />} />
-        <Route path="/about" element={<LandingPage />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+          <Route path="/" element={<BoardsPage />} />
+          <Route path="/about" element={<LandingPage />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
 
-        <Route path="/boards" element={<BoardsPage />} />
-        <Route path="/board" element={<BoardsPage />} />
-        <Route path="/new" element={<NewBoardRedirect />} />
-        <Route path="/app/integrations" element={<BoardsPage />} />
-        <Route path="/app/videos" element={<BoardsPage />} />
-        <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
-        <Route path="/app/system-shots" element={<BoardsPage />} />
-        <Route path="/test-ai" element={<TestAI />} />
-        <Route path="/speech" element={<SpeechDemo />} />
-        <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
-        <Route path="/demoLiveAPI" element={<Navigate to="/demoLiveAPI/new" replace />} />
-        <Route path="/demoLiveAPI/:boardId" element={<DemoLiveBoard />} />
-        <Route path="/convo/:id" element={<LegacyConversationTest />} />
-        <Route
-          path="/board/:id"
-          element={
-            <BoardView
-              allBoards={allBoards}
-              onNewBoard={handleNewBoard}
-              onDeleteBoard={handleDeleteBoard}
-            />
-          }
-        />
-      </Routes>
+          <Route path="/boards" element={<BoardsPage />} />
+          <Route path="/board" element={<BoardsPage />} />
+          <Route path="/new" element={<NewBoardRedirect />} />
+          <Route path="/app/integrations" element={<BoardsPage />} />
+          <Route path="/app/videos" element={<BoardsPage />} />
+          <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
+          <Route path="/app/system-shots" element={<BoardsPage />} />
+          <Route path="/test-ai" element={<TestAI />} />
+          <Route path="/speech" element={<SpeechDemo />} />
+          <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
+          <Route path="/demoLiveAPI" element={<Navigate to="/demoLiveAPI/new" replace />} />
+          <Route path="/demoLiveAPI/:boardId" element={<DemoLiveBoard />} />
+          <Route path="/convo/:id" element={<LegacyConversationTest />} />
+          <Route
+            path="/board/:id"
+            element={
+              <BoardView
+                onNewBoard={handleNewBoard}
+                onDeleteBoard={handleDeleteBoard}
+              />
+            }
+          />
+        </Routes>
+      </Suspense>
     </div>
   );
 }

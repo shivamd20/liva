@@ -168,3 +168,5 @@ export function TestAI() {
         </div>
     );
 }
+
+export default TestAI;

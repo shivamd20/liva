@@ -314,3 +314,5 @@ export function VideoDetailPage() {
         </div>
     );
 }
+
+export default VideoDetailPage;

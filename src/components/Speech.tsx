@@ -199,3 +199,4 @@ export const SpeechDemo = () => {
     );
 };
 
+export default SpeechDemo;

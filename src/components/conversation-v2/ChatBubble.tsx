@@ -1,21 +1,26 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import mermaid from 'mermaid';
 import { Button } from '@/components/ui/button';
 import { Terminal, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MermaidExcalidrawModal } from './MermaidExcalidrawModal';
 
-// Initialize mermaid
-
-// Initialize mermaid
-mermaid.initialize({
-    startOnLoad: false,
-    theme: 'base',
-    securityLevel: 'loose',
-    suppressErrorRendering: true,
-});
+// Mermaid is loaded dynamically to reduce initial bundle size
+let mermaidInitialized = false;
+const getMermaid = async () => {
+    const { default: mermaid } = await import('mermaid');
+    if (!mermaidInitialized) {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'base',
+            securityLevel: 'loose',
+            suppressErrorRendering: true,
+        });
+        mermaidInitialized = true;
+    }
+    return mermaid;
+};
 
 
 interface ChatBubbleProps {
@@ -50,6 +55,7 @@ function MermaidDiagram({ code, excalidrawAPI }: { code: string; excalidrawAPI?:
             setError(false);
 
             try {
+                const mermaid = await getMermaid();
                 const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
                 const { svg } = await mermaid.render(id, debouncedCode);
                 setSvg(svg);

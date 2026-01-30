@@ -469,3 +469,5 @@ function SentinelSection({
     </div>
   )
 }
+
+export default SystemShotsPage;

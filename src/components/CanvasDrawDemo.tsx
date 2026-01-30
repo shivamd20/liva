@@ -361,3 +361,5 @@ Keep your responses relatively concise and conversational.`;
         </div>
     );
 }
+
+export default CanvasDrawDemo;
