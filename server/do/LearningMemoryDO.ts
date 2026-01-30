@@ -1,12 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
+import { toServerSentEventsStream } from "@tanstack/ai";
 import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery } from "../system-shots/types";
 import type { AnswerSubmittedPayload } from "../system-shots/types";
 import type { ConceptV2 } from "../system-shots/types";
 import { getConceptSeedRows, CONCEPT_V2 } from "../system-shots/concepts";
 
 /** Generate next batch only when unconsumed reels (including skipped, which are replayed) drop below this. */
-const BUFFER_THRESHOLD = 20;
-const BUFFER_REFILL_COUNT = 50;
+const BUFFER_THRESHOLD = 5;
+const BUFFER_REFILL_COUNT = 10;
 const ACCURACY_EMA_ALPHA = 0.2;
 const LOG_PREFIX = "[LearningMemoryDO]";
 
@@ -89,6 +90,14 @@ export class LearningMemoryDO extends DurableObject<Env> {
   private countUnconsumedReels(): number {
     const row = this.sql
       .exec("SELECT COUNT(*) as c FROM reels WHERE consumed_at IS NULL")
+      .one() as { c: number };
+    return row.c;
+  }
+
+  /** Count only fresh reels (not yet skipped or consumed) - used for generation decisions */
+  private countFreshReels(): number {
+    const row = this.sql
+      .exec("SELECT COUNT(*) as c FROM reels WHERE consumed_at IS NULL AND skipped_at IS NULL")
       .one() as { c: number };
     return row.c;
   }
@@ -298,11 +307,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
     );
   }
 
-  /** If unconsumed reels (including skipped, which are replayed) < BUFFER_THRESHOLD, generate BUFFER_REFILL_COUNT via LLM. */
+  /** If fresh reels (not skipped, not consumed) < BUFFER_THRESHOLD, generate BUFFER_REFILL_COUNT via LLM. */
   async ensureBuffer(): Promise<void> {
-    const count = this.countUnconsumedReels();
-    console.log(`${LOG_PREFIX} ensureBuffer unconsumedCount=${count} threshold=${BUFFER_THRESHOLD}`);
-    if (count >= BUFFER_THRESHOLD) {
+    const freshCount = this.countFreshReels();
+    console.log(`${LOG_PREFIX} ensureBuffer freshCount=${freshCount} threshold=${BUFFER_THRESHOLD}`);
+    if (freshCount >= BUFFER_THRESHOLD) {
       console.log(`${LOG_PREFIX} ensureBuffer skip (buffer sufficient)`);
       return;
     }
@@ -321,6 +330,142 @@ export class LearningMemoryDO extends DurableObject<Env> {
     this.persistReels(newReels);
     const afterCount = this.countUnconsumedReels();
     console.log(`${LOG_PREFIX} ensureBuffer done unconsumedCount=${afterCount}`);
+  }
+
+  /** Persist a single reel (for streaming: persist as we yield). */
+  private persistOneReel(r: Omit<Reel, "createdAt" | "consumedAt">): void {
+    const now = Date.now();
+    this.sql.exec(
+      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      r.id,
+      r.conceptId,
+      r.type,
+      r.prompt,
+      r.options != null ? JSON.stringify(r.options) : null,
+      r.correctIndex ?? null,
+      r.explanation,
+      r.difficulty,
+      now
+    );
+  }
+
+  /**
+   * Async generator: yield reels for SSE. No cursor = initial stream (ensure buffer, stream up to 10).
+   * With cursor = next page (reels after cursor, up to 10). Yields StreamChunk-like objects for toServerSentEventsStream.
+   * Does not cancel generation if client disconnects.
+   */
+  async *streamReels(cursor: string | undefined): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
+    const orderBy =
+      "ORDER BY (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END), COALESCE(skipped_at, 0), created_at, id LIMIT ?";
+    const toChunk = (reel: Reel) => ({
+      type: "content" as const,
+      delta: JSON.stringify(reel),
+      content: JSON.stringify(reel),
+    });
+
+    if (cursor) {
+      // Next page: reels after cursor, up to 10
+      const cursorRows = this.sql
+        .exec("SELECT skipped_at, created_at, id FROM reels WHERE id = ?", cursor)
+        .toArray() as { skipped_at: number | null; created_at: number; id: string }[];
+      const cursorRow = cursorRows[0];
+      let rows: Record<string, unknown>[];
+      if (!cursorRow) {
+        rows = this.sql
+          .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, BUFFER_REFILL_COUNT)
+          .toArray() as Record<string, unknown>[];
+      } else {
+        const cOrd0 = cursorRow.skipped_at == null ? 1 : 0;
+        const cOrd1 = cursorRow.skipped_at ?? 0;
+        const cOrd2 = cursorRow.created_at;
+        const cOrd3 = cursorRow.id;
+        rows = this.sql
+          .exec(
+            `SELECT * FROM reels WHERE consumed_at IS NULL AND (
+              (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
+              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
+              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
+              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
+            ) ${orderBy}`,
+            cOrd0,
+            cOrd0,
+            cOrd1,
+            cOrd0,
+            cOrd1,
+            cOrd2,
+            cOrd0,
+            cOrd1,
+            cOrd2,
+            cOrd3,
+            BUFFER_REFILL_COUNT
+          )
+          .toArray() as Record<string, unknown>[];
+      }
+      
+      // If we have existing reels after cursor, yield them
+      if (rows.length > 0) {
+        for (const r of rows) {
+          yield toChunk(this.rowToReel(r));
+        }
+        yield { type: "done", finishReason: "stop" };
+        return;
+      }
+      
+      // No more reels after cursor - generate new ones if fresh buffer is low
+      const freshCount = this.countFreshReels();
+      console.log(`${LOG_PREFIX} streamReels cursor=${cursor}, no rows after cursor, freshCount=${freshCount}`);
+      if (freshCount >= BUFFER_THRESHOLD) {
+        // Enough fresh reels exist elsewhere, don't generate (user may have skipped earlier reels)
+        yield { type: "done", finishReason: "stop" };
+        return;
+      }
+      
+      // Generate new reels
+      console.log(`${LOG_PREFIX} streamReels generating new reels (cursor flow)`);
+      const topicState = this.getTopicStateForGeneration();
+      const concepts = this.getConceptsList();
+      const { generateReelsStream } = await import("../system-shots/generate");
+      let yielded = 0;
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT)) {
+        this.persistOneReel(reel);
+        const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
+        yield toChunk(apiReel);
+        yielded++;
+        if (yielded >= BUFFER_REFILL_COUNT) break;
+      }
+      console.log(`${LOG_PREFIX} streamReels cursor flow yielded=${yielded}`);
+      yield { type: "done", finishReason: "stop" };
+      return;
+    }
+
+    // Initial stream: generate if fresh buffer is low, then yield up to 10 from DB
+    const freshCount = this.countFreshReels();
+    console.log(`${LOG_PREFIX} streamReels initial freshCount=${freshCount} threshold=${BUFFER_THRESHOLD}`);
+    
+    if (freshCount < BUFFER_THRESHOLD) {
+      // Generate new reels first, then yield from DB (which includes newly generated + any skipped)
+      const topicState = this.getTopicStateForGeneration();
+      const concepts = this.getConceptsList();
+      const { generateReelsStream } = await import("../system-shots/generate");
+      let generated = 0;
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT)) {
+        this.persistOneReel(reel);
+        generated++;
+        if (generated >= BUFFER_REFILL_COUNT) break;
+      }
+      console.log(`${LOG_PREFIX} streamReels initial generated=${generated}`);
+    }
+    
+    // Yield up to 10 unconsumed reels from DB (skipped prioritized first, then fresh by created_at)
+    const rows = this.sql
+      .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, BUFFER_REFILL_COUNT)
+      .toArray() as Record<string, unknown>[];
+    for (const r of rows) {
+      yield toChunk(this.rowToReel(r));
+    }
+    console.log(`${LOG_PREFIX} streamReels initial yielded=${rows.length}`);
+    yield { type: "done", finishReason: "stop" };
   }
 
   private getTopicStateForGeneration(): TopicStateRow[] {
@@ -417,7 +562,19 @@ export class LearningMemoryDO extends DurableObject<Env> {
     }
   }
 
-  async fetch(_request: Request): Promise<Response> {
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname.endsWith("/stream")) {
+      const cursor = url.searchParams.get("cursor") ?? undefined;
+      const stream = this.streamReels(cursor);
+      return new Response(toServerSentEventsStream(stream), {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
     return new Response("LearningMemoryDO Active");
   }
 }

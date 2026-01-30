@@ -1,35 +1,21 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react"
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
 import { ReelCard } from "./ReelCard"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, BarChart2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { REEL_THEMES, type ReelTheme } from "./types"
-import { mockReels } from "./mockReels"
+import { REEL_THEMES, type ReelTheme, type ApiReel } from "./types"
 import { ProgressView } from "./ProgressView"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useReelsFeed } from "./useReelsFeed"
+import { useLoadMoreTrigger } from "./useLoadMoreTrigger"
 
 export type { ReelTheme } from "./types"
 
-/** API reel shape (getReels) – compatible with ReelCard display type */
-export type ApiReel = {
-  id: string
-  conceptId: string
-  type: "mcq" | "flash"
-  prompt: string
-  options: string[] | null
-  correctIndex: number | null
-  explanation: string
-  difficulty: number
-}
+const SKELETON_COUNT = 10
 
-const REELS_PAGE_SIZE = 50
-/** Pre-fetch next page when user is this many unconsumed reels from the end. */
-const PREFETCH_WHEN_REELS_FROM_END = 20
-/** Client-side mock only when explicitly set (server-side mock is controlled by USE_SYSTEM_SHOTS_MOCK in wrangler vars). */
-const USE_MOCK = import.meta.env.VITE_USE_SYSTEM_SHOTS_MOCK === "true"
-
-/** Persisted local answer state (serializable for query cache / localStorage). */
+/** Persisted local answer state (serializable for query cache). */
 const LOCAL_ANSWER_STATE_KEY = ["system-shots", "local-answer-state"] as const
 const EMPTY_ANSWER_STATE = {
   submittedReelIds: [] as string[],
@@ -47,12 +33,31 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const [showProgressView, setShowProgressView] = useState(false)
   const [currentReelIndex, setCurrentReelIndex] = useState(0)
 
-  /** Persisted local answer state (survives refresh; synced with cache). */
   const { data: localAnswerState = EMPTY_ANSWER_STATE } = useQuery({
     queryKey: LOCAL_ANSWER_STATE_KEY,
+    queryFn: () => EMPTY_ANSWER_STATE,
     initialData: EMPTY_ANSWER_STATE,
     staleTime: Number.POSITIVE_INFINITY,
   })
+
+  const feed = useReelsFeed({
+    initialContinuedIds: localAnswerState.submittedAnswerReelIds,
+    onError: (err) => toast.error(err === "Unauthorized" ? "Please sign in." : err),
+  })
+  const { reelsToShow, reels, status, error, loadMore, retry, markContinued } = feed
+
+  const loadMoreRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const lastReelId = reelsToShow.length > 0 ? reelsToShow[reelsToShow.length - 1]?.id ?? null : null
+  
+  const loadMoreTrigger = useLoadMoreTrigger({
+    sentinelRef: loadMoreRef,
+    scrollRootRef: scrollContainerRef,
+    isLoading: status === "loadingMore",
+    lastReelId,
+    onRequestMore: loadMore,
+  })
+
   const submittedReelIds = useMemo(
     () => new Set(localAnswerState.submittedReelIds),
     [localAnswerState.submittedReelIds]
@@ -63,35 +68,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   )
   const answeredByReelId = localAnswerState.answeredByReelId
   const reelRefs = useRef<(HTMLElement | null)[]>([])
-  const loadMoreRef = useRef<HTMLDivElement>(null)
-  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const skipObservedRef = useRef<Set<string>>(new Set())
-  /** Only count as "skip" when a reel was in view and then left without being answered. Reels below the fold on load must not be marked skipped. */
   const reelHasBeenInViewRef = useRef<Set<string>>(new Set())
-  /** Reels to hide from feed: answered and continued from (or answered in a previous session). So the card stays visible until user clicks Continue. */
-  const [continuedReelIds, setContinuedReelIds] = useState<Set<string>>(new Set())
-  const hasInitializedContinuedRef = useRef(false)
-
-  const {
-    data,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-    isLoading,
-    refetch: refetchReels,
-  } = useInfiniteQuery({
-    queryKey: ["system-shots", "reels"],
-    queryFn: async ({ pageParam }) => {
-      const result = await trpcClient.systemShots.getReels.query({
-        cursor: pageParam,
-        limit: REELS_PAGE_SIZE,
-      })
-      return result
-    },
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    initialPageParam: undefined as string | undefined,
-    enabled: !USE_MOCK,
-  })
 
   type SubmitAnswerInput = {
     reelId: string
@@ -126,29 +104,6 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     },
   })
 
-  const reels: ApiReel[] = USE_MOCK
-    ? (mockReels as ApiReel[])
-    : (data?.pages.flatMap((p) => p.reels) ?? []) as ApiReel[]
-
-  // Seed continuedReelIds from persisted answer state once on load (so refresh hides already-answered reels).
-  useEffect(() => {
-    if (USE_MOCK || hasInitializedContinuedRef.current) return
-    hasInitializedContinuedRef.current = true
-    const persisted = localAnswerState.submittedAnswerReelIds
-    setContinuedReelIds(new Set(persisted))
-  }, [localAnswerState.submittedAnswerReelIds])
-
-  /** Feed newness: hide reels only after user has continued (so card stays visible to show Correct/Incorrect + explanation until Continue). */
-  const reelsToShow = useMemo(
-    () => reels.filter((r) => !continuedReelIds.has(r.id)),
-    [reels, continuedReelIds]
-  )
-
-  const scrollToReel = useCallback((index: number) => {
-    reelRefs.current[index]?.scrollIntoView({ behavior: "smooth" })
-  }, [])
-
-  /** Submit MCQ answer as soon as user selects an option (not on Continue). */
   const handleSelectOption = useCallback(
     (reel: ApiReel, index: number) => {
       if (submittedAnswerReelIds.has(reel.id)) return
@@ -169,14 +124,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     [submittedAnswerReelIds, submitAnswerMutation, updateLocalAnswerState]
   )
 
-  /** Scroll to the next reel. Short timeout so refs/layout are stable after state commit. */
   const scrollToNextReel = useCallback((nextIndex: number) => {
     setTimeout(() => {
       reelRefs.current[nextIndex]?.scrollIntoView({ behavior: "smooth", block: "start" })
     }, 50)
   }, [])
 
-  /** Continue: hide this reel from feed (so it disappears after Continue), then scroll to next. */
   const handleContinue = useCallback(
     (reel: ApiReel, _selectedIndex: number | undefined, index: number) => {
       const isFlash = reel.type === "flash"
@@ -194,14 +147,11 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           skipped: true,
         })
       }
-      // Hide this reel from feed only after Continue (so user saw Correct/Incorrect + explanation).
-      setContinuedReelIds((prev) => new Set(prev).add(reel.id))
+      markContinued(reel.id)
       const nextIndex = index + 1
-      if (nextIndex < reelsToShow.length) {
-        scrollToNextReel(nextIndex)
-      }
+      if (nextIndex < reelsToShow.length) scrollToNextReel(nextIndex)
     },
-    [reelsToShow.length, submittedAnswerReelIds, submitAnswerMutation, scrollToNextReel, updateLocalAnswerState]
+    [reelsToShow.length, submittedAnswerReelIds, submitAnswerMutation, scrollToNextReel, updateLocalAnswerState, markContinued]
   )
 
   const submitSkip = useCallback(
@@ -222,12 +172,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     [submittedReelIds, submitAnswerMutation, updateLocalAnswerState]
   )
 
-  // On mount: refetch reels so we get fresh unconsumed feed from server (when online).
-  useEffect(() => {
-    if (USE_MOCK) return
-    refetchReels()
-  }, [refetchReels])
-
+  // Current reel index (for progress bar).
   useEffect(() => {
     const nodes = reelRefs.current
     if (nodes.length === 0) return
@@ -245,44 +190,9 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     return () => observer.disconnect()
   }, [reelsToShow.length])
 
-  // Pre-fetch when unconsumed (shown) reels are running low, so feed stays fresh.
+  // Skip when scrolled away (intersection).
   useEffect(() => {
-    if (USE_MOCK || reelsToShow.length === 0) return
-    const unconsumedFromEnd = reelsToShow.length - 1 - currentReelIndex
-    if (unconsumedFromEnd <= PREFETCH_WHEN_REELS_FROM_END && hasNextPage && !isFetchingNextPage) {
-      fetchNextPage()
-    }
-  }, [currentReelIndex, reelsToShow.length, hasNextPage, isFetchingNextPage, fetchNextPage])
-
-  // All cached reels are answered (e.g. after refresh): refetch to get fresh unconsumed feed.
-  useEffect(() => {
-    if (USE_MOCK || reels.length === 0 || reelsToShow.length > 0 || isLoading || isFetchingNextPage) return
-    refetchReels()
-  }, [reels.length, reelsToShow.length, isLoading, isFetchingNextPage, refetchReels])
-
-  useEffect(() => {
-    if (USE_MOCK || reelsToShow.length === 0) return
-    const sentinel = loadMoreRef.current
-    const scrollRoot = scrollContainerRef.current
-    if (!sentinel) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const [e] = entries
-        if (e?.isIntersecting && !isFetchingNextPage) fetchNextPage()
-      },
-      {
-        root: scrollRoot,
-        rootMargin: "0px 0px 30% 0px",
-        threshold: 0,
-      }
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [reelsToShow.length, isFetchingNextPage, fetchNextPage])
-
-  // Skip = user scrolled past a reel that was in view without answering. Do NOT mark reels as skipped just because they're below the fold on load.
-  useEffect(() => {
-    if (USE_MOCK || reelsToShow.length === 0) return
+    if (reelsToShow.length === 0) return
     const reelElements = reelRefs.current
     const reelIds = reelsToShow.map((r) => r.id)
     const observer = new IntersectionObserver(
@@ -297,7 +207,6 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
             reelHasBeenInViewRef.current.add(reelId)
             continue
           }
-          // Reel left view: only count as skip if it was in view at least once and user never submitted (answer or skip)
           const wasInView = reelHasBeenInViewRef.current.has(reelId)
           const alreadySubmitted = submittedReelIds.has(reelId)
           const answered = answeredByReelId[reelId] !== undefined
@@ -311,14 +220,18 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   }, [reelsToShow, answeredByReelId, submittedReelIds, submitSkip])
 
   const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
+  const showEmpty = reelsToShow.length === 0 && status !== "initial" && !error
+  const showSkeleton = reels.length === 0 && status === "initial"
+  const showErrorBanner = error && reelsToShow.length > 0
+  const isFetchingNextPage = status === "loadingMore"
 
-  const showEmpty = !USE_MOCK && reelsToShow.length === 0 && !isLoading
-  const showGenerating = !USE_MOCK && reels.length === 0 && isLoading
+  const handleRetry = useCallback(() => {
+    loadMoreTrigger.resetRequestedCursor()
+    retry()
+  }, [loadMoreTrigger, retry])
 
   if (showProgressView) {
-    return (
-      <ProgressView onBack={() => setShowProgressView(false)} />
-    )
+    return <ProgressView onBack={() => setShowProgressView(false)} />
   }
 
   return (
@@ -328,7 +241,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         aria-hidden
       >
         <div
-          className="h-full bg-accent/90 rounded-r-full transition-[width] duration-500 ease-out"
+          className="h-full bg-accent/90 rounded-r-full transition-all duration-500 ease-out"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
@@ -357,16 +270,27 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         ref={scrollContainerRef}
         className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory overscroll-contain touch-pan-y"
       >
-        {showGenerating && (
-          <div className="flex min-h-[100dvh] w-full items-center justify-center">
-            <div className="flex flex-col items-center gap-3 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin" />
-              <p>Generating your first reels…</p>
-            </div>
-          </div>
+        {showSkeleton && (
+          <>
+            {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
+              >
+                <div className="w-full max-w-2xl space-y-4">
+                  <Skeleton className="h-8 w-full rounded-lg" />
+                  <Skeleton className="h-32 w-full rounded-xl" />
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                  <Skeleton className="h-12 w-full rounded-xl" />
+                </div>
+              </div>
+            ))}
+          </>
         )}
 
-        {showEmpty && (
+        {showEmpty && !showSkeleton && (
           <div className="flex min-h-[100dvh] w-full items-center justify-center">
             <p className="text-muted-foreground">No reels yet. Try again in a moment.</p>
           </div>
@@ -430,15 +354,24 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           )
         })}
 
-        {!USE_MOCK && reelsToShow.length > 0 && (
+        {reelsToShow.length > 0 && (
           <div
             ref={loadMoreRef}
             className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center"
           >
             <div className="flex flex-col items-center gap-3 text-muted-foreground">
               <Loader2 className={isFetchingNextPage ? "h-8 w-8 animate-spin" : "h-8 w-8"} />
-              <p>{isFetchingNextPage ? "Loading more…" : hasNextPage ? "Scroll for more…" : "You're all caught up"}</p>
+              <p>{isFetchingNextPage ? "Loading more…" : "Scroll for more…"}</p>
             </div>
+          </div>
+        )}
+
+        {showErrorBanner && (
+          <div className="sticky bottom-0 left-0 right-0 z-20 flex items-center justify-between gap-4 bg-destructive/10 px-4 py-3 text-destructive">
+            <span>Could not load more. Retry?</span>
+            <Button variant="outline" size="sm" onClick={handleRetry}>
+              Retry
+            </Button>
           </div>
         )}
       </div>

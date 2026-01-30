@@ -163,6 +163,35 @@ export default {
 			return stub.fetch(newRequest);
 		}
 
+		// System Shots reels stream (SSE)
+		if (url.pathname.startsWith("/api/system-shots/reels/stream")) {
+			let userId: string | undefined;
+			try {
+				const auth = createAuth(env);
+				const session = await auth.api.getSession({ headers: request.headers });
+				userId = session?.user?.id;
+			} catch (e) {
+				console.error("Auth check failed for system-shots stream", e);
+			}
+
+			if (!userId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
+
+			const doId = env.SYSTEM_SHOTS_DO.idFromName(userId);
+			const stub = env.SYSTEM_SHOTS_DO.get(doId);
+
+			const streamUrl = new URL(request.url);
+			streamUrl.pathname = "/stream";
+			const newRequest = new Request(streamUrl.toString(), {
+				method: request.method,
+				headers: request.headers,
+			});
+			newRequest.headers.set("X-Liva-User-Id", userId);
+
+			return stub.fetch(newRequest);
+		}
+
 		// Conversation V2 API
 		if (url.pathname.startsWith("/api/conversation-v2/")) {
 			// Security: Ensure user is authenticated

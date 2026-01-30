@@ -1,5 +1,17 @@
 export const REEL_THEMES = ["accent", "chart-1", "chart-2", "chart-3", "chart-4", "chart-5"] as const
 export type ReelTheme = (typeof REEL_THEMES)[number]
+
+/** API reel shape – compatible with ReelCard display type */
+export type ApiReel = {
+  id: string
+  conceptId: string
+  type: "mcq" | "flash"
+  prompt: string
+  options: string[] | null
+  correctIndex: number | null
+  explanation: string
+  difficulty: number
+}
 export type ReelCardVariant = "A" | "B" | "C"
 
 export const THEME_BORDER: Record<ReelTheme, string> = {
