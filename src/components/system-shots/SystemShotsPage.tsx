@@ -1,9 +1,10 @@
 import { useRef, useCallback, useState, useEffect } from "react"
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
 import { ReelCard } from "./ReelCard"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, BarChart2, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import { REEL_THEMES, type ReelTheme } from "./types"
 import { mockReels } from "./mockReels"
 import { ProgressView } from "./ProgressView"
@@ -33,15 +34,19 @@ export interface SystemShotsPageProps {
 }
 
 export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
-  const queryClient = useQueryClient()
   const [showProgressView, setShowProgressView] = useState(false)
   const [answeredByReelId, setAnsweredByReelId] = useState<Record<string, number>>({})
+  /** Reels we've sent any submit for (answer or skip) – used to avoid double-skip and in skip observer. */
   const [submittedReelIds, setSubmittedReelIds] = useState<Set<string>>(new Set())
+  /** Reels we've submitted an answer for (consumed). Block handleContinue only for these; allow answering a reel that was only skipped (scroll-back-and-answer). */
+  const [submittedAnswerReelIds, setSubmittedAnswerReelIds] = useState<Set<string>>(new Set())
   const [currentReelIndex, setCurrentReelIndex] = useState(0)
   const reelRefs = useRef<(HTMLElement | null)[]>([])
   const loadMoreRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const skipObservedRef = useRef<Set<string>>(new Set())
+  /** Only count as "skip" when a reel was in view and then left without being answered. Reels below the fold on load must not be marked skipped. */
+  const reelHasBeenInViewRef = useRef<Set<string>>(new Set())
 
   const {
     data,
@@ -63,16 +68,33 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     enabled: !USE_MOCK,
   })
 
+  type SubmitAnswerInput = {
+    reelId: string
+    selectedIndex: number | null
+    correct: boolean
+    skipped?: boolean
+  }
+
   const submitAnswerMutation = useMutation({
-    mutationFn: (input: {
-      reelId: string
-      selectedIndex: number | null
-      correct: boolean
-      skipped?: boolean
-    }) => trpcClient.systemShots.submitAnswer.mutate(input),
-    onSuccess: () => {
-      // Do not invalidate: keep current list for scroll-back; next fetch (e.g. at bottom) will get fresh unconsumed reels
+    mutationFn: (input: SubmitAnswerInput) =>
+      trpcClient.systemShots.submitAnswer.mutate(input),
+    onError: (error, variables: SubmitAnswerInput) => {
+      // Rollback optimistic state so user can retry
+      const { reelId, skipped } = variables
+      setSubmittedReelIds((prev) => {
+        const next = new Set(prev)
+        next.delete(reelId)
+        return next
+      })
+      setSubmittedAnswerReelIds((prev) => {
+        const next = new Set(prev)
+        next.delete(reelId)
+        return next
+      })
+      if (skipped) skipObservedRef.current.delete(reelId)
+      toast.error("Failed to save. You can try again.")
     },
+    // Do not invalidate reels: keep list for scroll-back; next fetch will get fresh unconsumed reels
   })
 
   const reels: ApiReel[] = USE_MOCK
@@ -83,55 +105,68 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     reelRefs.current[index]?.scrollIntoView({ behavior: "smooth" })
   }, [])
 
-  const handleContinue = useCallback(
-    (reel: ApiReel, selectedIndex: number | undefined, index: number) => {
-      if (submittedReelIds.has(reel.id)) return
-      const isFlash = reel.type === "flash"
+  /** Submit MCQ answer as soon as user selects an option (not on Continue). */
+  const handleSelectOption = useCallback(
+    (reel: ApiReel, index: number) => {
+      if (submittedAnswerReelIds.has(reel.id)) return
       const correct =
-        !isFlash &&
-        selectedIndex !== undefined &&
-        reel.correctIndex !== null &&
-        selectedIndex === reel.correctIndex
+        reel.correctIndex !== null && index === reel.correctIndex
+      setAnsweredByReelId((prev) => ({ ...prev, [reel.id]: index }))
+      setSubmittedReelIds((prev) => new Set(prev).add(reel.id))
+      setSubmittedAnswerReelIds((prev) => new Set(prev).add(reel.id))
       submitAnswerMutation.mutate({
         reelId: reel.id,
-        selectedIndex: selectedIndex ?? null,
+        selectedIndex: index,
         correct,
-        skipped: isFlash, // flash has no answer; mark consumed without updating topic state
+        skipped: false,
       })
-      setSubmittedReelIds((prev) => new Set(prev).add(reel.id))
-      const nextIndex = index + 1
-      if (nextIndex < reels.length) {
-        const scrollToNext = () => {
-          const container = scrollContainerRef.current
-          const nextEl = reelRefs.current[nextIndex]
-          if (container && nextEl) {
-            const nextRect = nextEl.getBoundingClientRect()
-            const containerRect = container.getBoundingClientRect()
-            const targetScrollTop = container.scrollTop + (nextRect.top - containerRect.top)
-            container.scrollTo({ top: targetScrollTop, behavior: "smooth" })
-          } else {
-            nextEl?.scrollIntoView({ behavior: "smooth", block: "start" })
-          }
-        }
-        requestAnimationFrame(() => {
-          requestAnimationFrame(scrollToNext)
+    },
+    [submittedAnswerReelIds, submitAnswerMutation]
+  )
+
+  /** Scroll to the next reel. Short timeout so refs/layout are stable after state commit. */
+  const scrollToNextReel = useCallback((nextIndex: number) => {
+    setTimeout(() => {
+      reelRefs.current[nextIndex]?.scrollIntoView({ behavior: "smooth", block: "start" })
+    }, 50)
+  }, [])
+
+  /** Continue: for MCQ only scroll (answer already submitted on select); for Flash submit then scroll. */
+  const handleContinue = useCallback(
+    (reel: ApiReel, selectedIndex: number | undefined, index: number) => {
+      const isFlash = reel.type === "flash"
+      if (isFlash) {
+        if (submittedAnswerReelIds.has(reel.id)) return
+        setSubmittedReelIds((prev) => new Set(prev).add(reel.id))
+        setSubmittedAnswerReelIds((prev) => new Set(prev).add(reel.id))
+        submitAnswerMutation.mutate({
+          reelId: reel.id,
+          selectedIndex: null,
+          correct: false,
+          skipped: true,
         })
       }
+      const nextIndex = index + 1
+      if (nextIndex < reels.length) {
+        scrollToNextReel(nextIndex)
+      }
     },
-    [reels.length, submittedReelIds, submitAnswerMutation]
+    [reels.length, submittedAnswerReelIds, submitAnswerMutation, scrollToNextReel]
   )
 
   const submitSkip = useCallback(
     (reelId: string) => {
+      // Don't skip if already answered (consumed) or already marked skipped
       if (skipObservedRef.current.has(reelId) || submittedReelIds.has(reelId)) return
       skipObservedRef.current.add(reelId)
+      // Optimistic update: assume success; onError will rollback
+      setSubmittedReelIds((prev) => new Set(prev).add(reelId))
       submitAnswerMutation.mutate({
         reelId,
         selectedIndex: null,
         correct: false,
         skipped: true,
       })
-      setSubmittedReelIds((prev) => new Set(prev).add(reelId))
     },
     [submittedReelIds, submitAnswerMutation]
   )
@@ -182,27 +217,35 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     return () => observer.disconnect()
   }, [reels.length, isFetchingNextPage, fetchNextPage])
 
+  // Skip = user scrolled past a reel that was in view without answering. Do NOT mark reels as skipped just because they're below the fold on load.
   useEffect(() => {
+    if (USE_MOCK || reels.length === 0) return
     const reelElements = reelRefs.current
     const reelIds = reels.map((r) => r.id)
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.isIntersecting) continue
           const el = entry.target as HTMLElement
           const index = reelElements.indexOf(el)
           if (index === -1) continue
           const reelId = reelIds[index]
           if (!reelId) continue
+          if (entry.isIntersecting) {
+            reelHasBeenInViewRef.current.add(reelId)
+            continue
+          }
+          // Reel left view: only count as skip if it was in view at least once and user never submitted (answer or skip)
+          const wasInView = reelHasBeenInViewRef.current.has(reelId)
+          const alreadySubmitted = submittedReelIds.has(reelId)
           const answered = answeredByReelId[reelId] !== undefined
-          if (!answered) submitSkip(reelId)
+          if (wasInView && !alreadySubmitted && !answered) submitSkip(reelId)
         }
       },
       { threshold: 0, rootMargin: "0px" }
     )
     reelElements.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [reels, answeredByReelId, submitSkip])
+  }, [reels, answeredByReelId, submittedReelIds, submitSkip])
 
   const progressPercent = reels.length > 0 ? ((currentReelIndex + 1) / reels.length) * 100 : 0
 
@@ -313,8 +356,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                 }
                 onSelectOption={
                   reel.type === "mcq"
-                    ? (index) =>
-                        setAnsweredByReelId((prev) => ({ ...prev, [reel.id]: index }))
+                    ? (index) => handleSelectOption(reel, index)
                     : undefined
                 }
                 onContinue={() =>

@@ -228,12 +228,16 @@ export class LearningMemoryDO extends DurableObject<Env> {
     console.log(`${LOG_PREFIX} submitAnswer reelId=${reelId} selectedIndex=${selectedIndex} correct=${correct} skipped=${skipped ?? false}`);
 
     const rows = this.sql
-      .exec("SELECT concept_id FROM reels WHERE id = ?", reelId)
-      .toArray() as { concept_id: string }[];
+      .exec("SELECT concept_id, consumed_at FROM reels WHERE id = ?", reelId)
+      .toArray() as { concept_id: string; consumed_at: number | null }[];
     const reelRow = rows[0];
     if (!reelRow) {
-      console.log(`${LOG_PREFIX} submitAnswer reel not found (mock id or already consumed), no-op`);
-      return; // reel not found (e.g. mock id or already consumed)
+      console.log(`${LOG_PREFIX} submitAnswer reel not found (mock id), no-op`);
+      return;
+    }
+    if (reelRow.consumed_at != null) {
+      console.log(`${LOG_PREFIX} submitAnswer reel already consumed, idempotent no-op`);
+      return; // already answered; avoid duplicate events and topic_state updates
     }
 
     const conceptId = reelRow.concept_id;
@@ -259,7 +263,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
       // Replay skipped reels: record skip but do not consume; they stay in the feed and are prioritized.
       this.sql.exec("UPDATE reels SET skipped_at = ? WHERE id = ?", timestamp, reelId);
     } else {
-      this.sql.exec("UPDATE reels SET consumed_at = ? WHERE id = ?", timestamp, reelId);
+      // Answer: consume reel and clear skipped_at so scroll-back-and-answer removes skip state.
+      this.sql.exec("UPDATE reels SET consumed_at = ?, skipped_at = NULL WHERE id = ?", timestamp, reelId);
       this.updateTopicState(conceptId, correct, timestamp);
     }
     console.log(`${LOG_PREFIX} submitAnswer done reelId=${reelId} conceptId=${conceptId} skipped=${skipped ?? false}`);
