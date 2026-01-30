@@ -50,6 +50,34 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const lastReelId = reelsToShow.length > 0 ? reelsToShow[reelsToShow.length - 1]?.id ?? null : null
   
+  // Track reels count before loading to auto-scroll to first new reel
+  const prevReelsCountRef = useRef(reelsToShow.length)
+  const wasLoadingMoreRef = useRef(false)
+  const reelRefs = useRef<(HTMLElement | null)[]>([])
+  
+  // Auto-scroll to first new reel when load-more completes
+  useEffect(() => {
+    const wasLoading = wasLoadingMoreRef.current
+    const isLoading = status === "loadingMore"
+    const prevCount = prevReelsCountRef.current
+    const currentCount = reelsToShow.length
+    
+    // Loading just completed and we have new reels
+    if (wasLoading && !isLoading && currentCount > prevCount) {
+      // Scroll to the first new reel
+      const firstNewReelIndex = prevCount
+      setTimeout(() => {
+        reelRefs.current[firstNewReelIndex]?.scrollIntoView({ behavior: "smooth", block: "start" })
+      }, 50)
+    }
+    
+    // Update refs for next comparison
+    wasLoadingMoreRef.current = isLoading
+    if (!isLoading) {
+      prevReelsCountRef.current = currentCount
+    }
+  }, [status, reelsToShow.length])
+  
   const loadMoreTrigger = useLoadMoreTrigger({
     sentinelRef: loadMoreRef,
     scrollRootRef: scrollContainerRef,
@@ -67,7 +95,6 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     [localAnswerState.submittedAnswerReelIds]
   )
   const answeredByReelId = localAnswerState.answeredByReelId
-  const reelRefs = useRef<(HTMLElement | null)[]>([])
   const skipObservedRef = useRef<Set<string>>(new Set())
   const reelHasBeenInViewRef = useRef<Set<string>>(new Set())
 
