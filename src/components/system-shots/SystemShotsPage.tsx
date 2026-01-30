@@ -289,6 +289,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                       selectedIndex={reel.type === "mcq" ? answeredByReelId[reel.id] : undefined}
                       onSelectOption={reel.type === "mcq" ? (index) => handleSelectOption(reel, index) : undefined}
                       onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i)}
+                      microSignal={reel.microSignal}
                     />
                   </div>
                 )

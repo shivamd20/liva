@@ -11,6 +11,9 @@ export type ReelType =
   | "free_text"
   | "voice";
 
+/** Feed intent for spaced repetition system. */
+export type FeedIntent = "reinforce" | "recall" | "build" | "mix";
+
 /** API/DB reel shape. V1: only MCQ generated and scored. */
 export interface Reel {
   id: string;
@@ -23,6 +26,12 @@ export interface Reel {
   difficulty: number;
   createdAt?: number;
   consumedAt?: number | null;
+  /** Feed intent for this reel (null for legacy reels). */
+  intent?: FeedIntent | null;
+  /** Number of times this reel was skipped. */
+  skipCount?: number;
+  /** Micro-signal hint for UI (computed on demand). */
+  microSignal?: string | null;
 }
 
 /** v2 locked concept type. */
@@ -86,6 +95,8 @@ export interface TopicStateRow {
   accuracyEma: number;
   failureStreak: number;
   lastAt: number;
+  /** Stability score for spaced repetition (0-1). */
+  stabilityScore: number;
 }
 
 /** Event: reel_generated */

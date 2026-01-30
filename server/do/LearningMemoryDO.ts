@@ -1,9 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import { toServerSentEventsStream } from "@tanstack/ai";
-import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery } from "../system-shots/types";
+import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery, FeedIntent } from "../system-shots/types";
 import type { AnswerSubmittedPayload } from "../system-shots/types";
 import type { ConceptV2 } from "../system-shots/types";
 import { getConceptSeedRows, CONCEPT_V2 } from "../system-shots/concepts";
+import { getMicroSignal } from "../system-shots/intent-engine";
 
 /** Generate next batch only when unconsumed reels (including skipped, which are replayed) drop below this. */
 const BUFFER_THRESHOLD = 5;
@@ -45,7 +46,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
         exposure_count INTEGER NOT NULL DEFAULT 0,
         accuracy_ema REAL NOT NULL DEFAULT 0.5,
         failure_streak INTEGER NOT NULL DEFAULT 0,
-        last_at INTEGER NOT NULL DEFAULT 0
+        last_at INTEGER NOT NULL DEFAULT 0,
+        stability_score REAL NOT NULL DEFAULT 0
       );
     `);
     this.sql.exec(`
@@ -60,10 +62,13 @@ export class LearningMemoryDO extends DurableObject<Env> {
         difficulty INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         consumed_at INTEGER,
-        skipped_at INTEGER
+        skipped_at INTEGER,
+        intent TEXT,
+        skip_count INTEGER NOT NULL DEFAULT 0
       );
     `);
     this.ensureReelsSkippedAtColumn();
+    this.ensureNewColumns();
   }
 
   /** Add skipped_at to reels if missing (migration for existing DOs). */
@@ -71,6 +76,61 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const info = this.sql.exec("PRAGMA table_info(reels)").toArray() as { name: string }[];
     if (info.some((r) => r.name === "skipped_at")) return;
     this.sql.exec("ALTER TABLE reels ADD COLUMN skipped_at INTEGER");
+  }
+
+  /** Add new columns for Feed Intent system (migration for existing DOs). */
+  private ensureNewColumns(): void {
+    // Check and add stability_score to topic_state
+    const topicStateInfo = this.sql.exec("PRAGMA table_info(topic_state)").toArray() as { name: string }[];
+    if (!topicStateInfo.some((r) => r.name === "stability_score")) {
+      this.sql.exec("ALTER TABLE topic_state ADD COLUMN stability_score REAL NOT NULL DEFAULT 0");
+      // Backfill stability scores for existing rows
+      this.backfillStabilityScores();
+    }
+
+    // Check and add intent and skip_count to reels
+    const reelsInfo = this.sql.exec("PRAGMA table_info(reels)").toArray() as { name: string }[];
+    if (!reelsInfo.some((r) => r.name === "intent")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN intent TEXT");
+    }
+    if (!reelsInfo.some((r) => r.name === "skip_count")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0");
+    }
+  }
+
+  /** Backfill stability scores for existing topic_state rows. */
+  private backfillStabilityScores(): void {
+    const rows = this.sql
+      .exec("SELECT concept_id, exposure_count, accuracy_ema, failure_streak FROM topic_state")
+      .toArray() as { concept_id: string; exposure_count: number; accuracy_ema: number; failure_streak: number }[];
+    
+    for (const row of rows) {
+      const stability = this.computeStabilityScore(
+        row.exposure_count,
+        row.accuracy_ema,
+        row.failure_streak,
+        1 // default difficulty
+      );
+      this.sql.exec(
+        "UPDATE topic_state SET stability_score = ? WHERE concept_id = ?",
+        stability,
+        row.concept_id
+      );
+    }
+    console.log(`${LOG_PREFIX} backfilled stability_score for ${rows.length} concepts`);
+  }
+
+  /** Compute stability score: measures how well a concept is learned.
+   * Formula: clamp(accuracyEma * log(exposureCount + 1) / (difficulty + failureStreak + 1), 0, 1)
+   */
+  private computeStabilityScore(
+    exposureCount: number,
+    accuracyEma: number,
+    failureStreak: number,
+    difficulty: number
+  ): number {
+    const raw = (accuracyEma * Math.log(exposureCount + 1)) / (difficulty + failureStreak + 1);
+    return Math.max(0, Math.min(1, raw));
   }
 
   private seedConcepts(): void {
@@ -114,7 +174,21 @@ export class LearningMemoryDO extends DurableObject<Env> {
       difficulty: row.difficulty as number,
       createdAt: row.created_at as number,
       consumedAt: (row.consumed_at as number) ?? null,
+      intent: (row.intent as Reel["intent"]) ?? null,
+      skipCount: (row.skip_count as number) ?? 0,
     };
+  }
+
+  /** Enrich a reel with computed micro signal based on topic state. */
+  private enrichReelWithMicroSignal(reel: Reel, topicStateMap: Map<string, TopicStateRow>): Reel {
+    const state = topicStateMap.get(reel.conceptId);
+    const exposureCount = state?.exposureCount ?? 0;
+    const microSignal = getMicroSignal(
+      reel.intent ?? "reinforce",
+      reel.skipCount ?? 0,
+      exposureCount
+    );
+    return { ...reel, microSignal };
   }
 
   /** Get next unconsumed reel (skipped first); trigger ensureBuffer (await) when low. Kept for backward compat. */
@@ -130,6 +204,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
       .toArray() as Record<string, unknown>[];
     const row = rows[0];
 
+    // Get topic state for micro signal computation
+    const topicStateMap = new Map(
+      this.getTopicStateForGeneration().map((t) => [t.conceptId, t])
+    );
+
     if (!row) {
       console.log(`${LOG_PREFIX} getNextReel no row, calling ensureBuffer`);
       await this.ensureBuffer();
@@ -141,12 +220,12 @@ export class LearningMemoryDO extends DurableObject<Env> {
         console.log(`${LOG_PREFIX} getNextReel still no reel after ensureBuffer, return null`);
         return null;
       }
-      const reel = this.rowToReel(retry);
+      const reel = this.enrichReelWithMicroSignal(this.rowToReel(retry), topicStateMap);
       this.appendReelShownEvent(reel.id, reel.conceptId);
       console.log(`${LOG_PREFIX} getNextReel return reelId=${reel.id} (after refill)`);
       return reel;
     }
-    const reel = this.rowToReel(row);
+    const reel = this.enrichReelWithMicroSignal(this.rowToReel(row), topicStateMap);
     await this.ensureBuffer();
     this.appendReelShownEvent(reel.id, reel.conceptId);
     console.log(`${LOG_PREFIX} getNextReel return reelId=${reel.id}`);
@@ -210,7 +289,14 @@ export class LearningMemoryDO extends DurableObject<Env> {
         .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, limit)
         .toArray() as Record<string, unknown>[];
     }
-    const reels = rows.map((r) => this.rowToReel(r));
+    // Enrich reels with micro signals
+    const topicStateMap = new Map(
+      this.getTopicStateForGeneration().map((t) => [t.conceptId, t])
+    );
+    const reels = rows.map((r) => {
+      const reel = this.rowToReel(r);
+      return this.enrichReelWithMicroSignal(reel, topicStateMap);
+    });
     const nextCursor = rows.length === limit && reels.length > 0 ? reels[reels.length - 1].id : null;
     console.log(`${LOG_PREFIX} getReels return reels=${reels.length} nextCursor=${nextCursor ?? "null"} reelIds=${reels.map((r) => r.id).join(",")}`);
     return { reels, nextCursor };
@@ -270,10 +356,19 @@ export class LearningMemoryDO extends DurableObject<Env> {
 
     if (skipped) {
       // Replay skipped reels: record skip but do not consume; they stay in the feed and are prioritized.
-      this.sql.exec("UPDATE reels SET skipped_at = ? WHERE id = ?", timestamp, reelId);
+      // Increment skip_count to factor into scoring (higher skip = higher priority to resurface).
+      this.sql.exec(
+        "UPDATE reels SET skipped_at = ?, skip_count = skip_count + 1 WHERE id = ?",
+        timestamp,
+        reelId
+      );
     } else {
-      // Answer: consume reel and clear skipped_at so scroll-back-and-answer removes skip state.
-      this.sql.exec("UPDATE reels SET consumed_at = ?, skipped_at = NULL WHERE id = ?", timestamp, reelId);
+      // Answer: consume reel, clear skipped_at, and reset skip_count so scroll-back-and-answer removes skip state.
+      this.sql.exec(
+        "UPDATE reels SET consumed_at = ?, skipped_at = NULL, skip_count = 0 WHERE id = ?",
+        timestamp,
+        reelId
+      );
       this.updateTopicState(conceptId, correct, timestamp);
     }
     console.log(`${LOG_PREFIX} submitAnswer done reelId=${reelId} conceptId=${conceptId} skipped=${skipped ?? false}`);
@@ -291,20 +386,39 @@ export class LearningMemoryDO extends DurableObject<Env> {
       ACCURACY_EMA_ALPHA * (correct ? 1 : 0) + (1 - ACCURACY_EMA_ALPHA) * prevEma;
     const failureStreak = correct ? 0 : (row?.failure_streak ?? 0) + 1;
 
+    // Get concept difficulty from ConceptV2 canon
+    const concept = CONCEPT_V2.find((c) => c.id === conceptId);
+    const difficulty = this.difficultyHintToNumber(concept?.difficulty_hint);
+    
+    // Compute stability score
+    const stabilityScore = this.computeStabilityScore(exposureCount, accuracyEma, failureStreak, difficulty);
+
     this.sql.exec(
-      `INSERT INTO topic_state (concept_id, exposure_count, accuracy_ema, failure_streak, last_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO topic_state (concept_id, exposure_count, accuracy_ema, failure_streak, last_at, stability_score)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(concept_id) DO UPDATE SET
          exposure_count = excluded.exposure_count,
          accuracy_ema = excluded.accuracy_ema,
          failure_streak = excluded.failure_streak,
-         last_at = excluded.last_at`,
+         last_at = excluded.last_at,
+         stability_score = excluded.stability_score`,
       conceptId,
       exposureCount,
       accuracyEma,
       failureStreak,
-      timestamp
+      timestamp,
+      stabilityScore
     );
+  }
+
+  /** Convert difficulty_hint to numeric value for stability calculation. */
+  private difficultyHintToNumber(hint?: "intro" | "core" | "advanced"): number {
+    switch (hint) {
+      case "intro": return 1;
+      case "core": return 2;
+      case "advanced": return 3;
+      default: return 2; // default to core
+    }
   }
 
   /** If fresh reels (not skipped, not consumed) < BUFFER_THRESHOLD, generate BUFFER_REFILL_COUNT via LLM. */
@@ -318,13 +432,15 @@ export class LearningMemoryDO extends DurableObject<Env> {
 
     const topicState = this.getTopicStateForGeneration();
     const concepts = this.getConceptsList();
+    const skipCounts = this.getSkipCountsPerConcept();
     console.log(`${LOG_PREFIX} ensureBuffer generating topicStateConcepts=${topicState.length} concepts=${concepts.length} targetCount=${BUFFER_REFILL_COUNT}`);
     const { generateReelsBatch } = await import("../system-shots/generate");
     const newReels = await generateReelsBatch(
       this.env,
       topicState,
       concepts,
-      BUFFER_REFILL_COUNT
+      BUFFER_REFILL_COUNT,
+      skipCounts
     );
     console.log(`${LOG_PREFIX} ensureBuffer generated ${newReels.length} reels`);
     this.persistReels(newReels);
@@ -336,8 +452,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
   private persistOneReel(r: Omit<Reel, "createdAt" | "consumedAt">): void {
     const now = Date.now();
     this.sql.exec(
-      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       r.id,
       r.conceptId,
       r.type,
@@ -346,7 +462,9 @@ export class LearningMemoryDO extends DurableObject<Env> {
       r.correctIndex ?? null,
       r.explanation,
       r.difficulty,
-      now
+      now,
+      r.intent ?? null,
+      r.skipCount ?? 0
     );
   }
 
@@ -358,11 +476,20 @@ export class LearningMemoryDO extends DurableObject<Env> {
   async *streamReels(cursor: string | undefined): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
     const orderBy =
       "ORDER BY (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END), COALESCE(skipped_at, 0), created_at, id LIMIT ?";
-    const toChunk = (reel: Reel) => ({
-      type: "content" as const,
-      delta: JSON.stringify(reel),
-      content: JSON.stringify(reel),
-    });
+    
+    // Get topic state for micro signal computation
+    const topicStateMap = new Map(
+      this.getTopicStateForGeneration().map((t) => [t.conceptId, t])
+    );
+    
+    const toChunk = (reel: Reel) => {
+      const enrichedReel = this.enrichReelWithMicroSignal(reel, topicStateMap);
+      return {
+        type: "content" as const,
+        delta: JSON.stringify(enrichedReel),
+        content: JSON.stringify(enrichedReel),
+      };
+    };
 
     if (cursor) {
       // Next page: reels after cursor, up to 10
@@ -425,9 +552,10 @@ export class LearningMemoryDO extends DurableObject<Env> {
       console.log(`${LOG_PREFIX} streamReels generating new reels (cursor flow)`);
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
+      const skipCounts = this.getSkipCountsPerConcept();
       const { generateReelsStream } = await import("../system-shots/generate");
       let yielded = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT)) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, skipCounts)) {
         this.persistOneReel(reel);
         const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
         yield toChunk(apiReel);
@@ -447,9 +575,10 @@ export class LearningMemoryDO extends DurableObject<Env> {
       // Generate new reels first, then yield from DB (which includes newly generated + any skipped)
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
+      const skipCounts = this.getSkipCountsPerConcept();
       const { generateReelsStream } = await import("../system-shots/generate");
       let generated = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT)) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, skipCounts)) {
         this.persistOneReel(reel);
         generated++;
         if (generated >= BUFFER_REFILL_COUNT) break;
@@ -470,15 +599,28 @@ export class LearningMemoryDO extends DurableObject<Env> {
 
   private getTopicStateForGeneration(): TopicStateRow[] {
     const rows = this.sql
-      .exec("SELECT concept_id, exposure_count, accuracy_ema, failure_streak, last_at FROM topic_state")
-      .toArray() as { concept_id: string; exposure_count: number; accuracy_ema: number; failure_streak: number; last_at: number }[];
+      .exec("SELECT concept_id, exposure_count, accuracy_ema, failure_streak, last_at, stability_score FROM topic_state")
+      .toArray() as { concept_id: string; exposure_count: number; accuracy_ema: number; failure_streak: number; last_at: number; stability_score: number }[];
     return rows.map((r) => ({
       conceptId: r.concept_id,
       exposureCount: r.exposure_count,
       accuracyEma: r.accuracy_ema,
       failureStreak: r.failure_streak,
       lastAt: r.last_at,
+      stabilityScore: r.stability_score,
     }));
+  }
+
+  /** Get aggregate skip counts per concept from reels. */
+  private getSkipCountsPerConcept(): Record<string, number> {
+    const rows = this.sql
+      .exec("SELECT concept_id, SUM(skip_count) as total_skips FROM reels WHERE skip_count > 0 GROUP BY concept_id")
+      .toArray() as { concept_id: string; total_skips: number }[];
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.concept_id] = row.total_skips;
+    }
+    return result;
   }
 
   /** Concepts for generation: full ConceptV2 from canon, filtered by IDs present in DB. */
@@ -547,8 +689,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const now = Date.now();
     for (const r of reels) {
       this.sql.exec(
-        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
         r.id,
         r.conceptId,
         r.type,
@@ -557,7 +699,9 @@ export class LearningMemoryDO extends DurableObject<Env> {
         r.correctIndex ?? null,
         r.explanation,
         r.difficulty,
-        now
+        now,
+        r.intent ?? null,
+        r.skipCount ?? 0
       );
     }
   }
@@ -567,7 +711,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
     if (url.pathname.endsWith("/stream")) {
       const cursor = url.searchParams.get("cursor") ?? undefined;
       const stream = this.streamReels(cursor);
-      return new Response(toServerSentEventsStream(stream), {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return new Response(toServerSentEventsStream(stream as any), {
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",

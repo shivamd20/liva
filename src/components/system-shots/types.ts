@@ -1,6 +1,9 @@
 export const REEL_THEMES = ["accent", "chart-1", "chart-2", "chart-3", "chart-4", "chart-5"] as const
 export type ReelTheme = (typeof REEL_THEMES)[number]
 
+/** Feed intent for spaced repetition system. */
+export type FeedIntent = "reinforce" | "recall" | "build" | "mix"
+
 /** API reel shape – compatible with ReelCard display type */
 export type ApiReel = {
   id: string
@@ -11,6 +14,10 @@ export type ApiReel = {
   correctIndex: number | null
   explanation: string
   difficulty: number
+  /** Feed intent for this reel (null for legacy reels). */
+  intent?: FeedIntent | null
+  /** Micro-signal hint for UI (e.g., "Seen before. Answer faster.") */
+  microSignal?: string | null
 }
 export type ReelCardVariant = "A" | "B" | "C"
 

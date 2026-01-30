@@ -14,12 +14,14 @@ function ReelMCQ({
   onSelectOption,
   onContinue,
   cardStyle,
+  microSignal,
 }: {
   reel: MCQReel
   selectedIndex: number | undefined
   onSelectOption: (index: number) => void
   onContinue: () => void
   cardStyle?: React.CSSProperties
+  microSignal?: string | null
 }) {
   const answered = selectedIndex !== undefined
   const correct = answered && selectedIndex === reel.correctIndex
@@ -27,6 +29,11 @@ function ReelMCQ({
   return (
     <Card className={cn(cardBaseClass, "max-h-[85dvh] overflow-y-auto sm:max-h-none sm:overflow-visible")} style={cardStyle}>
       <CardHeader className="space-y-2 pb-3 pt-4 px-4 min-w-0 sm:pb-6 sm:pt-8 sm:px-8 md:px-10">
+        {microSignal && (
+          <p className="text-xs italic text-muted-foreground/70 animate-in fade-in duration-300">
+            {microSignal}
+          </p>
+        )}
         <CardTitle className="text-base font-semibold leading-tight tracking-tight break-words sm:text-xl md:text-2xl text-foreground">
           {reel.prompt}
         </CardTitle>
@@ -81,14 +88,21 @@ function ReelFlash({
   reel,
   onContinue,
   cardStyle,
+  microSignal,
 }: {
   reel: FlashReel
   onContinue: () => void
   cardStyle?: React.CSSProperties
+  microSignal?: string | null
 }) {
   return (
     <Card className={cn(cardBaseClass, "max-h-[85dvh] overflow-y-auto sm:max-h-none sm:overflow-visible")} style={cardStyle}>
       <CardHeader className="space-y-2 pb-3 pt-4 px-4 min-w-0 sm:pb-6 sm:pt-8 sm:px-8 md:px-10">
+        {microSignal && (
+          <p className="text-xs italic text-muted-foreground/70 animate-in fade-in duration-300">
+            {microSignal}
+          </p>
+        )}
         <CardTitle className="text-base font-semibold leading-tight tracking-tight break-words sm:text-xl md:text-2xl text-foreground">
           {reel.prompt}
         </CardTitle>
@@ -115,6 +129,7 @@ export function ReelCard({
   selectedIndex,
   onSelectOption,
   onContinue,
+  microSignal,
 }: {
   reel: Reel
   theme: ReelTheme
@@ -122,6 +137,7 @@ export function ReelCard({
   selectedIndex?: number
   onSelectOption?: (index: number) => void
   onContinue: () => void
+  microSignal?: string | null
 }) {
   const cardStyle = { animationDelay: `${reelIndex * 40}ms` }
 
@@ -134,9 +150,10 @@ export function ReelCard({
           onSelectOption={onSelectOption!}
           onContinue={onContinue}
           cardStyle={cardStyle}
+          microSignal={microSignal}
         />
       ) : (
-        <ReelFlash reel={reel} onContinue={onContinue} cardStyle={cardStyle} />
+        <ReelFlash reel={reel} onContinue={onContinue} cardStyle={cardStyle} microSignal={microSignal} />
       )}
     </section>
   )
