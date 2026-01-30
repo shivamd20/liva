@@ -25,20 +25,20 @@ function ReelMCQ({
   const correct = answered && selectedIndex === reel.correctIndex
 
   return (
-    <Card className={cardBaseClass} style={cardStyle}>
-      <CardHeader className="space-y-2 pb-6 pt-8 px-8 sm:px-10 min-w-0">
-        <CardTitle className="text-2xl sm:text-3xl font-semibold text-foreground leading-tight tracking-tight break-words">
+    <Card className={cn(cardBaseClass, "max-h-[85dvh] overflow-y-auto sm:max-h-none sm:overflow-visible")} style={cardStyle}>
+      <CardHeader className="space-y-2 pb-3 pt-4 px-4 min-w-0 sm:pb-6 sm:pt-8 sm:px-8 md:px-10">
+        <CardTitle className="text-base font-semibold leading-tight tracking-tight break-words sm:text-xl md:text-2xl text-foreground">
           {reel.prompt}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6 px-8 pb-10 sm:px-10 max-w-prose min-w-0">
+      <CardContent className="space-y-3 px-4 pb-6 max-w-prose min-w-0 sm:space-y-6 sm:px-8 sm:pb-10 md:px-10">
         {!answered ? (
           <ul className="space-y-3 min-w-0">
             {reel.options.map((option, i) => (
               <li key={i} className="min-w-0">
                 <Button
                   variant="outline"
-                  className="w-full min-w-0 justify-start text-left h-auto min-h-[52px] py-4 px-6 text-base font-normal rounded-2xl border-2 border-border/80 bg-background/50 text-foreground hover:border-accent/40 hover:bg-accent/5 hover:text-foreground whitespace-normal break-words focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out"
+                  className="w-full min-w-0 justify-start text-left h-auto min-h-[44px] py-3 px-4 text-sm font-normal rounded-2xl border-2 border-border/80 bg-background/50 text-foreground hover:border-accent/40 hover:bg-accent/5 hover:text-foreground whitespace-normal break-words focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out sm:min-h-[52px] sm:py-4 sm:px-6 sm:text-base"
                   onClick={() => onSelectOption(i)}
                 >
                   {option}
@@ -49,24 +49,24 @@ function ReelMCQ({
         ) : (
           <div
             className={cn(
-              "space-y-6 pl-5 border-l-2",
+              "space-y-3 pl-4 border-l-2 sm:space-y-6 sm:pl-5",
               correct ? "border-chart-2" : "border-destructive/60"
             )}
           >
             <p
               className={cn(
-                "text-base font-semibold animate-in fade-in duration-200",
+                "text-sm font-semibold animate-in fade-in duration-200 sm:text-base",
                 correct ? "text-chart-2" : "text-destructive"
               )}
             >
               {correct ? "Correct" : "Incorrect"}
             </p>
-            <p className="text-base text-reel-secondary leading-relaxed break-words animate-in fade-in duration-200 delay-100 slide-in-from-bottom-2">
+            <p className="text-sm text-reel-secondary leading-relaxed break-words animate-in fade-in duration-200 delay-100 slide-in-from-bottom-2 sm:text-base">
               {reel.explanation}
             </p>
             <Button
               onClick={onContinue}
-              className="w-full min-h-[52px] py-4 text-base font-medium rounded-full bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out shadow-lg shadow-accent/20"
+              className="w-full min-h-[44px] py-3 text-sm font-medium rounded-full bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out shadow-lg shadow-accent/20 sm:min-h-[52px] sm:py-4 sm:text-base"
             >
               Continue
             </Button>
@@ -87,19 +87,19 @@ function ReelFlash({
   cardStyle?: React.CSSProperties
 }) {
   return (
-    <Card className={cardBaseClass} style={cardStyle}>
-      <CardHeader className="space-y-2 pb-6 pt-8 px-8 sm:px-10 min-w-0">
-        <CardTitle className="text-2xl sm:text-3xl font-semibold text-foreground leading-tight tracking-tight break-words">
+    <Card className={cn(cardBaseClass, "max-h-[85dvh] overflow-y-auto sm:max-h-none sm:overflow-visible")} style={cardStyle}>
+      <CardHeader className="space-y-2 pb-3 pt-4 px-4 min-w-0 sm:pb-6 sm:pt-8 sm:px-8 md:px-10">
+        <CardTitle className="text-base font-semibold leading-tight tracking-tight break-words sm:text-xl md:text-2xl text-foreground">
           {reel.prompt}
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-6 px-8 pb-10 sm:px-10 max-w-prose min-w-0">
-        <p className="text-base sm:text-lg text-reel-secondary leading-relaxed break-words">
+      <CardContent className="space-y-3 px-4 pb-6 max-w-prose min-w-0 sm:space-y-6 sm:px-8 sm:pb-10 md:px-10">
+        <p className="text-sm text-reel-secondary leading-relaxed break-words sm:text-base md:text-lg">
           {reel.explanation}
         </p>
         <Button
           onClick={onContinue}
-          className="w-full min-h-[52px] py-4 text-base font-medium rounded-full bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out shadow-lg shadow-accent/20"
+          className="w-full min-h-[44px] py-3 text-sm font-medium rounded-full bg-accent text-accent-foreground hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.99] touch-manipulation transition-all duration-200 ease-out shadow-lg shadow-accent/20 sm:min-h-[52px] sm:py-4 sm:text-base"
         >
           Continue
         </Button>
@@ -126,7 +126,7 @@ export function ReelCard({
   const cardStyle = { animationDelay: `${reelIndex * 40}ms` }
 
   return (
-    <section className="flex min-h-full w-full min-w-0 flex-col items-center justify-center px-4 py-12 touch-manipulation sm:px-6">
+    <section className="flex min-h-full w-full min-w-0 flex-col items-center justify-center px-3 py-4 touch-manipulation sm:px-6 sm:py-12">
       {reel.type === "mcq" ? (
         <ReelMCQ
           reel={reel}
