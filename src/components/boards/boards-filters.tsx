@@ -35,9 +35,9 @@ export default function BoardsFilters({
   ]
 
   return (
-    <section className="flex flex-col gap-4 mb-8">
-      {/* Top row: Filter pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 -mx-2 px-2 scrollbar-hide">
+    <section className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+      {/* Left: Filter pills */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-2 px-2 sm:mx-0 sm:px-0 scrollbar-hide">
         {filters.map((f) => (
           <button
             key={f.id}
@@ -52,8 +52,8 @@ export default function BoardsFilters({
         ))}
       </div>
 
-      {/* Bottom row: Sort and visibility dropdowns */}
-      <div className="flex items-center gap-3 flex-wrap">
+      {/* Right: Sort and visibility dropdowns */}
+      <div className="flex items-center gap-3 flex-shrink-0">
         {/* Sort select */}
         <div className="relative flex-shrink-0">
           <label className="sr-only" htmlFor="sort-select">Sort by</label>
