@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCreateBoard } from '../hooks/useBoards';
-import { Loader2 } from 'lucide-react';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
 import { toast } from 'sonner';
+import { LoadingScreen } from './LoadingScreen';
 
 export function NewBoardRedirect() {
     const navigate = useNavigate();
@@ -37,12 +37,5 @@ export function NewBoardRedirect() {
         });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    return (
-        <div className="h-screen w-screen flex items-center justify-center bg-background">
-            <div className="flex flex-col items-center gap-4">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-muted-foreground">Creating your board...</p>
-            </div>
-        </div>
-    );
+    return <LoadingScreen />;
 }
