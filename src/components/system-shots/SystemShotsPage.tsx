@@ -354,7 +354,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   )
 }
 
-/** Sentinel section - renders Load More button or loading/done states */
+/** Sentinel section - auto-loads on scroll via IntersectionObserver */
 function SentinelSection({
   segment,
   onLoad,
@@ -364,7 +364,26 @@ function SentinelSection({
   onLoad: () => void
   isInitial: boolean
 }) {
+  const sentinelRef = useRef<HTMLDivElement>(null)
   const { status } = segment
+
+  // Auto-load when sentinel becomes visible (infinite scroll)
+  useEffect(() => {
+    if (status !== "idle") return
+    const el = sentinelRef.current
+    if (!el) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          onLoad()
+        }
+      },
+      { rootMargin: "200px" } // Trigger slightly before visible for smoother UX
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [status, onLoad])
 
   // Initial loading - show skeleton
   if (isInitial && status === "loading") {
@@ -398,7 +417,7 @@ function SentinelSection({
     )
   }
 
-  // Error state
+  // Error state - manual retry required
   if (status === "error") {
     return (
       <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center">
@@ -412,22 +431,35 @@ function SentinelSection({
     )
   }
 
-  // Loading state (non-initial)
+  // Loading state (non-initial) - show skeleton card
   if (status === "loading") {
     return (
-      <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-muted-foreground">Loading more...</p>
+      <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6">
+        <div className="w-full max-w-2xl space-y-4">
+          <Skeleton className="h-8 w-full rounded-lg" />
+          <Skeleton className="h-32 w-full rounded-xl" />
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <Skeleton className="h-12 w-full rounded-xl" />
+          <Skeleton className="h-12 w-full rounded-xl" />
         </div>
       </div>
     )
   }
 
-  // Idle - show Load More button
+  // Idle - invisible trigger element with fallback button for accessibility
   return (
-    <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center">
-      <Button onClick={onLoad} size="lg" className="min-w-[200px]">
+    <div 
+      ref={sentinelRef}
+      className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
+    >
+      {/* Fallback button for accessibility (hidden by default, shows if JS fails) */}
+      <Button 
+        onClick={onLoad} 
+        variant="ghost" 
+        size="sm"
+        className="text-muted-foreground hover:text-foreground"
+      >
         Load More
       </Button>
     </div>
