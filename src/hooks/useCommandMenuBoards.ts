@@ -1,73 +1,7 @@
 /**
- * Hook to lazily register boards as command menu items.
- * Only fetches board data when the command menu is opened to avoid
- * the N+1 waterfall issue with the legacy useBoards() hook.
- * 
- * This uses useBoardsList which fetches from the user's index
- * without the waterfall of fetching full board details for each entry.
+ * Hook placeholder for command menu boards functionality.
+ * Board registration to command menu has been removed.
  */
-import { useEffect, useRef, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useCommandMenu } from '@/lib/command-menu-context';
-import { useBoardsList } from './useBoards';
-
 export function useCommandMenuBoards() {
-  const navigate = useNavigate();
-  const { registerCommand, unregisterCommand } = useCommandMenu();
-  const registeredIdsRef = useRef<Set<string>>(new Set());
-
-  const { data: boardsData } = useBoardsList({
-    sortBy: 'lastAccessed',
-    sortOrder: 'desc',
-  });
-
-  // Memoize boardEntries to prevent new array reference on every render
-  // Use boardsData as the dependency (stable reference from react-query)
-  const boardEntries = useMemo(() => {
-    return boardsData?.pages?.flatMap(page => page.items) ?? [];
-  }, [boardsData]);
-
-  // Create a stable key from board IDs to detect actual data changes
-  const boardIdsKey = useMemo(() => {
-    return boardEntries.map(e => e.noteId).join(',');
-  }, [boardEntries]);
-
-  useEffect(() => {
-    // Register new boards
-    const newIds = new Set<string>();
-    
-    boardEntries.forEach(entry => {
-      const commandId = `nav-board-${entry.noteId}`;
-      newIds.add(commandId);
-      
-      if (!registeredIdsRef.current.has(commandId)) {
-        registerCommand({
-          id: commandId,
-          title: entry.title || 'Untitled Board',
-          action: () => navigate(`/board/${entry.noteId}`),
-          section: 'Go to Board',
-          keywords: ['board', 'switch', 'jump'],
-        });
-        registeredIdsRef.current.add(commandId);
-      }
-    });
-
-    // Unregister removed boards
-    registeredIdsRef.current.forEach(id => {
-      if (!newIds.has(id)) {
-        unregisterCommand(id);
-        registeredIdsRef.current.delete(id);
-      }
-    });
-
-    // Cleanup on unmount
-    return () => {
-      registeredIdsRef.current.forEach(id => {
-        unregisterCommand(id);
-      });
-      registeredIdsRef.current.clear();
-    };
-  }, [boardIdsKey, registerCommand, unregisterCommand, navigate, boardEntries]);
-
-  return { boardEntries };
+  return { boardEntries: [] };
 }
