@@ -1,14 +1,15 @@
-import { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMemo, useState, useCallback, useEffect, useRef } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
-import { Button } from "@/components/ui/button"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { ArrowLeft, Loader2, ChevronDown, Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 
-/** Mastery bucket from API. */
-type Mastery = "solid" | "learning" | "weak" | "unknown"
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 
-/** Track from API (v2). Must match server/system-shots/types.ts */
+type Mastery = "solid" | "learning" | "weak" | "unknown"
 type Track =
   | "foundations"
   | "distributed-systems"
@@ -23,33 +24,53 @@ type Track =
   | "operability"
   | "security"
 
-/** Concept type from API (v2). */
-type ConceptType = "principle" | "primitive" | "pattern" | "system"
+type DifficultyOverride = -1 | 0 | 1
+type PriorityBias = -1 | 0 | 1
 
-/** Progress item shape from getProgress API (v2: includes type, track, difficulty_hint). */
 interface ProgressItem {
   conceptId: string
   name: string
-  difficultyTier?: number
   difficulty_hint?: "intro" | "core" | "advanced"
-  type?: ConceptType
   track?: Track
   exposureCount: number
   accuracyEma: number
-  failureStreak: number
-  lastAt: number
   mastery: Mastery
 }
 
-const MASTERY_ORDER: Mastery[] = ["solid", "learning", "weak", "unknown"]
-const MASTERY_LABELS: Record<Mastery, string> = {
-  solid: "Solid",
-  learning: "Learning",
-  weak: "Weak",
-  unknown: "Up next",
+interface UserConceptPrefs {
+  conceptId: string
+  enabled: boolean
+  difficultyOverride: DifficultyOverride
+  priorityBias: PriorityBias
 }
 
-/** Human-readable track labels for filters and cards. */
+interface UserTopicOverlay {
+  id: string
+  title: string
+  description: string
+  mappedConceptIds: string[]
+  createdAt: number
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TRACK_ORDER: Track[] = [
+  "foundations",
+  "distributed-systems",
+  "storage",
+  "messaging-streaming",
+  "scalability",
+  "reliability",
+  "latency-performance",
+  "data-modeling",
+  "system-archetypes",
+  "deployment-environments",
+  "operability",
+  "security",
+]
+
 const TRACK_LABELS: Record<Track, string> = {
   foundations: "Foundations",
   "distributed-systems": "Distributed Systems",
@@ -57,7 +78,7 @@ const TRACK_LABELS: Record<Track, string> = {
   "messaging-streaming": "Messaging & Streaming",
   scalability: "Scalability",
   reliability: "Reliability",
-  "latency-performance": "Latency & Performance",
+  "latency-performance": "Performance",
   "data-modeling": "Data Modeling",
   "system-archetypes": "System Archetypes",
   "deployment-environments": "Deployment",
@@ -65,271 +86,554 @@ const TRACK_LABELS: Record<Track, string> = {
   security: "Security",
 }
 
-const TYPE_LABELS: Record<ConceptType, string> = {
-  principle: "Principle",
-  primitive: "Primitive",
-  pattern: "Pattern",
-  system: "System",
-}
-
-const DIFFICULTY_LABELS: Record<"intro" | "core" | "advanced", string> = {
+const DIFFICULTY_LABELS: Record<string, string> = {
   intro: "Intro",
   core: "Core",
   advanced: "Advanced",
 }
 
-function groupByMastery(items: ProgressItem[]): Record<Mastery, ProgressItem[]> {
-  const groups: Record<Mastery, ProgressItem[]> = {
-    solid: [],
-    learning: [],
-    weak: [],
-    unknown: [],
-  }
-  for (const item of items) {
-    groups[item.mastery].push(item)
+const MASTERY_LABELS: Record<Mastery, string> = {
+  solid: "Mastered",
+  learning: "Learning",
+  weak: "Needs work",
+  unknown: "New",
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utils
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getDefaultPrefs(conceptId: string): UserConceptPrefs {
+  return { conceptId, enabled: true, difficultyOverride: 0, priorityBias: 0 }
+}
+
+function groupByTrack(items: ProgressItem[]): Map<Track, ProgressItem[]> {
+  const groups = new Map<Track, ProgressItem[]>()
+  for (const track of TRACK_ORDER) {
+    const trackItems = items.filter((i) => i.track === track)
+    if (trackItems.length > 0) {
+      groups.set(track, trackItems.sort((a, b) => a.name.localeCompare(b.name)))
+    }
   }
   return groups
 }
 
-/** Get unique tracks present in items, sorted by display order. */
-function getTracksInItems(items: ProgressItem[]): Track[] {
-  const order: Track[] = [
-    "foundations",
-    "distributed-systems",
-    "storage",
-    "messaging-streaming",
-    "scalability",
-    "reliability",
-    "latency-performance",
-    "data-modeling",
-    "system-archetypes",
-    "deployment-environments",
-    "operability",
-    "security",
-  ]
-  const seen = new Set(items.map((i) => i.track).filter(Boolean) as Track[])
-  return order.filter((t) => seen.has(t))
+// ─────────────────────────────────────────────────────────────────────────────
+// Components
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Simple progress summary with bar and counts */
+function ProgressSummary({
+  items,
+  prefsMap,
+}: {
+  items: ProgressItem[]
+  prefsMap: Map<string, UserConceptPrefs>
+}) {
+  const stats = useMemo(() => {
+    let enabled = 0, solid = 0, learning = 0, weak = 0, unknown = 0
+
+    for (const item of items) {
+      const prefs = prefsMap.get(item.conceptId)
+      if (prefs?.enabled === false) continue
+      enabled++
+      if (item.mastery === "solid") solid++
+      else if (item.mastery === "learning") learning++
+      else if (item.mastery === "weak") weak++
+      else unknown++
+    }
+
+    const progress = enabled > 0 ? Math.round(((solid + learning * 0.5) / enabled) * 100) : 0
+    return { enabled, solid, learning, weak, unknown, progress }
+  }, [items, prefsMap])
+
+  return (
+    <div className="px-5 py-6">
+      {/* Progress bar */}
+      <div className="h-1.5 rounded-full bg-muted/60 overflow-hidden mb-3">
+        <div
+          className="h-full bg-foreground/80 rounded-full transition-all duration-500"
+          style={{ width: `${stats.progress}%` }}
+        />
+      </div>
+      
+      {/* Stats row */}
+      <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          {stats.solid}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-amber-500" />
+          {stats.learning}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-orange-500" />
+          {stats.weak}
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
+          {stats.unknown}
+        </span>
+      </div>
+    </div>
+  )
 }
+
+/** iOS-style segmented control */
+function SegmentedControl<T extends string | number>({
+  value,
+  onChange,
+  options,
+  disabled,
+}: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: string }[]
+  disabled?: boolean
+}) {
+  return (
+    <div className={cn(
+      "inline-flex rounded-lg bg-muted/50 p-1",
+      disabled && "opacity-50"
+    )}>
+      {options.map((opt) => (
+        <button
+          key={String(opt.value)}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange(opt.value)}
+          className={cn(
+            "px-4 py-2 text-sm font-medium rounded-md transition-all min-h-[44px] min-w-[60px]",
+            value === opt.value
+              ? "bg-background text-foreground shadow-sm"
+              : "text-muted-foreground active:bg-background/50"
+          )}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** Setting row for expanded concept */
+function SettingRow({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex items-center justify-between py-3">
+      <span className="text-sm text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  )
+}
+
+/** Single concept row - Apple style */
+function ConceptRow({
+  item,
+  prefs,
+  expanded,
+  onToggle,
+  onPrefsChange,
+}: {
+  item: ProgressItem
+  prefs: UserConceptPrefs
+  expanded: boolean
+  onToggle: () => void
+  onPrefsChange: (prefs: UserConceptPrefs) => void
+}) {
+  const masteryColor = {
+    solid: "bg-emerald-500",
+    learning: "bg-amber-500",
+    weak: "bg-orange-500",
+    unknown: "bg-muted-foreground/40",
+  }[item.mastery]
+
+  const subtitle = [
+    item.difficulty_hint && DIFFICULTY_LABELS[item.difficulty_hint],
+    MASTERY_LABELS[item.mastery],
+  ].filter(Boolean).join(" · ")
+
+  return (
+    <div className={cn(
+      "bg-card/50 transition-colors",
+      !prefs.enabled && "opacity-50"
+    )}>
+      {/* Main row - tappable */}
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-5 py-4 min-h-[56px] text-left active:bg-muted/30 transition-colors"
+      >
+        <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", masteryColor)} />
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-medium truncate">{item.name}</p>
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
+        </div>
+        <ChevronDown 
+          className={cn(
+            "h-5 w-5 text-muted-foreground/60 transition-transform shrink-0",
+            expanded && "rotate-180"
+          )} 
+        />
+      </button>
+
+      {/* Expanded settings */}
+      {expanded && (
+        <div className="px-5 pb-4 border-t border-border/30">
+          <SettingRow label="Include in feed">
+            <Switch
+              checked={prefs.enabled}
+              onCheckedChange={(checked) => onPrefsChange({ ...prefs, enabled: checked })}
+            />
+          </SettingRow>
+          
+          <SettingRow label="Difficulty">
+            <SegmentedControl
+              value={prefs.difficultyOverride}
+              onChange={(v) => onPrefsChange({ ...prefs, difficultyOverride: v })}
+              options={[
+                { value: -1 as const, label: "Easier" },
+                { value: 0 as const, label: "Auto" },
+                { value: 1 as const, label: "Harder" },
+              ]}
+              disabled={!prefs.enabled}
+            />
+          </SettingRow>
+          
+          <SettingRow label="Focus">
+            <SegmentedControl
+              value={prefs.priorityBias}
+              onChange={(v) => onPrefsChange({ ...prefs, priorityBias: v })}
+              options={[
+                { value: -1 as const, label: "Less" },
+                { value: 0 as const, label: "Normal" },
+                { value: 1 as const, label: "More" },
+              ]}
+              disabled={!prefs.enabled}
+            />
+          </SettingRow>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Sticky track section header */
+function TrackHeader({ track, count, total }: { track: Track; count: number; total: number }) {
+  return (
+    <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm px-5 py-3 border-b border-border/30">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {TRACK_LABELS[track]}
+        </span>
+        <span className="text-xs text-muted-foreground/60">
+          {count}/{total}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Simple add topic button that expands inline */
+function AddTopicSection({
+  overlays,
+  onAdd,
+  onRemove,
+}: {
+  overlays: UserTopicOverlay[]
+  onAdd: (title: string, description: string) => void
+  onRemove: (id: string) => void
+}) {
+  const [isAdding, setIsAdding] = useState(false)
+  const [title, setTitle] = useState("")
+  const [description, setDescription] = useState("")
+
+  const handleSubmit = () => {
+    if (!title.trim() || !description.trim()) return
+    onAdd(title.trim(), description.trim())
+    setTitle("")
+    setDescription("")
+    setIsAdding(false)
+  }
+
+  return (
+    <div className="px-5 py-6">
+      {/* Existing overlays */}
+      {overlays.length > 0 && (
+        <div className="mb-4 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Personal Topics
+          </p>
+          {overlays.map((o) => (
+            <div key={o.id} className="flex items-start gap-3 py-3 border-b border-border/30 last:border-0">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{o.title}</p>
+                <p className="text-xs text-muted-foreground line-clamp-1">{o.description}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemove(o.id)}
+                className="p-2 -m-2 text-muted-foreground active:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add button / form */}
+      {!isAdding ? (
+        <button
+          type="button"
+          onClick={() => setIsAdding(true)}
+          className="w-full flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground active:text-foreground transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Add personal topic
+        </button>
+      ) : (
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Topic name"
+            autoFocus
+            className="w-full bg-transparent border-b border-border/50 py-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30"
+          />
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Brief description"
+            className="w-full bg-transparent border-b border-border/50 py-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30"
+          />
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsAdding(false)}
+              className="flex-1 py-3 text-sm text-muted-foreground"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!title.trim() || !description.trim()}
+              className="flex-1 py-3 text-sm font-medium disabled:opacity-40"
+            >
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────────────────────
 
 export interface ProgressViewProps {
   onBack: () => void
 }
 
 export function ProgressView({ onBack }: ProgressViewProps) {
-  const [trackFilter, setTrackFilter] = useState<Track | "all">("all")
-  const [typeFilter, setTypeFilter] = useState<ConceptType | "all">("all")
+  const queryClient = useQueryClient()
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [localPrefs, setLocalPrefs] = useState<Map<string, UserConceptPrefs>>(new Map())
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
-  const { data, isLoading, isError } = useQuery({
+  // Fetch progress
+  const { data: progressData, isLoading: progressLoading, isError: progressError } = useQuery({
     queryKey: ["system-shots", "progress"],
     queryFn: () => trpcClient.systemShots.getProgress.query(),
   })
 
-  const items = data?.items ?? []
-  const filteredItems = useMemo(() => {
-    return items.filter((item) => {
-      if (trackFilter !== "all" && item.track !== trackFilter) return false
-      if (typeFilter !== "all" && item.type !== typeFilter) return false
-      return true
-    })
-  }, [items, trackFilter, typeFilter])
+  // Fetch preferences
+  const { data: prefsData, isLoading: prefsLoading } = useQuery({
+    queryKey: ["system-shots", "preferences"],
+    queryFn: () => trpcClient.systemShots.getPreferences.query(),
+  })
 
-  const groups = groupByMastery(filteredItems)
-  const tracksInData = useMemo(() => getTracksInItems(items), [items])
+  // Initialize local prefs from server
+  useEffect(() => {
+    if (prefsData && localPrefs.size === 0) {
+      const map = new Map<string, UserConceptPrefs>()
+      for (const pref of prefsData.conceptPrefs) {
+        map.set(pref.conceptId, pref)
+      }
+      setLocalPrefs(map)
+    }
+  }, [prefsData, localPrefs.size])
+
+  const items = progressData?.items ?? []
+  const overlays = prefsData?.topicOverlays ?? []
+  const groupedItems = useMemo(() => groupByTrack(items), [items])
+
+  // Auto-save mutation
+  const saveMutation = useMutation({
+    mutationFn: (prefs: UserConceptPrefs[]) =>
+      trpcClient.systemShots.batchUpdateConceptPrefs.mutate({ prefs }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] })
+      setIsSaving(false)
+    },
+    onError: () => setIsSaving(false),
+  })
+
+  // Debounced auto-save
+  const scheduleAutoSave = useCallback((newPrefs: Map<string, UserConceptPrefs>) => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    setIsSaving(true)
+    saveTimeoutRef.current = setTimeout(() => {
+      const changedPrefs = Array.from(newPrefs.values())
+      if (changedPrefs.length > 0) {
+        saveMutation.mutate(changedPrefs)
+      } else {
+        setIsSaving(false)
+      }
+    }, 800)
+  }, [saveMutation])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  // Topic mutations
+  const addOverlayMutation = useMutation({
+    mutationFn: (input: { title: string; description: string; mappedConceptIds: string[] }) =>
+      trpcClient.systemShots.addTopicOverlay.mutate(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] }),
+  })
+
+  const removeOverlayMutation = useMutation({
+    mutationFn: (id: string) => trpcClient.systemShots.removeTopicOverlay.mutate({ id }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] }),
+  })
+
+  // Handlers
+  const handlePrefsChange = useCallback((conceptId: string, prefs: UserConceptPrefs) => {
+    setLocalPrefs((prev) => {
+      const next = new Map(prev).set(conceptId, prefs)
+      scheduleAutoSave(next)
+      return next
+    })
+  }, [scheduleAutoSave])
+
+  const handleAddOverlay = useCallback((title: string, description: string) => {
+    addOverlayMutation.mutate({ title, description, mappedConceptIds: [] })
+  }, [addOverlayMutation])
+
+  const handleRemoveOverlay = useCallback((id: string) => {
+    removeOverlayMutation.mutate(id)
+  }, [removeOverlayMutation])
+
+  const isLoading = progressLoading || prefsLoading
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
-      <div className="fixed top-0 left-0 right-0 z-30 h-0.5 w-full bg-muted/40" aria-hidden />
+      {/* Minimal header */}
+      <div className="shrink-0 flex items-center justify-between px-2 py-2 border-b border-border/30">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 px-3 py-2 -ml-1 text-primary active:opacity-70"
+        >
+          <ArrowLeft className="h-5 w-5" />
+          <span className="text-[17px]">Back</span>
+        </button>
+        
+        <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold">
+          Learning
+        </h1>
+        
+        <div className="w-20 flex justify-end pr-2">
+          {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </div>
+      </div>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onBack}
-        className="fixed top-5 left-5 z-20 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-background/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.98] touch-manipulation transition-all duration-200"
-        aria-label="Back to reels"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </Button>
-
-      <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden pt-16 pb-8 px-4 sm:px-6">
+      {/* Content */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading && (
-          <div className="flex min-h-[40dvh] w-full items-center justify-center">
-            <div className="flex flex-col items-center gap-3 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin" />
-              <p>Loading progress…</p>
-            </div>
+          <div className="flex min-h-[50vh] items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         )}
 
-        {isError && (
-          <div className="flex min-h-[40dvh] w-full items-center justify-center">
-            <p className="text-muted-foreground">Could not load progress. Try again later.</p>
+        {progressError && (
+          <div className="flex min-h-[50vh] items-center justify-center px-8">
+            <p className="text-center text-muted-foreground">
+              Could not load progress. Pull down to retry.
+            </p>
           </div>
         )}
 
-        {!isLoading && !isError && items.length > 0 && (
-          <div className="max-w-2xl mx-auto space-y-6">
-            {/* Summary */}
-            <section aria-label="Progress summary">
-              <p className="text-sm text-muted-foreground font-medium">
-                {MASTERY_ORDER.map((m) => {
-                  const count = groups[m].length
-                  const label = MASTERY_LABELS[m]
-                  return count > 0 ? `${count} ${label}` : null
-                })
-                  .filter(Boolean)
-                  .join(" · ")}
-                {(trackFilter !== "all" || typeFilter !== "all") && (
-                  <span className="ml-1">(filtered)</span>
-                )}
-              </p>
-            </section>
+        {!isLoading && !progressError && items.length > 0 && (
+          <>
+            {/* Progress summary */}
+            <ProgressSummary items={items} prefsMap={localPrefs} />
 
-            {/* Track filter */}
-            <section aria-label="Filter by track">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                Track
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTrackFilter("all")}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                    trackFilter === "all"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                  )}
-                >
-                  All
-                </button>
-                {tracksInData.map((track) => (
-                  <button
-                    key={track}
-                    type="button"
-                    onClick={() => setTrackFilter(track)}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                      trackFilter === track
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                    )}
-                  >
-                    {TRACK_LABELS[track]}
-                  </button>
-                ))}
-              </div>
-            </section>
+            {/* Concepts grouped by track */}
+            {Array.from(groupedItems.entries()).map(([track, trackItems]) => {
+              const enabledCount = trackItems.filter(
+                (i) => localPrefs.get(i.conceptId)?.enabled !== false
+              ).length
+              
+              return (
+                <div key={track}>
+                  <TrackHeader track={track} count={enabledCount} total={trackItems.length} />
+                  <div className="divide-y divide-border/30">
+                    {trackItems.map((item) => (
+                      <ConceptRow
+                        key={item.conceptId}
+                        item={item}
+                        prefs={localPrefs.get(item.conceptId) ?? getDefaultPrefs(item.conceptId)}
+                        expanded={expandedId === item.conceptId}
+                        onToggle={() => setExpandedId(
+                          expandedId === item.conceptId ? null : item.conceptId
+                        )}
+                        onPrefsChange={(prefs) => handlePrefsChange(item.conceptId, prefs)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
 
-            {/* Type filter */}
-            <section aria-label="Filter by type">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-2">
-                Type
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {(["all", "principle", "primitive", "pattern", "system"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setTypeFilter(t)}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                      typeFilter === t
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted/60 text-muted-foreground hover:bg-muted"
-                    )}
-                  >
-                    {t === "all" ? "All" : TYPE_LABELS[t]}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            {/* Mastery sections */}
-            <div className="space-y-6">
-              {MASTERY_ORDER.map((mastery) => {
-                const list = groups[mastery]
-                if (list.length === 0) return null
-                const label = MASTERY_LABELS[mastery]
-                return (
-                  <section key={mastery} aria-labelledby={`progress-${mastery}`}>
-                    <h2
-                      id={`progress-${mastery}`}
-                      className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-3"
-                    >
-                      {label}
-                    </h2>
-                    <ul className="space-y-2">
-                      {list.map((item) => (
-                        <li
-                          key={item.conceptId}
-                          className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-card/50 px-4 py-3"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className={cn(
-                                "h-1.5 min-w-[0.375rem] max-w-12 shrink-0 rounded-full",
-                                mastery === "solid" && "bg-emerald-500/80",
-                                mastery === "learning" && "bg-amber-500/70",
-                                mastery === "weak" && "bg-orange-500/70",
-                                mastery === "unknown" && "bg-muted-foreground/30"
-                              )}
-                              style={{
-                                width:
-                                  mastery === "unknown"
-                                    ? "0.375rem"
-                                    : `${Math.max(8, Math.round(item.accuracyEma * 48))}px`,
-                              }}
-                              aria-hidden
-                            />
-                            <span className="text-sm font-medium text-foreground">{item.name}</span>
-                          </div>
-                          {(item.track || item.type || item.difficulty_hint) && (
-                            <div className="flex flex-wrap gap-1.5 pl-5">
-                              {item.track && (
-                                <span
-                                  className="rounded bg-muted/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                                  title="Track"
-                                >
-                                  {TRACK_LABELS[item.track]}
-                                </span>
-                              )}
-                              {item.type && (
-                                <span
-                                  className="rounded bg-muted/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                                  title="Type"
-                                >
-                                  {TYPE_LABELS[item.type]}
-                                </span>
-                              )}
-                              {item.difficulty_hint && (
-                                <span
-                                  className="rounded bg-muted/70 px-2 py-0.5 text-[10px] font-medium text-muted-foreground"
-                                  title="Difficulty"
-                                >
-                                  {DIFFICULTY_LABELS[item.difficulty_hint]}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )
-              })}
-            </div>
-
-            {filteredItems.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No concepts match the selected filters.
-              </p>
-            )}
-          </div>
+            {/* Add topics section */}
+            <AddTopicSection
+              overlays={overlays}
+              onAdd={handleAddOverlay}
+              onRemove={handleRemoveOverlay}
+            />
+            
+            {/* Bottom padding for safe area */}
+            <div className="h-8" />
+          </>
         )}
 
-        {!isLoading && !isError && items.length === 0 && (
-          <div className="flex min-h-[40dvh] w-full items-center justify-center">
-            <p className="text-muted-foreground">No concepts yet. Answer reels to see progress.</p>
+        {!isLoading && !progressError && items.length === 0 && (
+          <div className="flex min-h-[50vh] items-center justify-center px-8">
+            <p className="text-center text-muted-foreground">
+              No concepts yet. Answer some questions to see your progress.
+            </p>
           </div>
         )}
       </div>

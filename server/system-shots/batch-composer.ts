@@ -6,9 +6,11 @@
  * - 3 Recall (spaced retrieval testing)
  * - 2 Build (new angles on mastered concepts)
  * - 1 Mix (adjacent concept for variety)
+ * 
+ * V2: Supports user preferences for filtering and priority bias.
  */
 
-import type { FeedIntent, TopicStateRow, ConceptV2 } from "./types";
+import type { FeedIntent, TopicStateRow, ConceptV2, UserConceptPrefs } from "./types";
 import {
   buildConceptIntentInput,
   assignIntentAndScore,
@@ -46,6 +48,9 @@ export interface ComposedBatch {
 export interface ConceptSkipCounts {
   [conceptId: string]: number;
 }
+
+/** Priority bias multiplier: +30% for more focus, -30% for less focus. */
+const PRIORITY_BIAS_MULTIPLIER = 0.3;
 
 /**
  * Compute median of an array of numbers.
@@ -94,32 +99,54 @@ function getRelatedConcepts(
 /**
  * Compose a batch of concepts with assigned intents.
  * Enforces 4/3/2/1 distribution and respects median stability threshold.
+ * V2: Filters disabled concepts and applies user priority bias.
  */
 export function composeBatch(
   topicStates: TopicStateRow[],
   concepts: ConceptV2[],
   skipCounts: ConceptSkipCounts = {},
-  batchSize: number = BATCH_SIZE
+  batchSize: number = BATCH_SIZE,
+  userPrefs: Map<string, UserConceptPrefs> = new Map()
 ): ComposedBatch {
   // Build lookup maps
   const topicStateMap = new Map(topicStates.map((t) => [t.conceptId, t]));
   const conceptMap = new Map(concepts.map((c) => [c.id, c]));
 
-  // Compute median stability of seen concepts
+  // Filter out disabled concepts
+  const enabledConcepts = concepts.filter((c) => {
+    const prefs = userPrefs.get(c.id);
+    // Default is enabled if no prefs stored
+    return prefs?.enabled !== false;
+  });
+
+  // Compute median stability of seen concepts (only enabled ones)
   const seenStabilities = topicStates
-    .filter((t) => t.exposureCount > 0)
+    .filter((t) => {
+      const prefs = userPrefs.get(t.conceptId);
+      return t.exposureCount > 0 && prefs?.enabled !== false;
+    })
     .map((t) => t.stabilityScore);
   const medianStability = median(seenStabilities);
   
   // Determine if Build is blocked
   const buildBlocked = medianStability < MEDIAN_STABILITY_THRESHOLD;
 
-  // Assign intent and score to all concepts
-  const scoredConcepts: ConceptWithIntent[] = concepts.map((concept) => {
+  // Assign intent and score to all enabled concepts
+  const scoredConcepts: ConceptWithIntent[] = enabledConcepts.map((concept) => {
     const state = topicStateMap.get(concept.id);
     const skipCount = skipCounts[concept.id] ?? 0;
+    const prefs = userPrefs.get(concept.id);
     const input = buildConceptIntentInput(state, concept, skipCount, true);
-    return assignIntentAndScore(input);
+    const result = assignIntentAndScore(input);
+    
+    // Apply priority bias: score *= (1 + bias * 0.3)
+    if (prefs?.priorityBias) {
+      const biasMultiplier = 1 + prefs.priorityBias * PRIORITY_BIAS_MULTIPLIER;
+      result.score *= biasMultiplier;
+      result.reason += ` (priority bias: ${prefs.priorityBias > 0 ? '+' : ''}${prefs.priorityBias})`;
+    }
+    
+    return result;
   });
 
   // If Build is blocked, convert Build intents to Reinforce

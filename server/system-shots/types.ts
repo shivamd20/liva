@@ -167,3 +167,50 @@ export interface ProgressItem {
 export interface ProgressResponse {
   items: ProgressItem[];
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User Learning Preferences
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Difficulty override: -1 = Easier, 0 = Auto (canonical), +1 = Harder */
+export type DifficultyOverride = -1 | 0 | 1;
+
+/** Priority bias: -1 = Less focus, 0 = Normal, +1 = More focus */
+export type PriorityBias = -1 | 0 | 1;
+
+/**
+ * User concept preferences – signals that bias the feed without changing canonical structure.
+ * Users may bias the path; they may not define the path.
+ */
+export interface UserConceptPrefs {
+  conceptId: string;
+  /** Whether this concept is enabled in the feed. Disabled = excluded from generation. */
+  enabled: boolean;
+  /** Adjusts question difficulty tier: effective = clamp(canonical + override, 1, 3) */
+  difficultyOverride: DifficultyOverride;
+  /** Biases selection probability: score *= (1 + bias * 0.3) */
+  priorityBias: PriorityBias;
+}
+
+/**
+ * User-added topic overlay – NOT a canonical concept.
+ * These only affect LLM prompt context, never become prerequisites or unlock systems.
+ */
+export interface UserTopicOverlay {
+  id: string;
+  /** Short title for the topic (e.g., "Cloudflare Durable Objects") */
+  title: string;
+  /** 1-2 line description fed to LLM for context */
+  description: string;
+  /** Optional mapping to canonical concept IDs for relevance scoring */
+  mappedConceptIds: string[];
+  createdAt: number;
+}
+
+/** Response shape for getPreferences API. */
+export interface PreferencesResponse {
+  /** Concept preferences (only non-default values stored) */
+  conceptPrefs: UserConceptPrefs[];
+  /** User-added topic overlays */
+  topicOverlays: UserTopicOverlay[];
+}

@@ -2,14 +2,22 @@
  * System Shots – LLM reel generation (MCQ only in V1).
  * Supports batch (non-streaming) and NDJSON streaming generation.
  * V2: Uses BatchComposer for intent-based generation with 4/3/2/1 distribution.
+ * V3: Supports user preferences (filtering, priority bias) and topic overlays.
  */
 import { chat } from "@tanstack/ai";
 import { z } from "zod";
 import { LivaAIModel } from "../ai/liva-ai-model";
-import type { Reel, TopicStateRow, FeedIntent } from "./types";
+import type { Reel, TopicStateRow, FeedIntent, UserConceptPrefs, UserTopicOverlay } from "./types";
 import type { ConceptV2 } from "./types";
 import { composeBatch, getIntentPromptInstructions, type ConceptSkipCounts } from "./batch-composer";
 import { getMicroSignal } from "./intent-engine";
+
+/** Generation options including user preferences. */
+export interface GenerationOptions {
+  skipCounts?: ConceptSkipCounts;
+  userPrefs?: Map<string, UserConceptPrefs>;
+  topicOverlays?: UserTopicOverlay[];
+}
 
 const LOG_PREFIX = "[generateReels]";
 
@@ -47,11 +55,31 @@ interface ConceptWithIntentForPrompt {
   intent: FeedIntent;
 }
 
+/** Build user context section from topic overlays. */
+function buildUserContextSection(topicOverlays: UserTopicOverlay[]): string {
+  if (!topicOverlays || topicOverlays.length === 0) return "";
+  
+  const overlayDescriptions = topicOverlays
+    .map((o) => `- ${o.title}: ${o.description}`)
+    .join("\n");
+  
+  return `
+–––––––––––––––––
+USER CONTEXT (consider when relevant)
+
+The user is particularly interested in these topics. When generating questions, consider incorporating these contexts where they naturally fit:
+
+${overlayDescriptions}
+
+`;
+}
+
 /** NDJSON-only prompt: one JSON object per line, no markdown, no outer array. */
 function buildNDJSONPrompt(
   conceptsWithIntents: ConceptWithIntentForPrompt[],
   stateSummary: string,
-  count: number
+  count: number,
+  topicOverlays: UserTopicOverlay[] = []
 ): string {
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
@@ -60,6 +88,8 @@ function buildNDJSONPrompt(
 ${intentInstructions}`;
     })
     .join("\n\n");
+
+  const userContextSection = buildUserContextSection(topicOverlays);
 
   return `You are a senior system design interviewer at a top-tier tech company.
 
@@ -79,7 +109,7 @@ INPUT CONTEXT
 
 User topic mastery state:
 ${stateSummary}
-
+${userContextSection}
 –––––––––––––––––
 CONCEPTS TO GENERATE (with intents)
 
@@ -152,22 +182,25 @@ Output ${count} lines now, one JSON object per line:`;
  * Async generator: stream NDJSON from LLM, parse each line, validate, assign UUID, yield reel.
  * Uses chat(stream: true); accumulates by newlines; yields reels as they are parsed.
  * V2: Uses BatchComposer for intent-based generation.
+ * V3: Supports user preferences and topic overlays.
  */
 export async function* generateReelsStream(
   env: Env,
   topicState: TopicStateRow[],
   concepts: ConceptV2[],
   count: number,
-  skipCounts: ConceptSkipCounts = {}
+  options: GenerationOptions = {}
 ): AsyncGenerator<GenerateReelInput> {
+  const { skipCounts = {}, userPrefs = new Map(), topicOverlays = [] } = options;
+  
   if (concepts.length === 0) {
     console.warn(`${LOG_PREFIX} stream concepts.length=0`);
     return;
   }
 
-  // Use batch composer to determine intents
-  const batch = composeBatch(topicState, concepts, skipCounts, count);
-  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}`);
+  // Use batch composer to determine intents (with user preferences)
+  const batch = composeBatch(topicState, concepts, skipCounts, count, userPrefs);
+  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, overlays=${topicOverlays.length}`);
 
   // Build concept map for name lookup
   const conceptMap = new Map(concepts.map((c) => [c.id, c]));
@@ -192,7 +225,7 @@ export async function* generateReelsStream(
           .join("; ")
       : "No prior activity.";
 
-  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, count);
+  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, count, topicOverlays);
 
   let stream: AsyncIterable<{ type: string; delta?: string; content?: string }>;
   try {
@@ -306,22 +339,25 @@ export async function* generateReelsStream(
  * Generate reels in one LLM call; returns array of reels with new UUIDs.
  * Uses a single non-streaming request then parses JSON (no outputSchema double-call).
  * V2: Uses BatchComposer for intent-based generation.
+ * V3: Supports user preferences and topic overlays.
  */
 export async function generateReelsBatch(
   env: Env,
   topicState: TopicStateRow[],
   concepts: ConceptV2[],
   count: number,
-  skipCounts: ConceptSkipCounts = {}
+  options: GenerationOptions = {}
 ): Promise<GenerateReelInput[]> {
+  const { skipCounts = {}, userPrefs = new Map(), topicOverlays = [] } = options;
+  
   if (concepts.length === 0) {
     console.warn(`${LOG_PREFIX} concepts.length=0, returning []`);
     return [];
   }
 
-  // Use batch composer to determine intents
-  const batch = composeBatch(topicState, concepts, skipCounts, count);
-  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}`);
+  // Use batch composer to determine intents (with user preferences)
+  const batch = composeBatch(topicState, concepts, skipCounts, count, userPrefs);
+  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, overlays=${topicOverlays.length}`);
 
   // Build concept map for name lookup
   const conceptMap = new Map(concepts.map((c) => [c.id, c]));
@@ -354,6 +390,8 @@ ${getIntentPromptInstructions(c.intent)}`;
     })
     .join("\n\n");
 
+  const userContextSection = buildUserContextSection(topicOverlays);
+
   const userPrompt = `You are a senior system design interviewer at a top-tier tech company.
 
 Your task is to generate interview-grade MCQ questions, not trivia.
@@ -365,7 +403,7 @@ INPUT CONTEXT
 
 User topic mastery state:
 ${stateSummary}
-
+${userContextSection}
 –––––––––––––––––
 CONCEPTS TO GENERATE (with intents)
 
