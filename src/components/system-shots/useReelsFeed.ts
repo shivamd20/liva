@@ -53,6 +53,9 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
   const loadingSegmentsRef = useRef<Set<string>>(new Set());
   // #endregion
 
+  // Track the currently streaming segment ID for incremental updates
+  const streamingSegmentIdRef = useRef<string | null>(null)
+
   // Flatten all reels from segments
   const allReels = useMemo(() => {
     const reels: ApiReel[] = []
@@ -70,7 +73,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     [allReels, continuedReelIds]
   )
 
-  // Load a specific sentinel segment
+  // Load a specific sentinel segment - streams reels and renders them incrementally
   const loadSegment = useCallback(
     async (segmentId: string) => {
       // #region agent log
@@ -109,81 +112,147 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
       DEBUG_LOG('useReelsFeed.ts:loadSegment', 'Starting load for segment (ref guard set)', { segmentId, cursor: segment.cursor }, 'H2');
       // #endregion
 
-      // Mark as loading in state
-      setSegments((prev) =>
-        prev.map((s) => (s.id === segmentId ? { ...s, status: "loading" as const } : s))
-      )
+      // Create a new reels segment immediately to replace the sentinel
+      // This allows us to render reels incrementally as they arrive
+      const newReelsSegmentId = createSegmentId()
+      streamingSegmentIdRef.current = newReelsSegmentId
+
+      // Replace sentinel with empty reels segment (loading status)
+      setSegments((prev) => {
+        const idx = prev.findIndex((s) => s.id === segmentId)
+        if (idx === -1) return prev
+        return [
+          ...prev.slice(0, idx),
+          { 
+            id: newReelsSegmentId, 
+            type: "reels" as const, 
+            reels: [], 
+            cursor: segment.cursor, 
+            status: "loading" as const 
+          },
+          ...prev.slice(idx + 1)
+        ]
+      })
 
       const url = segment.cursor
         ? `${STREAM_URL}?cursor=${encodeURIComponent(segment.cursor)}`
         : STREAM_URL
 
-      const batch: ApiReel[] = []
       let hasError = false
+      let reelCount = 0
 
       await consumeReelsStream(
         url,
-        (reel) => batch.push(reel),
+        (reel) => {
+          reelCount++
+          // Update state immediately for each reel - render as you fetch
+          setSegments((prev) => prev.map((seg) => 
+            seg.id === streamingSegmentIdRef.current
+              ? { ...seg, reels: [...(seg.reels ?? []), reel], cursor: reel.id }
+              : seg
+          ))
+        },
         (err) => {
           hasError = true
           onError?.(err)
         }
       )
 
+      // Clear the loading ref
+      loadingSegmentsRef.current.delete(segmentId);
+      streamingSegmentIdRef.current = null
+
       if (hasError) {
-        loadingSegmentsRef.current.delete(segmentId);
-        setSegments((prev) =>
-          prev.map((s) => (s.id === segmentId ? { ...s, status: "error" as const } : s))
-        )
+        // On error: convert reels segment back to sentinel (with error status) OR 
+        // if some reels were loaded, keep reels and add error sentinel for retry
+        setSegments((prev) => {
+          const idx = prev.findIndex((s) => s.id === newReelsSegmentId)
+          if (idx === -1) return prev
+          
+          const streamingSeg = prev[idx]
+          const loadedReels = streamingSeg.reels ?? []
+          
+          if (loadedReels.length === 0) {
+            // No reels loaded - convert back to sentinel with error status for retry
+            return [
+              ...prev.slice(0, idx),
+              { 
+                id: createSegmentId(), 
+                type: "sentinel" as const, 
+                cursor: segment.cursor, 
+                status: "error" as const 
+              },
+              ...prev.slice(idx + 1)
+            ]
+          }
+          
+          // Some reels loaded - keep them and add error sentinel for retry
+          const lastLoadedCursor = loadedReels[loadedReels.length - 1].id
+          return [
+            ...prev.slice(0, idx),
+            { ...streamingSeg, status: "idle" as const }, // Finalize loaded reels
+            { 
+              id: createSegmentId(), 
+              type: "sentinel" as const, 
+              cursor: lastLoadedCursor, 
+              status: "error" as const 
+            },
+            ...prev.slice(idx + 1)
+          ]
+        })
         return
       }
 
-      // Clear the loading ref
-      loadingSegmentsRef.current.delete(segmentId);
-      
-      // Replace sentinel with: reels segment + new sentinel
+      // Stream complete - finalize the segment and add sentinel for "Load More"
       setSegments((prev) => {
-        const idx = prev.findIndex((s) => s.id === segmentId)
+        const idx = prev.findIndex((s) => s.id === newReelsSegmentId)
         if (idx === -1) {
           // #region agent log
-          DEBUG_LOG('useReelsFeed.ts:loadSegment', 'Segment not found during replacement', { segmentId }, 'H4');
+          DEBUG_LOG('useReelsFeed.ts:loadSegment', 'Reels segment not found during finalization', { newReelsSegmentId }, 'H4');
           // #endregion
           return prev
         }
 
-        const newCursor = batch.length > 0 ? batch[batch.length - 1].id : null
+        const streamingSeg = prev[idx]
+        const finalCursor = streamingSeg.reels?.length 
+          ? streamingSeg.reels[streamingSeg.reels.length - 1].id 
+          : null
 
-        if (batch.length === 0) {
-          // No more reels - mark sentinel as done
+        if (reelCount === 0) {
+          // No more reels - mark segment as done (no new sentinel needed)
           // #region agent log
-          DEBUG_LOG('useReelsFeed.ts:loadSegment', 'No reels returned, marking as done', { segmentId }, 'H4');
+          DEBUG_LOG('useReelsFeed.ts:loadSegment', 'No reels returned, marking as done', { newReelsSegmentId }, 'H4');
           // #endregion
-          return prev.map((s) =>
-            s.id === segmentId ? { ...s, status: "done" as const } : s
-          )
+          return [
+            ...prev.slice(0, idx),
+            { 
+              id: createSegmentId(), 
+              type: "sentinel" as const, 
+              cursor: streamingSeg.cursor, 
+              status: "done" as const 
+            },
+            ...prev.slice(idx + 1)
+          ]
         }
 
-        // Replace sentinel with reels + new sentinel
-        const reelsSegment: FeedSegment = {
-          id: createSegmentId(),
-          type: "reels",
-          reels: batch,
-          cursor: newCursor,
-          status: "idle",
-        }
-
+        // Add new sentinel for "Load More"
         const newSentinel: FeedSegment = {
           id: createSegmentId(),
           type: "sentinel",
-          cursor: newCursor,
+          cursor: finalCursor,
           status: "idle",
         }
 
         // #region agent log
-        DEBUG_LOG('useReelsFeed.ts:loadSegment', 'Replacing sentinel with reels + new sentinel', { oldSegmentId: segmentId, reelsCount: batch.length, newSentinelId: newSentinel.id, newCursor }, 'H4');
+        DEBUG_LOG('useReelsFeed.ts:loadSegment', 'Stream complete, adding sentinel', { reelsSegmentId: newReelsSegmentId, reelsCount: reelCount, newSentinelId: newSentinel.id, finalCursor }, 'H4');
         // #endregion
 
-        return [...prev.slice(0, idx), reelsSegment, newSentinel, ...prev.slice(idx + 1)]
+        return [
+          ...prev.slice(0, idx),
+          { ...streamingSeg, status: "idle" as const },
+          newSentinel,
+          ...prev.slice(idx + 1)
+        ]
       })
     },
     [segments, onError]

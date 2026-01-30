@@ -183,9 +183,15 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     return () => observer.disconnect()
   }, [reelsToShow, answeredByReelId, submittedReelIds, submitSkip])
 
-  // Check if initial loading
-  const isInitialLoading = segments.length === 1 && segments[0].type === "sentinel" && segments[0].status === "loading"
-  const hasNoReels = reelsToShow.length === 0 && !isInitialLoading
+  // Check if initial loading (either old sentinel loading or new reels segment with no reels yet)
+  const isInitialLoading = 
+    (segments.length === 1 && segments[0].type === "sentinel" && segments[0].status === "loading") ||
+    (segments.length === 1 && segments[0].type === "reels" && segments[0].status === "loading" && (!segments[0].reels || segments[0].reels.length === 0))
+  
+  // Check if we're streaming more reels (reels segment exists with loading status and has some reels)
+  const isStreaming = segments.some((s) => s.type === "reels" && s.status === "loading" && s.reels && s.reels.length > 0)
+  
+  const hasNoReels = reelsToShow.length === 0 && !isInitialLoading && !isStreaming
 
   const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
 
@@ -232,9 +238,9 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
       <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory overscroll-contain touch-pan-y">
         {/* Render segments in order */}
         {segments.map((segment) => {
-          if (segment.type === "reels" && segment.reels) {
+          if (segment.type === "reels") {
             // Render reels from this segment
-            return segment.reels
+            const reelElements = (segment.reels ?? [])
               .filter((reel) => !new Set(localAnswerState.submittedAnswerReelIds).has(reel.id))
               .map((reel) => {
                 const i = reelIndex++
@@ -284,6 +290,43 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                   </div>
                 )
               })
+
+            // If segment is still streaming and has no reels yet, show skeleton
+            if (segment.status === "loading" && reelElements.length === 0) {
+              return (
+                <div
+                  key={`streaming-skeleton-${segment.id}`}
+                  className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
+                >
+                  <div className="w-full max-w-2xl space-y-4">
+                    <Skeleton className="h-8 w-full rounded-lg" />
+                    <Skeleton className="h-32 w-full rounded-xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                    <Skeleton className="h-12 w-full rounded-xl" />
+                  </div>
+                </div>
+              )
+            }
+
+            // If segment is still streaming and has some reels, show streaming indicator after reels
+            if (segment.status === "loading" && reelElements.length > 0) {
+              return [
+                ...reelElements,
+                <div
+                  key={`streaming-indicator-${segment.id}`}
+                  className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">Loading more...</p>
+                  </div>
+                </div>
+              ]
+            }
+
+            return reelElements
           }
 
           if (segment.type === "sentinel") {
