@@ -24,7 +24,7 @@ export type ApiReel = {
 }
 
 const REELS_PAGE_SIZE = 50
-/** Pre-fetch next page when user is this many reels from the end (e.g. 20 = fetch when at reel 30 of 50). */
+/** Pre-fetch next page when user is this many unconsumed reels from the end. */
 const PREFETCH_WHEN_REELS_FROM_END = 20
 /** Client-side mock only when explicitly set (server-side mock is controlled by USE_SYSTEM_SHOTS_MOCK in wrangler vars). */
 const USE_MOCK = import.meta.env.VITE_USE_SYSTEM_SHOTS_MOCK === "true"
@@ -75,6 +75,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     hasNextPage,
     isFetchingNextPage,
     isLoading,
+    refetch: refetchReels,
   } = useInfiniteQuery({
     queryKey: ["system-shots", "reels"],
     queryFn: async ({ pageParam }) => {
@@ -125,6 +126,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const reels: ApiReel[] = USE_MOCK
     ? (mockReels as ApiReel[])
     : (data?.pages.flatMap((p) => p.reels) ?? []) as ApiReel[]
+
+  /** Feed newness: show only reels not yet answered (so refresh doesn't show already-answered reels). */
+  const reelsToShow = useMemo(
+    () => reels.filter((r) => !submittedAnswerReelIds.has(r.id)),
+    [reels, submittedAnswerReelIds]
+  )
 
   const scrollToReel = useCallback((index: number) => {
     reelRefs.current[index]?.scrollIntoView({ behavior: "smooth" })
@@ -177,11 +184,11 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         })
       }
       const nextIndex = index + 1
-      if (nextIndex < reels.length) {
+      if (nextIndex < reelsToShow.length) {
         scrollToNextReel(nextIndex)
       }
     },
-    [reels.length, submittedAnswerReelIds, submitAnswerMutation, scrollToNextReel, updateLocalAnswerState]
+    [reelsToShow.length, submittedAnswerReelIds, submitAnswerMutation, scrollToNextReel, updateLocalAnswerState]
   )
 
   const submitSkip = useCallback(
@@ -202,6 +209,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     [submittedReelIds, submitAnswerMutation, updateLocalAnswerState]
   )
 
+  // On mount: refetch reels so we get fresh unconsumed feed from server (when online).
+  useEffect(() => {
+    if (USE_MOCK) return
+    refetchReels()
+  }, [refetchReels])
+
   useEffect(() => {
     const nodes = reelRefs.current
     if (nodes.length === 0) return
@@ -217,19 +230,25 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     )
     nodes.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [reels.length])
+  }, [reelsToShow.length])
 
-  // Pre-fetch next 50 when user is ~halfway through current batch (e.g. at 30th reel of 50)
+  // Pre-fetch when unconsumed (shown) reels are running low, so feed stays fresh.
   useEffect(() => {
-    if (USE_MOCK || reels.length === 0) return
-    const reelsFromEnd = reels.length - 1 - currentReelIndex
-    if (reelsFromEnd <= PREFETCH_WHEN_REELS_FROM_END && hasNextPage && !isFetchingNextPage) {
+    if (USE_MOCK || reelsToShow.length === 0) return
+    const unconsumedFromEnd = reelsToShow.length - 1 - currentReelIndex
+    if (unconsumedFromEnd <= PREFETCH_WHEN_REELS_FROM_END && hasNextPage && !isFetchingNextPage) {
       fetchNextPage()
     }
-  }, [currentReelIndex, reels.length, hasNextPage, isFetchingNextPage, fetchNextPage])
+  }, [currentReelIndex, reelsToShow.length, hasNextPage, isFetchingNextPage, fetchNextPage])
+
+  // All cached reels are answered (e.g. after refresh): refetch to get fresh unconsumed feed.
+  useEffect(() => {
+    if (USE_MOCK || reels.length === 0 || reelsToShow.length > 0 || isLoading || isFetchingNextPage) return
+    refetchReels()
+  }, [reels.length, reelsToShow.length, isLoading, isFetchingNextPage, refetchReels])
 
   useEffect(() => {
-    if (USE_MOCK || reels.length === 0) return
+    if (USE_MOCK || reelsToShow.length === 0) return
     const sentinel = loadMoreRef.current
     const scrollRoot = scrollContainerRef.current
     if (!sentinel) return
@@ -246,13 +265,13 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [reels.length, isFetchingNextPage, fetchNextPage])
+  }, [reelsToShow.length, isFetchingNextPage, fetchNextPage])
 
   // Skip = user scrolled past a reel that was in view without answering. Do NOT mark reels as skipped just because they're below the fold on load.
   useEffect(() => {
-    if (USE_MOCK || reels.length === 0) return
+    if (USE_MOCK || reelsToShow.length === 0) return
     const reelElements = reelRefs.current
-    const reelIds = reels.map((r) => r.id)
+    const reelIds = reelsToShow.map((r) => r.id)
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -276,11 +295,11 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     )
     reelElements.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [reels, answeredByReelId, submittedReelIds, submitSkip])
+  }, [reelsToShow, answeredByReelId, submittedReelIds, submitSkip])
 
-  const progressPercent = reels.length > 0 ? ((currentReelIndex + 1) / reels.length) * 100 : 0
+  const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
 
-  const showEmpty = !USE_MOCK && reels.length === 0 && !isLoading
+  const showEmpty = !USE_MOCK && reelsToShow.length === 0 && !isLoading
   const showGenerating = !USE_MOCK && reels.length === 0 && isLoading
 
   if (showProgressView) {
@@ -340,7 +359,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           </div>
         )}
 
-        {reels.map((reel, i) => {
+        {reelsToShow.map((reel, i) => {
           const theme: ReelTheme = REEL_THEMES[i % REEL_THEMES.length]
           const themeVar = `var(--color-${theme})`
           const dynamicBg = {
@@ -398,7 +417,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           )
         })}
 
-        {!USE_MOCK && reels.length > 0 && (
+        {!USE_MOCK && reelsToShow.length > 0 && (
           <div
             ref={loadMoreRef}
             className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center"
