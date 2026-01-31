@@ -37,9 +37,10 @@ export async function judge(
   const startTime = Date.now();
 
   // Get tests to run
+  const allTests = problem.tests || [];
   const tests = testFilter === 'all'
-    ? problem.tests
-    : problem.tests.filter(t => t.visibility === 'visible');
+    ? allTests
+    : allTests.filter(t => t.visibility === 'visible');
 
   if (tests.length === 0) {
     return {
@@ -101,8 +102,8 @@ export async function judge(
 
     // 6. Handle engine-level errors (timeout, OOM)
     if (execResult.error) {
-      const verdict = execResult.error.type === 'timeout' ? 'TLE' : 
-                      execResult.error.type === 'oom' ? 'MLE' : 'RE';
+      const verdict = execResult.error.type === 'timeout' ? 'TLE' :
+        execResult.error.type === 'oom' ? 'MLE' : 'RE';
       return {
         verdict,
         score: 0,

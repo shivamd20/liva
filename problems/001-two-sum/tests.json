@@ -1,0 +1,217 @@
+[
+    {
+        "testId": "visible-1",
+        "input": [
+            [
+                2,
+                7,
+                11,
+                15
+            ],
+            9
+        ],
+        "expected": [
+            0,
+            1
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "visible",
+        "weight": 1,
+        "description": "Basic case from example 1"
+    },
+    {
+        "testId": "visible-2",
+        "input": [
+            [
+                3,
+                2,
+                4
+            ],
+            6
+        ],
+        "expected": [
+            1,
+            2
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "visible",
+        "weight": 1,
+        "description": "Basic case from example 2"
+    },
+    {
+        "testId": "visible-3",
+        "input": [
+            [
+                3,
+                3
+            ],
+            6
+        ],
+        "expected": [
+            0,
+            1
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "visible",
+        "weight": 1,
+        "description": "Same element value at different indices"
+    },
+    {
+        "testId": "hidden-1",
+        "input": [
+            [
+                -1,
+                -2,
+                -3,
+                -4,
+                -5
+            ],
+            -8
+        ],
+        "expected": [
+            2,
+            4
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 2,
+        "description": "All negative numbers"
+    },
+    {
+        "testId": "hidden-2",
+        "input": [
+            [
+                0,
+                4,
+                3,
+                0
+            ],
+            0
+        ],
+        "expected": [
+            0,
+            3
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 2,
+        "description": "Target is zero, result includes zeros"
+    },
+    {
+        "testId": "hidden-3",
+        "input": [
+            [
+                1000000000,
+                -1000000000,
+                3,
+                4
+            ],
+            0
+        ],
+        "expected": [
+            0,
+            1
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 2,
+        "description": "Large positive and negative numbers"
+    },
+    {
+        "testId": "hidden-4",
+        "input": [
+            [
+                1,
+                2
+            ],
+            3
+        ],
+        "expected": [
+            0,
+            1
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 1,
+        "description": "Minimum array size"
+    },
+    {
+        "testId": "hidden-5",
+        "input": [
+            [
+                5,
+                75,
+                25
+            ],
+            100
+        ],
+        "expected": [
+            1,
+            2
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 1,
+        "description": "Answer not at start"
+    },
+    {
+        "testId": "hidden-6",
+        "input": [
+            [
+                1,
+                5,
+                5,
+                3
+            ],
+            10
+        ],
+        "expected": [
+            1,
+            2
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 2,
+        "description": "Duplicate values in array where both are needed"
+    },
+    {
+        "testId": "hidden-7",
+        "input": [
+            [
+                -3,
+                4,
+                3,
+                90
+            ],
+            0
+        ],
+        "expected": [
+            0,
+            2
+        ],
+        "comparator": {
+            "type": "unorderedArray"
+        },
+        "visibility": "hidden",
+        "weight": 2,
+        "description": "Negative and positive adding to zero"
+    }
+]

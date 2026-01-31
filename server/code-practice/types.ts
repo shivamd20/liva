@@ -2,78 +2,28 @@
  * Code Practice Type Definitions
  * 
  * This module defines the core types for the code practice system.
- * All problems follow a language-neutral format with LeetCode-compatible encoding.
+ * Types are now derived from Zod schemas for runtime validation.
  */
 
-// =============================================================================
-// Type Specifications (Language-Neutral)
-// =============================================================================
+import { z } from 'zod';
+import {
+  ProblemSchema,
+  TestCaseSchema,
+  ExampleSchema,
+  TypeSpecSchema,
+  ComparatorSpecSchema,
+  FunctionSignatureSchema,
+  FunctionParamSchema
+} from './schema';
 
-export type TypeSpec =
-  | { kind: 'int' }
-  | { kind: 'long' }
-  | { kind: 'float' }
-  | { kind: 'double' }
-  | { kind: 'string' }
-  | { kind: 'char' }
-  | { kind: 'boolean' }
-  | { kind: 'array'; of: TypeSpec }
-  | { kind: 'matrix'; of: TypeSpec }  // 2D array shorthand
-  | { kind: 'tuple'; elements: TypeSpec[] }
-  | { kind: 'object'; fields: Record<string, TypeSpec> }
-  | { kind: 'tree' }           // Binary tree (LeetCode level-order encoding)
-  | { kind: 'linkedList' }     // Singly linked list
-  | { kind: 'graph' }          // Adjacency list representation
-  | { kind: 'void' };          // For methods that return nothing
-
-// =============================================================================
-// Comparator Specifications
-// =============================================================================
-
-export type ComparatorSpec =
-  | { type: 'exact' }
-  | { type: 'numeric'; tolerance: number }
-  | { type: 'unorderedArray' }
-  | { type: 'set' }
-  | { type: 'multiset' }
-  | { type: 'floatArray'; tolerance: number };
-
-// =============================================================================
-// Function Signature
-// =============================================================================
-
-export interface FunctionParam {
-  name: string;
-  type: string;        // Java type string: "int[]", "TreeNode", etc.
-  typeSpec: TypeSpec;  // Structured type for parsing
-}
-
-export interface FunctionSignature {
-  name: string;
-  params: FunctionParam[];
-  returnType: string;
-  returnTypeSpec: TypeSpec;
-}
-
-// =============================================================================
-// Test Cases
-// =============================================================================
-
-export interface TestCase {
-  testId: string;
-  input: unknown[];           // Array of arguments (canonical JSON values)
-  expected: unknown;          // Expected output (canonical JSON value)
-  comparator: ComparatorSpec;
-  visibility: 'visible' | 'hidden';
-  weight: number;             // For partial scoring
-  description?: string;       // Optional description for debugging
-}
-
-export interface Example {
-  input: unknown[];
-  output: unknown;
-  explanation?: string;
-}
+// Export Zod-inferred types
+export type Problem = z.infer<typeof ProblemSchema>;
+export type TestCase = z.infer<typeof TestCaseSchema>;
+export type Example = z.infer<typeof ExampleSchema>;
+export type TypeSpec = z.infer<typeof TypeSpecSchema>;
+export type ComparatorSpec = z.infer<typeof ComparatorSpecSchema>;
+export type FunctionSignature = z.infer<typeof FunctionSignatureSchema>;
+export type FunctionParam = z.infer<typeof FunctionParamSchema>;
 
 // =============================================================================
 // File Specifications (Per-Language)
@@ -103,7 +53,6 @@ export interface PythonFileSpec {
 export interface FileSpecs {
   java?: JavaFileSpec;
   python?: PythonFileSpec;
-  // Future: javascript, typescript, etc.
 }
 
 // Default file specs
@@ -111,55 +60,6 @@ export const DEFAULT_JAVA_FILE_SPEC: JavaFileSpec = {
   mainClass: 'Main',
   solutionClass: 'Solution',
 };
-
-// =============================================================================
-// Problem Definition
-// =============================================================================
-
-export interface Problem {
-  problemId: string;
-  title: string;
-  difficulty: 'easy' | 'medium' | 'hard';
-  topics: string[];
-  description: string;        // Markdown
-  constraints: string[];
-  inputSpec: TypeSpec;        // Overall input structure
-  outputSpec: TypeSpec;       // Overall output structure
-  functionSignature: FunctionSignature;
-  examples: Example[];
-  tests: TestCase[];
-
-  /**
-   * Starter code per language - what users see when they begin the problem.
-   * Should be runnable but produce wrong answer (returns placeholder values).
-   */
-  starterCode?: {
-    java?: string;
-  };
-
-  /**
-   * Reference solutions per language - correct solutions used for testing.
-   * Not exposed to users.
-   */
-  referenceSolutions?: {
-    java?: string;
-  };
-
-  hints?: string[];
-  timeLimit?: number;         // ms, default 2000
-  memoryLimit?: number;       // MB, default 256
-
-  /**
-   * Java harness code (Main.java content).
-   * This is the judge-owned entry point that:
-   * - Parses stdin JSON (testcases array)
-   * - Iterates over each test case
-   * - Calls user's solution method
-   * - Catches exceptions per test
-   * - Emits sentinel-delimited JSON output
-   */
-  javaHarness?: string;
-}
 
 // =============================================================================
 // Execution Types

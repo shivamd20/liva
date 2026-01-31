@@ -80,8 +80,8 @@ export class ProblemStore {
             this.bucket.put(`${prefix}/tests.json`, JSON.stringify(problem.tests)),
         ];
 
-        if (problem.starterCode?.java) {
-            ops.push(this.bucket.put(`${prefix}/starter/java.java`, problem.starterCode.java));
+        if (problem.starterCode?.['java']) {
+            ops.push(this.bucket.put(`${prefix}/starter/java.java`, problem.starterCode['java']));
         }
 
         if (problem.javaHarness) {
@@ -89,8 +89,8 @@ export class ProblemStore {
         }
 
         // Optional: Reference solutions (stored but maybe not used immediately)
-        if (problem.referenceSolutions?.java) {
-            ops.push(this.bucket.put(`${prefix}/reference/java.java`, problem.referenceSolutions.java));
+        if (problem.referenceSolutions?.['java']) {
+            ops.push(this.bucket.put(`${prefix}/reference/java.java`, problem.referenceSolutions['java']));
         }
 
         await Promise.all(ops);

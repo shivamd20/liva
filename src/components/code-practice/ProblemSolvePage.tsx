@@ -737,6 +737,8 @@ function SubmissionsHistory({ submissions, isLoading }: { submissions?: any[], i
   );
 }
 
+
+
 function formatTestInput(input: unknown): string {
   if (Array.isArray(input)) {
     return input.map(item => formatOutput(item)).join(', ');
@@ -757,27 +759,9 @@ function formatOutput(value: unknown): string {
 
 // Helper to convert TypeSpec to Java type string
 function typeSpecToJava(typeSpec: any): string {
-  // Handle string type specs (e.g., "int", "string")
-  if (typeof typeSpec === 'string') {
-    switch (typeSpec) {
-      case 'int': return 'int';
-      case 'long': return 'long';
-      case 'float': return 'float';
-      case 'double': return 'double';
-      case 'boolean': return 'boolean';
-      case 'string': return 'String';
-      case 'char': return 'char';
-      case 'void': return 'void';
-      case 'linkedList': return 'ListNode';
-      case 'tree': return 'TreeNode';
-      default: return 'Object';
-    }
-  }
-
-  // Handle object type specs
-  if (typeSpec && typeof typeSpec === 'object' && 'type' in typeSpec) {
-    const spec = typeSpec as { type: string; elementType?: unknown };
-    switch (spec.type) {
+  // Handle Zod/Object type specs
+  if (typeSpec && typeof typeSpec === 'object' && 'kind' in typeSpec) {
+    switch (typeSpec.kind) {
       case 'int': return 'int';
       case 'long': return 'long';
       case 'float': return 'float';
@@ -787,20 +771,15 @@ function typeSpecToJava(typeSpec: any): string {
       case 'char': return 'char';
       case 'void': return 'void';
       case 'array':
-        if (spec.elementType) {
-          return `${typeSpecToJava(spec.elementType)}[]`;
-        }
-        return 'Object[]';
+        return `${typeSpecToJava(typeSpec.of)}[]`;
       case 'matrix':
-        if (spec.elementType) {
-          return `${typeSpecToJava(spec.elementType)}[][]`;
-        }
-        return 'Object[][]';
+        return `${typeSpecToJava(typeSpec.of)}[][]`;
       case 'linkedList': return 'ListNode';
       case 'tree': return 'TreeNode';
       default: return 'Object';
     }
   }
 
+  // Fallback or error
   return 'Object';
 }

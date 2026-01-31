@@ -113,7 +113,7 @@ export const codePracticeRouter = t.router({
       }
 
       // Return full problem with visible tests only
-      const visibleTests = problem.tests.filter(t => t.visibility === 'visible');
+      const visibleTests = (problem.tests || []).filter(t => t.visibility === 'visible');
 
       console.log(`[ROUTER] Returning problem with ${visibleTests.length} visible tests`);
       return {
@@ -188,7 +188,7 @@ export const codePracticeRouter = t.router({
 
       // For hidden tests, only return pass/fail, not details
       const sanitizedResults = result.testResults.map(r => {
-        const test = problem.tests.find(t => t.testId === r.testId);
+        const test = (problem.tests || []).find(t => t.testId === r.testId);
         if (test?.visibility === 'hidden') {
           return {
             testId: r.testId,
