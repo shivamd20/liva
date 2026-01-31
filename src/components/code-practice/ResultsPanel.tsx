@@ -9,6 +9,8 @@ import type { ExecutionResult } from '../../hooks/useCodePractice';
 interface ResultsPanelProps {
   result: ExecutionResult | null;
   isLoading: boolean;
+  onRetry?: () => void;
+  onNext?: () => void;
 }
 
 const verdictConfig: Record<string, { label: string; color: string; icon: typeof CheckCircle2 }> = {
@@ -21,56 +23,81 @@ const verdictConfig: Record<string, { label: string; color: string; icon: typeof
   PA: { label: 'Partially Accepted', color: 'text-yellow-500 bg-yellow-500/10', icon: AlertCircle },
 };
 
-export function ResultsPanel({ result, isLoading }: ResultsPanelProps) {
+export function ResultsPanel({ result, isLoading, onRetry, onNext }: ResultsPanelProps) {
   if (isLoading) {
     return (
-      <div className="p-4 flex items-center gap-3">
-        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="text-muted-foreground">Running tests...</span>
+      <div className="h-full flex flex-col items-center justify-center gap-3 p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="text-muted-foreground font-medium">Running tests...</span>
       </div>
     );
   }
 
   if (!result) {
-    return null;
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+        <div className="bg-muted/30 p-4 rounded-full mb-3">
+          <Clock className="h-6 w-6 opacity-50" />
+        </div>
+        <p className="font-medium">Ready to run</p>
+        <p className="text-sm">Run your code to see results here</p>
+      </div>
+    );
   }
 
   const config = verdictConfig[result.verdict] || verdictConfig.RE;
   const Icon = config.icon;
+  const isSuccess = result.verdict === 'AC';
 
   return (
-    <div className="p-4 space-y-4">
-      {/* Overall Verdict */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Icon className={`h-6 w-6 ${config.color.split(' ')[0]}`} />
-          <div>
-            <span className={`font-semibold ${config.color.split(' ')[0]}`}>
-              {config.label}
+    <div className="p-4 space-y-6">
+      {/* Overall Verdict Banner */}
+      <div className={`rounded-xl border p-6 flex flex-col items-center text-center gap-4 ${result.verdict === 'AC' ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+        <div className={`p-3 rounded-full ${result.verdict === 'AC' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' : 'bg-red-100 dark:bg-red-900/30 text-red-600'}`}>
+          <Icon className="h-8 w-8" />
+        </div>
+        <div>
+          <h2 className="text-2xl font-bold mb-1">{config.label}</h2>
+          <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <Clock className="h-3 w-3" /> {result.totalTimeMs}ms
             </span>
-            {result.score !== undefined && result.score < 1 && result.score > 0 && (
-              <span className="ml-2 text-muted-foreground">
-                ({Math.round(result.score * 100)}% passed)
-              </span>
-            )}
+            <span>•</span>
+            <span>
+              {result.testResults.filter(t => t.passed).length}/{result.testResults.length} tests passed
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <span>
-            <Clock className="h-4 w-4 inline mr-1" />
-            {result.totalTimeMs}ms
-          </span>
-          <span>
-            {result.testResults.filter(t => t.passed).length}/{result.testResults.length} tests passed
-          </span>
+
+        {/* Actions */}
+        <div className="flex gap-3 mt-2 w-full max-w-xs">
+          {onRetry && !isSuccess && (
+            <button
+              onClick={onRetry}
+              className="flex-1 bg-secondary hover:bg-secondary/80 text-secondary-foreground h-9 rounded-md text-sm font-medium transition-colors"
+            >
+              Retry
+            </button>
+          )}
+          {onNext && isSuccess && (
+            <button
+              onClick={onNext}
+              className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground h-9 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            >
+              Next Problem
+              <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-4 w-4"><path d="M6.1584 3.13508C6.35985 2.94621 6.67627 2.95642 6.86514 3.15788L10.6151 7.15788C10.7954 7.3502 10.7954 7.64949 10.6151 7.84182L6.86514 11.8418C6.67627 12.0433 6.35985 12.0535 6.1584 11.8646C5.95694 11.6757 5.94673 11.3593 6.1356 11.1579L9.56039 7.49985L6.1356 3.84182C5.94673 3.64036 5.95694 3.32394 6.1584 3.13508Z" fill="currentColor" fillRule="evenodd" clipRule="evenodd"></path></svg>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Compilation Error */}
       {result.compilationError && (
-        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3">
-          <p className="text-sm font-medium text-red-500 mb-2">Compilation Error</p>
-          <pre className="text-xs text-red-400 whitespace-pre-wrap font-mono overflow-x-auto">
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4">
+          <p className="text-sm font-semibold text-destructive mb-2 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" /> Compilation Error
+          </p>
+          <pre className="text-xs text-destructive whitespace-pre-wrap font-mono overflow-x-auto bg-background/50 p-3 rounded border">
             {result.compilationError}
           </pre>
         </div>
@@ -78,9 +105,11 @@ export function ResultsPanel({ result, isLoading }: ResultsPanelProps) {
 
       {/* Runtime Error */}
       {result.runtimeError && (
-        <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3">
-          <p className="text-sm font-medium text-red-500 mb-2">Runtime Error</p>
-          <pre className="text-xs text-red-400 whitespace-pre-wrap font-mono overflow-x-auto">
+        <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-4">
+          <p className="text-sm font-semibold text-destructive mb-2 flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" /> Runtime Error
+          </p>
+          <pre className="text-xs text-destructive whitespace-pre-wrap font-mono overflow-x-auto bg-background/50 p-3 rounded border">
             {result.runtimeError}
           </pre>
         </div>
@@ -88,8 +117,8 @@ export function ResultsPanel({ result, isLoading }: ResultsPanelProps) {
 
       {/* Test Results */}
       {result.testResults.length > 0 && !result.compilationError && (
-        <div className="space-y-2">
-          <p className="text-sm font-medium">Test Cases</p>
+        <div className="space-y-3">
+          <h3 className="font-medium">Test Case Details</h3>
           <div className="space-y-2">
             {result.testResults.map((test, index) => (
               <TestResultCard key={test.testId} test={test} index={index} />
@@ -108,7 +137,7 @@ interface TestResultCardProps {
 
 function TestResultCard({ test, index }: TestResultCardProps) {
   const isHidden = !test.expectedOutput && !test.actualOutput;
-  
+
   return (
     <div className={`rounded-md border p-3 ${test.passed ? 'border-green-500/20 bg-green-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
       <div className="flex items-center justify-between mb-2">
@@ -129,8 +158,8 @@ function TestResultCard({ test, index }: TestResultCardProps) {
               {test.timeMs}ms
             </Badge>
           )}
-          <Badge 
-            variant="outline" 
+          <Badge
+            variant="outline"
             className={`text-xs ${test.passed ? 'text-green-500 border-green-500/30' : 'text-red-500 border-red-500/30'}`}
           >
             {test.verdict}
