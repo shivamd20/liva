@@ -1,0 +1,25 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import { starterCode as STARTER_CODE, referenceSolution as REFERENCE_SOLUTION } from '../../../../problems/015-linked-list-cycle/java';
+
+const API_PORT = process.env.API_PORT || '5173';
+const API_BASE = `http://localhost:${API_PORT}/api/v1`;
+const PROBLEM_ID = 'linked-list-cycle';
+
+interface JudgeResponse { verdict: string; score: number; }
+async function runCode(code: string): Promise<JudgeResponse> {
+    const response = await fetch(`${API_BASE}/codePractice.runCode`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ problemId: PROBLEM_ID, code, language: 'java' }) });
+    const json = await response.json() as { result: { data: JudgeResponse } };
+    return json.result.data;
+}
+async function healthCheck(): Promise<boolean> { try { return (await fetch(`${API_BASE}/codePractice.health`)).ok; } catch { return false; } }
+
+const WRONG_ALWAYS_FALSE = `class UserSolution { public boolean hasCycle(ListNode head) { return false; } }`;
+const COMPILE_ERROR = `class UserSolution { public boolean hasCycle(ListNode head) { return false }`; // Missing semicolon
+
+describe('Problem 015: Linked List Cycle', () => {
+    beforeAll(async () => { if (!(await healthCheck())) throw new Error('Dev server not running'); });
+    describe('Starter Code', () => { it('should be runnable and return WA', async () => { const result = await runCode(STARTER_CODE); expect(result.verdict).not.toBe('CE'); expect(['WA', 'PA']).toContain(result.verdict); }, 60000); });
+    describe('Accepted (AC)', () => { it('should return AC', async () => { const result = await runCode(REFERENCE_SOLUTION); expect(result.verdict).toBe('AC'); expect(result.score).toBe(1.0); }, 60000); });
+    describe('Wrong Answer (WA)', () => { it('should return WA for always false', async () => { const result = await runCode(WRONG_ALWAYS_FALSE); expect(['WA', 'PA']).toContain(result.verdict); }, 60000); });
+    describe('Compile Error (CE)', () => { it('should return CE', async () => { const result = await runCode(COMPILE_ERROR); expect(result.verdict).toBe('CE'); }, 60000); });
+});

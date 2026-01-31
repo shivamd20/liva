@@ -14,6 +14,10 @@ export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
 export { LearningMemoryDO } from "./do/LearningMemoryDO";
+export { CodePracticeDO } from "./do/CodePracticeDO";
+
+// Export Cloudflare Sandbox for Code Practice
+export { Sandbox as CodePracticeSandbox } from "@cloudflare/sandbox";
 
 
 /** Example Durable Object (kept for reference) */
@@ -365,6 +369,17 @@ export default {
 				req: request,
 				router: appRouter,
 				createContext: async () => {
+					// Check if this is a code practice or engine endpoint (public, no auth required)
+					const isPublicEndpoint = url.search.includes('codePractice.') || 
+						url.pathname.includes('codePractice') ||
+						url.search.includes('engine.') ||
+						url.pathname.includes('engine');
+					
+					if (isPublicEndpoint) {
+						// Public endpoints don't require authentication
+						return { env, userId: 'anonymous' };
+					}
+					
 					const auth = createAuth(env);
 					const session = await auth.api.getSession({ headers: request.headers });
 					let userId = session?.user?.id;

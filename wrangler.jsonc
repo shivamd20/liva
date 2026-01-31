@@ -10,6 +10,14 @@
 	"compatibility_flags": [
 		"nodejs_compat"
 	],
+	"containers": [
+		{
+			"class_name": "CodePracticeSandbox",
+			"image": "./containers/code-practice/Dockerfile",
+			"instance_type": "lite",
+			"max_instances": 1
+		}
+	],
 	"migrations": [
 		{
 			"new_sqlite_classes": [
@@ -71,6 +79,18 @@
 				"LearningMemoryDO"
 			],
 			"tag": "v10"
+		},
+		{
+			"new_sqlite_classes": [
+				"CodePracticeSandbox"
+			],
+			"tag": "v11"
+		},
+		{
+			"new_sqlite_classes": [
+				"CodePracticeDO"
+			],
+			"tag": "v12"
 		}
 	],
 	"assets": {
@@ -126,6 +146,14 @@
 			{
 				"class_name": "LearningMemoryDO",
 				"name": "SYSTEM_SHOTS_DO"
+			},
+			{
+				"class_name": "CodePracticeSandbox",
+				"name": "CODE_PRACTICE_SANDBOX"
+			},
+			{
+				"class_name": "CodePracticeDO",
+				"name": "CODE_PRACTICE_DO"
 			}
 		]
 	},
