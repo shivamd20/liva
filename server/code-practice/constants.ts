@@ -4,7 +4,7 @@ import { z } from 'zod';
 // For streaming, we don't strictly enforce a single giant Output Schema.
 // Instead we expect a specific NDJSON structure.
 export const PROMPTS = {
-   GENERATE_PROBLEM: (intent: string) => `# GENERATE_PROBLEM Prompt v1 - Protocol v1
+  GENERATE_PROBLEM: (intent: string) => `# GENERATE_PROBLEM Prompt v1 - Protocol v1
 
 Generate a complete coding problem definition based on the following intent: "${intent}"
 
@@ -56,7 +56,7 @@ Rules:
 * No randomized tests
 * No tests outside constraints`,
 
-   GENERATE_IMPLEMENTATION: (problem: any) => `# GENERATE_IMPLEMENTATION Prompt v1 - Protocol v1
+  GENERATE_IMPLEMENTATION: (problem: any) => `# GENERATE_IMPLEMENTATION Prompt v1 - Protocol v1
 
 Generate fully runnable Java code that compiles on Java 17+, uses Gson as the only external dependency, and executes user code against the following problem definition.
 
@@ -96,13 +96,18 @@ Rules:
 * Optimized for asymptotic complexity
 * No truncation
 
-## 3. Harness (Main.java)
+## 3. Harness (Main.java) [MANDATORY / SUPER REQUIRED]
+* **THIS SECTION IS CRITICAL. YOU MUST GENERATE THE HARNESS.**
 {"type":"harness","content":"<FULL Main.java CODE>"}
 
 ### HARNESS HARD RULES
 * Java 17+
 * Gson **must be explicitly imported**
-* Reads **entire stdin** as JSON
+* Reads **entire stdin** as JSON. 
+* **DO NOT** use \`System.in.lines()\` (invalid symbol). 
+* Use this boilerplate for reading stdin:
+  \`Scanner scanner = new Scanner(System.in).useDelimiter("\\\\A");\`
+  \`String jsonInput = scanner.hasNext() ? scanner.next() : "{}";\`
 * Input format: {"testcases":[{"id":1,"input":[...]},...]}
 * Input shape must be validated before execution
 * Malformed input = **hard failure**
@@ -138,5 +143,6 @@ System.out.println("<<<JUDGE_OUTPUT_V1_END>>>");
 Rules:
 * Nothing printed outside sentinels
 * Include stack traces for runtime errors
-* Compile errors reported verbosely`
+* Compile errors reported verbosely
+* **Gson Usage**: Use \`.add(String, JsonElement)\` for objects/arrays. **DO NOT** use \`.addProperty(String, JsonArray/JsonObject)\` (compilation error).`
 };
