@@ -15,6 +15,7 @@ export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
 export { LearningMemoryDO } from "./do/LearningMemoryDO";
 export { CodePracticeDO } from "./do/CodePracticeDO";
+export { ProblemRegistryDO } from "./do/ProblemRegistryDO";
 
 // Export Cloudflare Sandbox for Code Practice
 export { Sandbox as CodePracticeSandbox } from "@cloudflare/sandbox";

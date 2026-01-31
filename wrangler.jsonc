@@ -91,6 +91,12 @@
 				"CodePracticeDO"
 			],
 			"tag": "v12"
+		},
+		{
+			"new_sqlite_classes": [
+				"ProblemRegistryDO"
+			],
+			"tag": "v13"
 		}
 	],
 	"assets": {
@@ -154,6 +160,10 @@
 			{
 				"class_name": "CodePracticeDO",
 				"name": "CODE_PRACTICE_DO"
+			},
+			{
+				"class_name": "ProblemRegistryDO",
+				"name": "PROBLEM_REGISTRY_DO"
 			}
 		]
 	},

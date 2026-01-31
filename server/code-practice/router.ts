@@ -6,10 +6,12 @@
 
 import { z } from 'zod';
 import { t, publicProcedure, authedProcedure } from '../trpc-config';
-import { getProblem, listProblems } from '../../problems';
+import { listProblems as staticListProblems } from '../../problems'; // Renamed for migration usage
 import { CodePracticeService } from './service';
 import { judge } from './judge';
-import type { Language, Verdict, ExecutionResult, TestResult } from './types';
+import type { Language, Verdict, ExecutionResult, TestResult, Problem } from './types';
+import { ProblemStore } from '../lib/problem-store';
+import { problems as staticProblemMap } from '../../problems/index'; // Import for seeding
 
 // Zod schemas
 const languageSchema = z.enum(['java', 'javascript', 'typescript', 'python']);
@@ -53,56 +55,66 @@ const getSubmissionsInput = z.object({
   limit: z.number().min(1).max(50).optional(),
 });
 
+// Helper to get Registry DO
+function getRegistryDO(env: Env) {
+  const id = env.PROBLEM_REGISTRY_DO.idFromName('singleton'); // Singleton instance
+  return env.PROBLEM_REGISTRY_DO.get(id);
+}
+
 // Router
 export const codePracticeRouter = t.router({
   /**
    * List all problems with optional filtering
+   * Uses ProblemRegistryDO
    */
   listProblems: publicProcedure
     .input(listProblemsInput)
-    .query(({ input }) => {
+    .query(async ({ input, ctx }) => {
       console.log(`[ROUTER] listProblems called`, input);
-      
-      let result = listProblems();
-      
-      if (input?.difficulty) {
-        result = result.filter(p => p.difficulty === input.difficulty);
-      }
-      
-      if (input?.topic) {
-        const topic = input.topic;
-        result = result.filter(p => p.topics.includes(topic));
-      }
-      
-      // Return summary without test cases
-      const summary = result.map(p => ({
-        problemId: p.problemId,
-        title: p.title,
-        difficulty: p.difficulty,
-        topics: p.topics,
-      }));
-      
-      console.log(`[ROUTER] Returning ${summary.length} problems`);
-      return summary;
+
+      const registry = getRegistryDO(ctx.env);
+
+      // Call DO list
+      const problems = await registry.list({
+        difficulty: input?.difficulty,
+        topic: input?.topic
+      });
+
+      console.log(`[ROUTER] Returning ${problems.length} problems`);
+      return problems;
     }),
 
   /**
    * Get full problem details
+   * Uses ProblemRegistryDO lookup -> R2 fetch
    */
   getProblem: publicProcedure
     .input(getProblemInput)
-    .query(({ input }) => {
+    .query(async ({ input, ctx }) => {
       console.log(`[ROUTER] getProblem called: ${input.problemId}`);
-      
-      const problem = getProblem(input.problemId);
-      if (!problem) {
-        console.log(`[ROUTER] Problem not found: ${input.problemId}`);
+
+      const registry = getRegistryDO(ctx.env);
+
+      // 1. Get metadata & R2 prefix from DO
+      const entry = await registry.get(input.problemId);
+
+      if (!entry) {
+        console.log(`[ROUTER] Problem not found in Registry: ${input.problemId}`);
         throw new Error(`Problem not found: ${input.problemId}`);
       }
-      
+
+      // 2. Fetch content from R2
+      const store = new ProblemStore(ctx.env.files);
+      const problem = await store.fetchProblem(input.problemId); // using ID as key logic inside store for now
+
+      if (!problem) {
+        console.log(`[ROUTER] Problem content missing in R2: ${input.problemId}`);
+        throw new Error(`Problem content unavailable`);
+      }
+
       // Return full problem with visible tests only
       const visibleTests = problem.tests.filter(t => t.visibility === 'visible');
-      
+
       console.log(`[ROUTER] Returning problem with ${visibleTests.length} visible tests`);
       return {
         ...problem,
@@ -120,40 +132,39 @@ export const codePracticeRouter = t.router({
     .input(submitCodeInput)
     .mutation(async ({ input, ctx }) => {
       console.log(`[ROUTER] submitCode called: ${input.problemId}, ${input.language}, userId=${ctx.userId}`);
-      console.log(`[ROUTER] Code length: ${input.code.length} chars`);
-      
-      const problem = getProblem(input.problemId);
+
+      // Fetch full problem for judging (need hidden tests too)
+      const store = new ProblemStore(ctx.env.files);
+      const problem = await store.fetchProblem(input.problemId);
+
       if (!problem) {
-        console.log(`[ROUTER] Problem not found: ${input.problemId}`);
         throw new Error(`Problem not found: ${input.problemId}`);
       }
 
       // Check if problem has Java harness
       if (input.language === 'java' && !problem.javaHarness) {
-        const result: ExecutionResult = {
+        return {
           verdict: 'CE' as Verdict,
           score: 0,
           testResults: [] as TestResult[],
           totalTimeMs: 0,
           compilationError: `Problem ${input.problemId} does not have Java harness configured.`,
         };
-        return result;
       }
 
       // Only Java is supported in v1
       if (input.language !== 'java') {
-        const result: ExecutionResult = {
+        return {
           verdict: 'CE' as Verdict,
           score: 0,
           testResults: [] as TestResult[],
           totalTimeMs: 0,
           compilationError: `Language ${input.language} is not supported yet. Only Java is available.`,
         };
-        return result;
       }
-      
+
       const startTime = Date.now();
-      
+
       const result = await judge(
         problem,
         input.code,
@@ -161,11 +172,7 @@ export const codePracticeRouter = t.router({
         'all',  // Run all tests for submission
         ctx.env
       );
-      
-      const duration = Date.now() - startTime;
-      console.log(`[ROUTER] Execution completed in ${duration}ms`);
-      console.log(`[ROUTER] Verdict: ${result.verdict}, Score: ${result.score}`);
-      
+
       // Record submission in user's progress DO
       const service = new CodePracticeService(ctx.env);
       await service.recordSubmission(ctx.userId, {
@@ -178,7 +185,7 @@ export const codePracticeRouter = t.router({
         timeMs: result.totalTimeMs,
         submittedAt: Date.now(),
       });
-      
+
       // For hidden tests, only return pass/fail, not details
       const sanitizedResults = result.testResults.map(r => {
         const test = problem.tests.find(t => t.testId === r.testId);
@@ -197,7 +204,7 @@ export const codePracticeRouter = t.router({
         }
         return r;
       });
-      
+
       return {
         ...result,
         testResults: sanitizedResults,
@@ -210,16 +217,15 @@ export const codePracticeRouter = t.router({
   runCode: publicProcedure
     .input(runCodeInput)
     .mutation(async ({ input, ctx }) => {
-      console.log(`[ROUTER] runCode called: ${input.problemId}, ${input.language}`);
-      console.log(`[ROUTER] Code length: ${input.code.length} chars`);
-      
-      const problem = getProblem(input.problemId);
+      console.log(`[ROUTER] runCode called: ${input.problemId}`);
+
+      const store = new ProblemStore(ctx.env.files);
+      const problem = await store.fetchProblem(input.problemId);
+
       if (!problem) {
-        console.log(`[ROUTER] Problem not found: ${input.problemId}`);
         throw new Error(`Problem not found: ${input.problemId}`);
       }
 
-      // Check if problem has Java harness
       if (input.language === 'java' && !problem.javaHarness) {
         return {
           verdict: 'CE' as Verdict,
@@ -230,19 +236,16 @@ export const codePracticeRouter = t.router({
         };
       }
 
-      // Only Java is supported in v1
       if (input.language !== 'java') {
         return {
           verdict: 'CE' as Verdict,
           score: 0,
           testResults: [] as TestResult[],
           totalTimeMs: 0,
-          compilationError: `Language ${input.language} is not supported yet. Only Java is available.`,
+          compilationError: `Language ${input.language} is not supported yet.`,
         };
       }
-      
-      const startTime = Date.now();
-      
+
       const result = await judge(
         problem,
         input.code,
@@ -250,11 +253,7 @@ export const codePracticeRouter = t.router({
         'visible',  // Run only visible tests
         ctx.env
       );
-      
-      const duration = Date.now() - startTime;
-      console.log(`[ROUTER] Execution completed in ${duration}ms`);
-      console.log(`[ROUTER] Verdict: ${result.verdict}, Score: ${result.score}`);
-      
+
       return result;
     }),
 
@@ -262,85 +261,98 @@ export const codePracticeRouter = t.router({
    * Health check endpoint
    */
   health: publicProcedure.query(() => {
-    console.log(`[ROUTER] health check called`);
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      problemCount: listProblems().length,
-    };
+    return { status: 'ok', timestamp: new Date().toISOString() };
   }),
 
-  // ============ Draft Management (requires auth) ============
+  // ============ Draft Management ============
 
-  /**
-   * Save a code draft (auto-save as user types)
-   */
   saveDraft: authedProcedure
     .input(saveDraftInput)
     .mutation(async ({ input, ctx }) => {
-      console.log(`[ROUTER] saveDraft called: ${input.problemId}, ${input.language}, userId=${ctx.userId}`);
       const service = new CodePracticeService(ctx.env);
       await service.saveDraft(ctx.userId, input.problemId, input.language, input.code);
       return { success: true };
     }),
 
-  /**
-   * Get saved draft for a problem
-   */
   getDraft: authedProcedure
     .input(getDraftInput)
     .query(async ({ input, ctx }) => {
-      console.log(`[ROUTER] getDraft called: ${input.problemId}, ${input.language}, userId=${ctx.userId}`);
       const service = new CodePracticeService(ctx.env);
       const code = await service.getDraft(ctx.userId, input.problemId, input.language);
       return { code };
     }),
 
-  /**
-   * Delete a draft (e.g., after successful submission)
-   */
   deleteDraft: authedProcedure
     .input(getDraftInput)
     .mutation(async ({ input, ctx }) => {
-      console.log(`[ROUTER] deleteDraft called: ${input.problemId}, ${input.language}, userId=${ctx.userId}`);
       const service = new CodePracticeService(ctx.env);
       await service.deleteDraft(ctx.userId, input.problemId, input.language);
       return { success: true };
     }),
 
-  // ============ Progress & Stats (requires auth) ============
+  // ============ Progress & Stats ============
 
-  /**
-   * Get submission history for a problem
-   */
   getSubmissions: authedProcedure
     .input(getSubmissionsInput)
     .query(async ({ input, ctx }) => {
-      console.log(`[ROUTER] getSubmissions called: ${input.problemId}, userId=${ctx.userId}`);
       const service = new CodePracticeService(ctx.env);
       const submissions = await service.getSubmissions(ctx.userId, input.problemId, input.limit);
       return { submissions };
     }),
 
-  /**
-   * Get list of solved problem IDs
-   */
   getSolvedProblems: authedProcedure.query(async ({ ctx }) => {
-    console.log(`[ROUTER] getSolvedProblems called, userId=${ctx.userId}`);
     const service = new CodePracticeService(ctx.env);
     const solvedIds = await service.getSolvedProblems(ctx.userId);
     return { solvedIds };
   }),
 
-  /**
-   * Get user stats (solved, attempted, submissions count)
-   */
   getStats: authedProcedure.query(async ({ ctx }) => {
-    console.log(`[ROUTER] getStats called, userId=${ctx.userId}`);
     const service = new CodePracticeService(ctx.env);
     const stats = await service.getStats(ctx.userId);
     return stats;
   }),
+
+
+  // ============ ADMIN: Seed Migration ============
+
+  /**
+   * One-time migration script to upload static files to R2/DO
+   */
+  adminSeedProblems: authedProcedure
+    .mutation(async ({ ctx }) => {
+      // Simple security check (could be stronger)
+      // In real app, check ctx.user.role === 'admin'
+      console.log(`[ADMIN] Starting problem seeding...`);
+
+      const registry = getRegistryDO(ctx.env);
+      const store = new ProblemStore(ctx.env.files);
+
+      const allProblems = Object.values(staticProblemMap);
+      let count = 0;
+
+      for (const problem of allProblems) {
+        console.log(`[ADMIN] seeding ${problem.problemId}...`);
+
+        // 1. Upload to R2
+        const r2Prefix = await store.storeProblem(problem);
+
+        // 2. Register in DO
+        await registry.register({
+          problemId: problem.problemId,
+          title: problem.title,
+          r2Prefix: r2Prefix,
+          difficulty: problem.difficulty,
+          topics: problem.topics,
+          createdAt: Date.now(), // or specific time if we had it
+          status: 'active'
+        });
+
+        count++;
+      }
+
+      return { success: true, seeded: count };
+    }),
+
 });
 
 export type CodePracticeRouter = typeof codePracticeRouter;
