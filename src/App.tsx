@@ -33,6 +33,7 @@ const SystemShotsHomePage = lazy(() => import('./components/system-shots/SystemS
 const ProblemsListPage = lazy(() => import('./components/code-practice/ProblemsListPage'));
 const ProblemSolvePage = lazy(() => import('./components/code-practice/ProblemSolvePage'));
 const AdminMigrationPage = lazy(() => import('./components/code-practice/AdminMigrationPage'));
+const GenerationWorkspace = lazy(() => import('./containers/code-practice/GenerationWorkspace'));
 
 function BoardView({
   onNewBoard,
@@ -329,8 +330,10 @@ function AppContent() {
           <Route path="/app/videos" element={<BoardsPage />} />
           <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
           <Route path="/app/system-shots" element={<BoardsPage />} />
+
           <Route path="/app/system-shots/home" element={<SystemShotsHomePage />} />
           <Route path="/practice" element={<ProblemsListPage />} />
+          <Route path="/practice/generate" element={<GenerationWorkspace />} />
           <Route path="/practice/:problemId" element={<ProblemSolvePage />} />
           <Route path="/admin/migration" element={<AdminMigrationPage />} />
           <Route path="/test-ai" element={<TestAI />} />

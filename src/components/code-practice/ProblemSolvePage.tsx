@@ -73,23 +73,7 @@ export default function ProblemSolvePage() {
       return problem.starterCode['java'];
     }
 
-    if (!problem.functionSignature) return '';
-
-    const sig = problem.functionSignature;
-    const params = sig.params.map(p => {
-      // Use helper if type string not sufficient, or for consistency
-      const javaType = typeSpecToJava(p.typeSpec);
-      return `${javaType} ${p.name}`;
-    }).join(', ');
-
-    const returnType = typeSpecToJava(sig.returnTypeSpec);
-
-    return `class Solution {
-    public ${returnType} ${sig.name}(${params}) {
-        // Your code here
-        
-    }
-}`;
+    return '';
   }, [problem]);
 
   // Initialize code
@@ -758,29 +742,3 @@ function formatOutput(value: unknown): string {
   }
 }
 
-// Helper to convert TypeSpec to Java type string
-function typeSpecToJava(typeSpec: any): string {
-  // Handle Zod/Object type specs
-  if (typeSpec && typeof typeSpec === 'object' && 'kind' in typeSpec) {
-    switch (typeSpec.kind) {
-      case 'int': return 'int';
-      case 'long': return 'long';
-      case 'float': return 'float';
-      case 'double': return 'double';
-      case 'boolean': return 'boolean';
-      case 'string': return 'String';
-      case 'char': return 'char';
-      case 'void': return 'void';
-      case 'array':
-        return `${typeSpecToJava(typeSpec.of)}[]`;
-      case 'matrix':
-        return `${typeSpecToJava(typeSpec.of)}[][]`;
-      case 'linkedList': return 'ListNode';
-      case 'tree': return 'TreeNode';
-      default: return 'Object';
-    }
-  }
-
-  // Fallback or error
-  return 'Object';
-}

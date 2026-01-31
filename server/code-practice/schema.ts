@@ -4,43 +4,6 @@ import { z } from 'zod';
 // Primitives & Specs
 // ==========================================
 
-// Helper to define recursive type
-type TypeSpecInput =
-    | { kind: 'int' }
-    | { kind: 'long' }
-    | { kind: 'float' }
-    | { kind: 'double' }
-    | { kind: 'string' }
-    | { kind: 'char' }
-    | { kind: 'boolean' }
-    | { kind: 'array'; of: TypeSpecInput }
-    | { kind: 'matrix'; of: TypeSpecInput }
-    | { kind: 'tuple'; elements: TypeSpecInput[] }
-    | { kind: 'object'; fields: Record<string, TypeSpecInput> }
-    | { kind: 'tree' }
-    | { kind: 'linkedList' }
-    | { kind: 'graph' }
-    | { kind: 'void' };
-
-// Cast recursive schema to ZodType<TypeSpecInput>
-export const TypeSpecSchema: z.ZodType<TypeSpecInput> = z.lazy(() => z.union([
-    z.object({ kind: z.literal('int') }),
-    z.object({ kind: z.literal('long') }),
-    z.object({ kind: z.literal('float') }),
-    z.object({ kind: z.literal('double') }),
-    z.object({ kind: z.literal('string') }),
-    z.object({ kind: z.literal('char') }),
-    z.object({ kind: z.literal('boolean') }),
-    z.object({ kind: z.literal('array'), of: TypeSpecSchema }),
-    z.object({ kind: z.literal('matrix'), of: TypeSpecSchema }),
-    z.object({ kind: z.literal('tuple'), elements: z.array(TypeSpecSchema) }),
-    z.object({ kind: z.literal('object'), fields: z.record(z.string(), TypeSpecSchema) }),
-    z.object({ kind: z.literal('tree') }),
-    z.object({ kind: z.literal('linkedList') }),
-    z.object({ kind: z.literal('graph') }),
-    z.object({ kind: z.literal('void') }),
-])) as any;
-
 export const ComparatorSpecSchema = z.union([
     z.object({ type: z.literal('exact') }),
     z.object({ type: z.literal('numeric'), tolerance: z.number() }),
@@ -49,19 +12,6 @@ export const ComparatorSpecSchema = z.union([
     z.object({ type: z.literal('multiset') }),
     z.object({ type: z.literal('floatArray'), tolerance: z.number() }),
 ]);
-
-export const FunctionParamSchema = z.object({
-    name: z.string(),
-    type: z.string(),
-    typeSpec: TypeSpecSchema,
-});
-
-export const FunctionSignatureSchema = z.object({
-    name: z.string(),
-    params: z.array(FunctionParamSchema),
-    returnType: z.string(),
-    returnTypeSpec: TypeSpecSchema,
-});
 
 // ==========================================
 // Test Cases
@@ -95,9 +45,6 @@ const ProblemBaseSchema = z.object({
     topics: z.array(z.string()),
     description: z.string(),
     constraints: z.array(z.string()),
-    inputSpec: TypeSpecSchema,
-    outputSpec: TypeSpecSchema,
-    functionSignature: FunctionSignatureSchema.optional(), // Made optional as requested
     examples: z.array(ExampleSchema),
     hints: z.array(z.string()).optional(),
     timeLimit: z.number().default(2000),

@@ -5,14 +5,15 @@
  */
 
 import { z } from 'zod';
-import { t, publicProcedure, authedProcedure } from '../trpc-config';
-import { listProblems as staticListProblems } from '../../problems'; // Renamed for migration usage
+import { TRPCError } from '@trpc/server';
+import { t, publicProcedure, authedProcedure, Context } from '../trpc-config';
 import { CodePracticeService } from './service';
-import { judge } from './judge';
-import type { Language, Verdict, ExecutionResult, TestResult, Problem } from './types';
+import { judge } from './judge/index'; // Explicit index import for clarity
+import { judge as judgeFunc } from './judge/index'; // Double check import if needed, but 'judge' var name conflict
+import type { Verdict, TestResult, SanityCheckResult } from './types';
 import { ProblemStore } from '../lib/problem-store';
 import { problems as staticProblemMap } from '../../problems/index'; // Import for seeding
-import { SanityCheckResult } from './types';
+import { CodePracticeAI } from './ai';
 
 // Zod schemas
 const languageSchema = z.enum(['java', 'javascript', 'typescript', 'python']);
@@ -66,8 +67,128 @@ function getRegistryDO(env: Env) {
   return env.PROBLEM_REGISTRY_DO.get(id);
 }
 
+// Helper for sanity check logic (reused in finalize)
+async function performSanityCheck(input: { problemId: string }, ctx: Context): Promise<SanityCheckResult> {
+  console.log(`[ROUTER] sanityCheck called: ${input.problemId}`);
+
+  const registry = getRegistryDO(ctx.env);
+  const store = new ProblemStore(ctx.env.files);
+
+  // 1. Fetch Problem
+  const problem = await store.fetchProblem(input.problemId);
+  if (!problem) throw new Error(`Problem not found: ${input.problemId}`);
+
+  // 2. Fetch Reference Solution (Java)
+  const referenceCode = await store.fetchReferenceSolution(input.problemId);
+  if (!referenceCode) throw new Error(`Reference solution not found for ${input.problemId}`);
+
+  const starterCode = problem.starterCode?.['java'] || '';
+
+  // 3. Execute Reference Solution
+  const refResult = await judgeFunc(
+    problem,
+    referenceCode,
+    'java',
+    'all',
+    ctx.env
+  );
+
+  // 4. Execute Starter Code
+  const starterResult = await judgeFunc(
+    problem,
+    starterCode,
+    'java',
+    'all',
+    ctx.env
+  );
+
+  // 5. Determine Sanity Status
+  const isRefPassing = refResult.verdict === 'AC';
+  const overallStatus = isRefPassing ? 'passed' : 'failed';
+
+  // 6. Update Registry
+  await registry.updateSanityStatus(input.problemId, {
+    status: overallStatus,
+    lastChecked: Date.now(),
+    error: !isRefPassing ? `Reference solution failed with ${refResult.verdict}` : undefined,
+  });
+
+  return {
+    problemId: input.problemId,
+    reference: {
+      verdict: refResult.verdict,
+      score: refResult.score,
+      error: refResult.runtimeError || refResult.compilationError,
+    },
+    starter: {
+      verdict: starterResult.verdict,
+      score: starterResult.score,
+      error: starterResult.runtimeError || starterResult.compilationError,
+    },
+    overallStatus,
+    timestamp: Date.now(),
+  };
+}
+
 // Router
 export const codePracticeRouter = t.router({
+
+  /**
+   * AI: Generate Problem Definition
+   */
+  generateProblem: authedProcedure
+    .input(z.object({ intent: z.string() }))
+    .mutation(async ({ input, ctx }) => {
+      // Clean service call
+      return CodePracticeAI.generateProblem(input.intent, ctx.env);
+    }),
+
+  /**
+   * AI: Generate Implementation
+   */
+  generateImplementation: authedProcedure
+    .input(z.object({
+      problem: z.any(),
+      tests: z.any().optional(),
+      language: z.string().default('java')
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return CodePracticeAI.generateImplementation(input.problem, input.tests || [], input.language, ctx.env);
+    }),
+
+  /**
+   * AI: Finalize Problem
+   */
+  finalize: authedProcedure
+    .input(z.object({
+      problem: z.any(),
+      execution: z.any(),
+      userName: z.string().optional()
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const result = await CodePracticeAI.finalizeProblem({
+        problem: input.problem,
+        execution: input.execution,
+        userId: ctx.userId,
+        userName: input.userName || 'Unknown User'
+      }, ctx.env);
+
+      // Trigger Sanity Check in background
+      if (ctx.executionCtx) {
+        ctx.executionCtx.waitUntil(
+          performSanityCheck({ problemId: result.problemId }, ctx).catch(err => {
+            console.error(`[ROUTER] Background sanity check failed for ${result.problemId}:`, err);
+          })
+        );
+      } else {
+        // Fallback for dev/test
+        performSanityCheck({ problemId: result.problemId }, ctx).catch(console.error);
+      }
+
+      return result;
+    }),
+
+
   /**
    * List all problems with optional filtering
    * Uses ProblemRegistryDO
@@ -75,17 +196,15 @@ export const codePracticeRouter = t.router({
   listProblems: publicProcedure
     .input(listProblemsInput)
     .query(async ({ input, ctx }) => {
-      console.log(`[ROUTER] listProblems called`, input);
-
       const registry = getRegistryDO(ctx.env);
 
-      // Call DO list
+      // Call DO list with userId for visibility filtering
+      // Note: Visibility logic now shows all generated problems as per update
       const problems = await registry.list({
         difficulty: input?.difficulty,
         topic: input?.topic
-      });
+      }, ctx.userId);
 
-      console.log(`[ROUTER] Returning ${problems.length} problems`);
       return problems;
     }),
 
@@ -96,31 +215,32 @@ export const codePracticeRouter = t.router({
   getProblem: publicProcedure
     .input(getProblemInput)
     .query(async ({ input, ctx }) => {
-      console.log(`[ROUTER] getProblem called: ${input.problemId}`);
-
       const registry = getRegistryDO(ctx.env);
 
       // 1. Get metadata & R2 prefix from DO
       const entry = await registry.get(input.problemId);
 
       if (!entry) {
-        console.log(`[ROUTER] Problem not found in Registry: ${input.problemId}`);
-        throw new Error(`Problem not found: ${input.problemId}`);
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Problem not found: ${input.problemId}`,
+        });
       }
 
       // 2. Fetch content from R2
       const store = new ProblemStore(ctx.env.files);
-      const problem = await store.fetchProblem(input.problemId); // using ID as key logic inside store for now
+      const problem = await store.fetchProblem(input.problemId);
 
       if (!problem) {
-        console.log(`[ROUTER] Problem content missing in R2: ${input.problemId}`);
-        throw new Error(`Problem content unavailable`);
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Problem content unavailable`,
+        });
       }
 
       // Return full problem with visible tests only
       const visibleTests = (problem.tests || []).filter(t => t.visibility === 'visible');
 
-      console.log(`[ROUTER] Returning problem with ${visibleTests.length} visible tests`);
       return {
         ...problem,
         tests: visibleTests,
@@ -136,8 +256,6 @@ export const codePracticeRouter = t.router({
   submitCode: authedProcedure
     .input(submitCodeInput)
     .mutation(async ({ input, ctx }) => {
-      console.log(`[ROUTER] submitCode called: ${input.problemId}, ${input.language}, userId=${ctx.userId}`);
-
       // Fetch full problem for judging (need hidden tests too)
       const store = new ProblemStore(ctx.env.files);
       const problem = await store.fetchProblem(input.problemId);
@@ -148,10 +266,11 @@ export const codePracticeRouter = t.router({
 
       // Check if problem has Java harness
       if (input.language === 'java' && !problem.javaHarness) {
+        // Should return a proper error verdict
         return {
           verdict: 'CE' as Verdict,
           score: 0,
-          testResults: [] as TestResult[],
+          testResults: [],
           totalTimeMs: 0,
           compilationError: `Problem ${input.problemId} does not have Java harness configured.`,
         };
@@ -162,15 +281,14 @@ export const codePracticeRouter = t.router({
         return {
           verdict: 'CE' as Verdict,
           score: 0,
-          testResults: [] as TestResult[],
+          testResults: [],
           totalTimeMs: 0,
           compilationError: `Language ${input.language} is not supported yet. Only Java is available.`,
         };
       }
 
-      const startTime = Date.now();
-
-      const result = await judge(
+      // Run Judge
+      const result = await judgeFunc(
         problem,
         input.code,
         'java',
@@ -222,8 +340,6 @@ export const codePracticeRouter = t.router({
   runCode: publicProcedure
     .input(runCodeInput)
     .mutation(async ({ input, ctx }) => {
-      console.log(`[ROUTER] runCode called: ${input.problemId}`);
-
       const store = new ProblemStore(ctx.env.files);
       const problem = await store.fetchProblem(input.problemId);
 
@@ -235,9 +351,9 @@ export const codePracticeRouter = t.router({
         return {
           verdict: 'CE' as Verdict,
           score: 0,
-          testResults: [] as TestResult[],
+          testResults: [],
           totalTimeMs: 0,
-          compilationError: `Problem ${input.problemId} does not have Java harness configured.`,
+          compilationError: 'No harness found'
         };
       }
 
@@ -245,13 +361,13 @@ export const codePracticeRouter = t.router({
         return {
           verdict: 'CE' as Verdict,
           score: 0,
-          testResults: [] as TestResult[],
+          testResults: [],
           totalTimeMs: 0,
-          compilationError: `Language ${input.language} is not supported yet.`,
+          compilationError: 'Language not supported'
         };
       }
 
-      const result = await judge(
+      const result = await judgeFunc(
         problem,
         input.code,
         'java',
@@ -323,69 +439,7 @@ export const codePracticeRouter = t.router({
   sanityCheck: authedProcedure
     .input(sanityCheckInput)
     .mutation(async ({ input, ctx }): Promise<SanityCheckResult> => {
-      console.log(`[ROUTER] sanityCheck called: ${input.problemId}`);
-
-      const registry = getRegistryDO(ctx.env);
-      const store = new ProblemStore(ctx.env.files);
-
-      // 1. Fetch Problem
-      const problem = await store.fetchProblem(input.problemId);
-      if (!problem) throw new Error(`Problem not found: ${input.problemId}`);
-
-      // 2. Fetch Reference Solution (Java)
-      const referenceCode = await store.fetchReferenceSolution(input.problemId);
-      if (!referenceCode) throw new Error(`Reference solution not found for ${input.problemId}`);
-
-      const starterCode = problem.starterCode?.['java'] || '';
-
-      // 3. Execute Reference Solution
-      const refResult = await judge(
-        problem,
-        referenceCode,
-        'java',
-        'all',
-        ctx.env
-      );
-
-      // 4. Execute Starter Code
-      const starterResult = await judge(
-        problem,
-        starterCode,
-        'java',
-        'all',
-        ctx.env
-      );
-
-      // 5. Determine Sanity Status
-      const isRefPassing = refResult.verdict === 'AC';
-      // Starter code typically fails, which is fine/expected. 
-      // But verify logic: strict "starter must fail"? Not necessarily, 
-      // but "reference MUST pass" is strict.
-
-      const overallStatus = isRefPassing ? 'passed' : 'failed';
-
-      // 6. Update Registry
-      await registry.updateSanityStatus(input.problemId, {
-        status: overallStatus,
-        lastChecked: Date.now(),
-        error: !isRefPassing ? `Reference solution failed with ${refResult.verdict}` : undefined,
-      });
-
-      return {
-        problemId: input.problemId,
-        reference: {
-          verdict: refResult.verdict,
-          score: refResult.score,
-          error: refResult.runtimeError || refResult.compilationError,
-        },
-        starter: {
-          verdict: starterResult.verdict,
-          score: starterResult.score,
-          error: starterResult.runtimeError || starterResult.compilationError,
-        },
-        overallStatus,
-        timestamp: Date.now(),
-      };
+      return performSanityCheck(input, ctx);
     }),
 
 
@@ -396,8 +450,6 @@ export const codePracticeRouter = t.router({
    */
   adminSeedProblems: authedProcedure
     .mutation(async ({ ctx }) => {
-      // Simple security check (could be stronger)
-      // In real app, check ctx.user.role === 'admin'
       console.log(`[ADMIN] Starting problem seeding...`);
 
       const registry = getRegistryDO(ctx.env);
@@ -407,19 +459,15 @@ export const codePracticeRouter = t.router({
       let count = 0;
 
       for (const problem of allProblems) {
-        console.log(`[ADMIN] seeding ${problem.problemId}...`);
-
-        // 1. Upload to R2
         const r2Prefix = await store.storeProblem(problem);
 
-        // 2. Register in DO
         await registry.register({
           problemId: problem.problemId,
           title: problem.title,
           r2Prefix: r2Prefix,
           difficulty: problem.difficulty,
           topics: problem.topics,
-          createdAt: Date.now(), // or specific time if we had it
+          createdAt: Date.now(),
           status: 'active'
         });
 

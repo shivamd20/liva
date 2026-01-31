@@ -50,7 +50,7 @@ export type CaseStatus = 'OK' | 'ERROR';
  */
 export interface CaseResult {
   /** Test case ID (matches input) */
-  case: number;
+  id: number;
   /** Execution status */
   status: CaseStatus;
   /** Output value (if status is OK) */
@@ -95,7 +95,7 @@ export interface ParseSuccess {
 /**
  * Parse error types
  */
-export type ParseErrorType = 
+export type ParseErrorType =
   | 'MISSING_SENTINEL'    // Sentinels not found
   | 'MALFORMED_JSON'      // JSON parse failed
   | 'INVALID_STRUCTURE';  // JSON doesn't match expected structure

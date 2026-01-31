@@ -10,20 +10,14 @@ import {
   ProblemSchema,
   TestCaseSchema,
   ExampleSchema,
-  TypeSpecSchema,
   ComparatorSpecSchema,
-  FunctionSignatureSchema,
-  FunctionParamSchema
 } from './schema';
 
 // Export Zod-inferred types
 export type Problem = z.infer<typeof ProblemSchema>;
 export type TestCase = z.infer<typeof TestCaseSchema>;
 export type Example = z.infer<typeof ExampleSchema>;
-export type TypeSpec = z.infer<typeof TypeSpecSchema>;
 export type ComparatorSpec = z.infer<typeof ComparatorSpecSchema>;
-export type FunctionSignature = z.infer<typeof FunctionSignatureSchema>;
-export type FunctionParam = z.infer<typeof FunctionParamSchema>;
 
 // =============================================================================
 // File Specifications (Per-Language)

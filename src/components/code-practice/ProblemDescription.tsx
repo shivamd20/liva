@@ -88,7 +88,7 @@ export function ProblemDescription({ problem }: ProblemDescriptionProps) {
             <Lightbulb className="h-4 w-4" />
             Hints ({problem.hints.length})
           </button>
-          
+
           {hintsExpanded && (
             <div className="space-y-2 pl-6">
               {problem.hints.map((hint, index) => (
@@ -104,17 +104,6 @@ export function ProblemDescription({ problem }: ProblemDescriptionProps) {
         </div>
       )}
 
-      {/* Function Signature */}
-      {problem.functionSignature && (
-        <div className="space-y-2">
-          <h3 className="text-sm font-semibold">Function Signature</h3>
-          <div className="rounded-lg bg-muted/50 p-4">
-            <code className="text-sm font-mono">
-              {formatFunctionSignature(problem.functionSignature)}
-            </code>
-          </div>
-        </div>
-      )}
 
       {/* Limits */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
@@ -133,31 +122,5 @@ function formatExampleValue(value: unknown): string {
     return JSON.stringify(value);
   } catch {
     return String(value);
-  }
-}
-
-function formatFunctionSignature(sig: { name: string; params: Array<{ name: string; type: any }>; returnType: any }): string {
-  const params = sig.params.map(p => `${typeToString(p.type)} ${p.name}`).join(', ');
-  const returnType = typeToString(sig.returnType);
-  return `${returnType} ${sig.name}(${params})`;
-}
-
-function typeToString(typeSpec: { type: string; elementType?: any }): string {
-  switch (typeSpec.type) {
-    case 'int': return 'int';
-    case 'long': return 'long';
-    case 'float': return 'float';
-    case 'double': return 'double';
-    case 'boolean': return 'boolean';
-    case 'string': return 'String';
-    case 'char': return 'char';
-    case 'void': return 'void';
-    case 'array':
-      return typeSpec.elementType ? `${typeToString(typeSpec.elementType)}[]` : 'Object[]';
-    case 'matrix':
-      return typeSpec.elementType ? `${typeToString(typeSpec.elementType)}[][]` : 'Object[][]';
-    case 'linkedList': return 'ListNode';
-    case 'tree': return 'TreeNode';
-    default: return 'Object';
   }
 }

@@ -8,6 +8,8 @@
  */
 
 import { DurableObject } from "cloudflare:workers";
+import { toServerSentEventsStream } from "@tanstack/ai";
+import { CodePracticeAI } from "../code-practice/ai";
 
 const LOG_PREFIX = "[CodePracticeDO]";
 
@@ -87,7 +89,7 @@ export class CodePracticeDO extends DurableObject<Env> {
   async saveDraft(problemId: string, language: string, code: string): Promise<void> {
     const now = Date.now();
     console.log(`${LOG_PREFIX} saveDraft problemId=${problemId} language=${language} codeLen=${code.length}`);
-    
+
     this.sql.exec(
       `INSERT INTO drafts (problem_id, language, code, updated_at)
        VALUES (?, ?, ?, ?)
@@ -106,11 +108,11 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async getDraft(problemId: string, language: string): Promise<string | null> {
     console.log(`${LOG_PREFIX} getDraft problemId=${problemId} language=${language}`);
-    
+
     const rows = this.sql
       .exec("SELECT code FROM drafts WHERE problem_id = ? AND language = ?", problemId, language)
       .toArray() as { code: string }[];
-    
+
     return rows[0]?.code ?? null;
   }
 
@@ -119,7 +121,7 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async deleteDraft(problemId: string, language: string): Promise<void> {
     console.log(`${LOG_PREFIX} deleteDraft problemId=${problemId} language=${language}`);
-    
+
     this.sql.exec(
       "DELETE FROM drafts WHERE problem_id = ? AND language = ?",
       problemId,
@@ -134,7 +136,7 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async recordSubmission(submission: Submission): Promise<void> {
     console.log(`${LOG_PREFIX} recordSubmission problemId=${submission.problemId} verdict=${submission.verdict}`);
-    
+
     this.sql.exec(
       `INSERT INTO submissions (id, problem_id, language, code, verdict, score, time_ms, submitted_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -153,7 +155,7 @@ export class CodePracticeDO extends DurableObject<Env> {
       const existing = this.sql
         .exec("SELECT best_time_ms FROM solved WHERE problem_id = ?", submission.problemId)
         .toArray() as { best_time_ms: number | null }[];
-      
+
       if (existing.length === 0) {
         // First time solving
         this.sql.exec(
@@ -179,7 +181,7 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async getSubmissions(problemId: string, limit: number = 10): Promise<Submission[]> {
     console.log(`${LOG_PREFIX} getSubmissions problemId=${problemId} limit=${limit}`);
-    
+
     const rows = this.sql
       .exec(
         `SELECT id, problem_id, language, code, verdict, score, time_ms, submitted_at
@@ -200,7 +202,7 @@ export class CodePracticeDO extends DurableObject<Env> {
         time_ms: number | null;
         submitted_at: number;
       }[];
-    
+
     return rows.map(r => ({
       id: r.id,
       problemId: r.problem_id,
@@ -228,11 +230,11 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async getSolvedProblems(): Promise<string[]> {
     console.log(`${LOG_PREFIX} getSolvedProblems`);
-    
+
     const rows = this.sql
       .exec("SELECT problem_id FROM solved ORDER BY first_solved_at DESC")
       .toArray() as { problem_id: string }[];
-    
+
     return rows.map(r => r.problem_id);
   }
 
@@ -241,22 +243,22 @@ export class CodePracticeDO extends DurableObject<Env> {
    */
   async getStats(): Promise<UserStats> {
     console.log(`${LOG_PREFIX} getStats`);
-    
+
     // Count solved problems
     const solvedRow = this.sql
       .exec("SELECT COUNT(*) as count FROM solved")
       .one() as { count: number };
-    
+
     // Count attempted problems (distinct problems with at least one submission)
     const attemptedRow = this.sql
       .exec("SELECT COUNT(DISTINCT problem_id) as count FROM submissions")
       .one() as { count: number };
-    
+
     // Count total submissions
     const submissionsRow = this.sql
       .exec("SELECT COUNT(*) as count FROM submissions")
       .one() as { count: number };
-    
+
     return {
       solved: solvedRow.count,
       attempted: attemptedRow.count,
@@ -281,11 +283,48 @@ export class CodePracticeDO extends DurableObject<Env> {
     const rows = this.sql
       .exec("SELECT problem_id, language, updated_at FROM drafts ORDER BY updated_at DESC")
       .toArray() as { problem_id: string; language: string; updated_at: number }[];
-    
+
     return rows.map(r => ({
       problemId: r.problem_id,
       language: r.language,
       updatedAt: r.updated_at,
     }));
+  }
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    // STREAMING ENDPOINTS
+    if (url.pathname.endsWith("/stream/problem")) {
+      const intent = url.searchParams.get("intent");
+      if (!intent) return new Response("Missing intent", { status: 400 });
+
+      const stream = CodePracticeAI.generateProblemStream(intent, this.env);
+      // @ts-ignore - tanstack/ai types mismatch
+      return new Response(toServerSentEventsStream(stream), {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    if (url.pathname.endsWith("/stream/implementation")) {
+      if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+      const body = await request.json();
+      const { problem, tests, language } = body as any;
+
+      const stream = CodePracticeAI.generateImplementationStream(problem, tests, language, this.env);
+      // @ts-ignore
+      return new Response(toServerSentEventsStream(stream), {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
+
+    return new Response("CodePracticeDO Active");
   }
 }

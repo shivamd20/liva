@@ -10,21 +10,19 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import {
   CheckCircle2,
-  Circle,
   Trophy,
-  Target,
   Zap,
   ArrowRight,
-  Search,
   Filter,
   X,
   LayoutGrid,
   List as ListIcon,
-  Play,
-  Activity
+  Activity,
+  Sparkles
 } from 'lucide-react';
-import { cn } from '@/lib/utils'; // Assuming this exists, standard in shadcn
+import { cn } from '@/lib/utils';
 import { SanityRunnerModal } from './SanityRunnerModal';
+import { IntelligentSearchBar } from './IntelligentSearchBar';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type StatusFilter = 'all' | 'solved' | 'unsolved';
@@ -132,18 +130,22 @@ export default function ProblemsListPage() {
 
       <div className="container max-w-7xl mx-auto px-4 py-8 flex-1">
 
+        {/* New Intelligent Search Section - Prominent & Full Width */}
+        <div className="mb-10 w-full max-w-4xl mx-auto">
+          <IntelligentSearchBar
+            initialQuery={searchQuery}
+            onSearch={setSearchQuery}
+            onGenerate={(intent) => {
+              navigate('/practice/generate?intent=' + encodeURIComponent(intent));
+            }}
+          />
+        </div>
+
         {/* Controls Bar */}
         <div className="flex flex-col md:flex-row gap-4 mb-8 justify-between items-start md:items-center">
 
-          <div className="flex-1 w-full md:max-w-md relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search problems or topics..."
-              className="pl-9 bg-muted/30 border-muted-foreground/20 focus-visible:ring-1"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
+          {/* Left spacer or additional controls if needed */}
+          <div className="flex-1"></div>
 
           <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-2 md:pb-0 scrollbar-hide">
             <div className="flex items-center bg-muted/30 p-1 rounded-lg border border-border/50">
@@ -220,128 +222,185 @@ export default function ProblemsListPage() {
               <div key={i} className="h-16 w-full bg-muted/50 rounded-lg animate-pulse" />
             ))}
           </div>
-        ) : filteredProblems.length === 0 ? (
-          <div className="text-center py-20 border rounded-xl bg-muted/10 border-dashed">
-            <Filter className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
-            <h3 className="text-lg font-medium">No problems found</h3>
-            <p className="text-muted-foreground mb-6">Try adjusting your search or filters</p>
-            <Button onClick={() => {
-              setSearchQuery('');
-              setDifficultyFilter('all');
-              setStatusFilter('all');
-              setSelectedTopic('all');
-            }}>
-              <X className="w-4 h-4 mr-2" /> Clear Filters
-            </Button>
-          </div>
         ) : (
-          <div className={cn(
-            viewMode === 'grid'
-              ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-              : "space-y-3"
-          )}>
-            {filteredProblems.map(problem => {
-              const isSolved = solvedSet.has(problem.problemId);
-              const config = difficultyConfig[problem.difficulty as Difficulty];
+          <div className="space-y-10">
 
-              if (viewMode === 'grid') {
-                return (
-                  <div
-                    key={problem.problemId}
-                    onClick={() => navigate(`/practice/${problem.problemId}`)}
-                    className="group bg-card border hover:border-primary/40 transition-all duration-200 rounded-xl p-5 cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between"
-                  >
-                    <div className="relative">
-                      <div className="flex justify-between items-start mb-3">
-                        <div className={cn("inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset", config.bg, config.color, "ring-[currentColor]/20")}>
-                          {config.label}
-                        </div>
-                        {isSolved && <CheckCircle2 className="w-5 h-5 text-green-500" />}
-                      </div>
-                      <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors line-clamp-2">
-                        {problem.title}
-                      </h3>
-                      <div className="flex flex-wrap gap-1.5 mt-3">
-                        {problem.topics.slice(0, 3).map(t => (
-                          <span key={t} className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded capitalize">
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-
-                      {/* Sanity Status (Grid) */}
-                      {problem.sanityStatus && (
-                        <div className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <div className={cn("h-2.5 w-2.5 rounded-full border border-background shadow-sm", problem.sanityStatus === 'passed' ? "bg-green-500" : "bg-red-500")} title={`Sanity: ${problem.sanityStatus}`} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }
-
-              // List View
-              return (
-                <div
-                  key={problem.problemId}
-                  onClick={() => navigate(`/practice/${problem.problemId}`)}
-                  className="group bg-card border hover:border-primary/30 transition-all rounded-lg p-4 cursor-pointer flex items-center gap-4 hover:shadow-sm"
-                >
-                  <div className="shrink-0 w-8 flex justify-center">
-                    {isSolved ? (
-                      <CheckCircle2 className="w-5 h-5 text-green-500" />
-                    ) : (
-                      <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/20 group-hover:border-primary/40" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium group-hover:text-primary truncate">{problem.title}</h3>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      {problem.topics.slice(0, 3).map((t, i) => (
-                        <span key={t} className="capitalize">
-                          {t}
-                          {i < Math.min(problem.topics.length, 3) - 1 && <span className="mx-1">•</span>}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="hidden md:flex shrink-0 w-32 justify-center">
-                    <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full", config.bg, config.color)}>
-                      {config.label}
-                    </span>
-                  </div>
-
-                  {/* Sanity Trigger (List) */}
-                  <div className="hidden md:flex shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        "h-8 w-8 transition-opacity",
-                        problem.sanityStatus === 'passed' ? "text-green-500/50 hover:text-green-600" :
-                          problem.sanityStatus === 'failed' ? "text-red-500/50 hover:text-red-600" :
-                            "text-muted-foreground/30 hover:text-primary"
-                      )}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSanityProblemId(problem.problemId);
-                      }}
-                      title="Run Sanity Check"
-                    >
-                      <Activity className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="shrink-0">
-                    <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all">
-                      <ArrowRight className="w-4 h-4" />
-                    </Button>
-                  </div>
+            {/* 1. Generated Suggestions Section (Only when searching) */}
+            {searchQuery.length > 3 && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <div className="flex items-center gap-2 mb-4">
+                  <Badge variant="outline" className="text-indigo-500 border-indigo-500/30 bg-indigo-500/10 gap-1">
+                    <Sparkles className="w-3 h-3" />
+                    New Problems You Can Generate
+                  </Badge>
                 </div>
-              );
-            })}
+
+                <div
+                  onClick={() => navigate('/practice/generate?intent=' + encodeURIComponent(searchQuery))}
+                  className="group bg-gradient-to-br from-indigo-500/5 to-purple-500/5 border border-indigo-500/20 hover:border-indigo-500/50 rounded-xl p-5 cursor-pointer flex items-center gap-4 transition-all hover:shadow-md"
+                >
+                  <div className="h-12 w-12 rounded-full bg-indigo-500/10 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <Sparkles className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-lg text-foreground">Generate: "{searchQuery}"</h3>
+                    <p className="text-muted-foreground text-sm">
+                      Create a custom interview-grade problem matching this specific intent.
+                    </p>
+                  </div>
+                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 text-white">
+                    Generate
+                    <ArrowRight className="w-4 h-4 ml-2" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* 2. Existing Problems Section */}
+            <div>
+              {searchQuery && filteredProblems.length > 0 && (
+                <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                  Existing Problems <Badge variant="secondary" className="text-xs">{filteredProblems.length}</Badge>
+                </h2>
+              )}
+
+              {filteredProblems.length === 0 ? (
+                <div className="text-center py-20 border rounded-xl bg-muted/10 border-dashed">
+                  <Filter className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+                  <h3 className="text-lg font-medium">No problems found</h3>
+                  <p className="text-muted-foreground mb-6">Try adjusting your search or filters</p>
+                  <Button onClick={() => {
+                    setSearchQuery('');
+                    setDifficultyFilter('all');
+                    setStatusFilter('all');
+                    setSelectedTopic('all');
+                  }}>
+                    <X className="w-4 h-4 mr-2" /> Clear Filters
+                  </Button>
+                </div>
+              ) : (
+                <div className={cn(
+                  viewMode === 'grid'
+                    ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                    : "space-y-3"
+                )}>
+                  {filteredProblems.map(problem => {
+                    const isSolved = solvedSet.has(problem.problemId);
+                    const config = difficultyConfig[problem.difficulty as Difficulty] || { color: 'text-muted-foreground', bg: 'bg-muted', label: problem.difficulty || 'Unknown' };
+
+                    if (viewMode === 'grid') {
+                      return (
+                        <div
+                          key={problem.problemId}
+                          onClick={() => navigate(`/practice/${problem.problemId}`)}
+                          className="group bg-card border hover:border-primary/40 transition-all duration-200 rounded-xl p-5 cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between"
+                        >
+                          <div className="relative">
+                            <div className="flex justify-between items-start mb-3">
+                              <div className={cn("inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset", config.bg, config.color, "ring-[currentColor]/20")}>
+                                {config.label}
+                              </div>
+                              {isSolved && <CheckCircle2 className="w-5 h-5 text-green-500" />}
+                            </div>
+                            <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors line-clamp-2">
+                              {problem.title}
+                            </h3>
+                            {problem.isGenerated && problem.createdByName && (
+                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                                <Sparkles className="w-3 h-3 text-indigo-500" />
+                                <span>Generated by <span className="font-medium text-foreground">@{problem.createdByName}</span></span>
+                              </div>
+                            )}
+                            <div className="flex flex-wrap gap-1.5 mt-3">
+                              {problem.topics.slice(0, 3).map(t => (
+                                <span key={t} className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded capitalize">
+                                  {t}
+                                </span>
+                              ))}
+                            </div>
+
+                            {/* Sanity Status (Grid) */}
+                            {problem.sanityStatus && (
+                              <div className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className={cn("h-2.5 w-2.5 rounded-full border border-background shadow-sm", problem.sanityStatus === 'passed' ? "bg-green-500" : "bg-red-500")} title={`Sanity: ${problem.sanityStatus}`} />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // List View
+                    return (
+                      <div
+                        key={problem.problemId}
+                        onClick={() => navigate(`/practice/${problem.problemId}`)}
+                        className="group bg-card border hover:border-primary/30 transition-all rounded-lg p-4 cursor-pointer flex items-center gap-4 hover:shadow-sm"
+                      >
+                        <div className="shrink-0 w-8 flex justify-center">
+                          {isSolved ? (
+                            <CheckCircle2 className="w-5 h-5 text-green-500" />
+                          ) : (
+                            <div className="w-5 h-5 rounded-full border-2 border-muted-foreground/20 group-hover:border-primary/40" />
+                          )}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-medium group-hover:text-primary truncate">{problem.title}</h3>
+                          {problem.isGenerated && problem.createdByName && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-0.5">
+                              <Sparkles className="w-3 h-3 text-indigo-500" />
+                              <span>Generated by <span className="font-medium">@{problem.createdByName}</span></span>
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                            {problem.topics.slice(0, 3).map((t, i) => (
+                              <span key={t} className="capitalize">
+                                {t}
+                                {i < Math.min(problem.topics.length, 3) - 1 && <span className="mx-1">•</span>}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="hidden md:flex shrink-0 w-32 justify-center">
+                          <span className={cn("text-xs font-medium px-2.5 py-0.5 rounded-full", config.bg, config.color)}>
+                            {config.label}
+                          </span>
+                        </div>
+
+                        {/* Sanity Trigger (List) */}
+                        <div className="hidden md:flex shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-8 w-8 transition-opacity",
+                              problem.sanityStatus === 'passed' ? "text-green-500/50 hover:text-green-600" :
+                                problem.sanityStatus === 'failed' ? "text-red-500/50 hover:text-red-600" :
+                                  "text-muted-foreground/30 hover:text-primary"
+                            )}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSanityProblemId(problem.problemId);
+                            }}
+                            title="Run Sanity Check"
+                          >
+                            <Activity className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        <div className="shrink-0">
+                          <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all">
+                            <ArrowRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

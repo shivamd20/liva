@@ -3,6 +3,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 export interface Context {
     env: Env;
     userId: string;
+    executionCtx?: ExecutionContext; // Optional for compatibility, but populated in worker
 }
 
 export const t = initTRPC.context<Context>().create();

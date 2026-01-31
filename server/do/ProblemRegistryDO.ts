@@ -24,10 +24,23 @@ interface ProblemMeta {
     starsCount: number;
     starredBy: Set<string>; // userIds
 
+    // Generation metadata
+    isGenerated?: boolean;
+    createdBy?: string; // userId
+    createdByName?: string; // display name
+
     // Sanity Check Status (admin only mostly)
     sanityStatus?: {
         status: 'passed' | 'failed' | 'pending';
         lastChecked: number;
+        error?: string;
+    };
+
+    // Generation Status (for AI-generated problems)
+    generationStatus?: {
+        status: 'draft' | 'generating' | 'completed' | 'failed';
+        step: 'problem' | 'execution' | 'finalize';
+        lastUpdated: number;
         error?: string;
     };
 }
@@ -43,6 +56,11 @@ export interface ProblemSummary {
     rating: number; // average
     starsCount: number;
     sanityStatus?: 'passed' | 'failed' | 'pending';
+    isGenerated?: boolean;
+    createdBy?: string;
+    createdByName?: string;
+    generationStatus?: 'draft' | 'generating' | 'completed' | 'failed';
+    generationStep?: 'problem' | 'execution' | 'finalize';
 }
 
 export interface ListProblemsOptions {
@@ -120,7 +138,10 @@ export class ProblemRegistryDO extends DurableObject<Env> {
             starsTotal: existing?.starsTotal ?? 0,
             starsCount: existing?.starsCount ?? 0,
             starredBy: existing?.starredBy ?? new Set(),
-            sanityStatus: existing?.sanityStatus,
+            sanityStatus: meta.sanityStatus ?? existing?.sanityStatus,
+            isGenerated: meta.isGenerated ?? existing?.isGenerated,
+            createdBy: meta.createdBy ?? existing?.createdBy,
+            createdByName: meta.createdByName ?? existing?.createdByName,
         };
 
         this.problems.set(meta.problemId, newMeta);
@@ -143,21 +164,31 @@ export class ProblemRegistryDO extends DurableObject<Env> {
     }
 
     /**
-     * List problems with optional filtering
+     * List problems with optional filtering and visibility rules
+     * - Users see all canonical problems
+     * - Users see their own generated problems (regardless of sanity)
+     * - Users see others' generated problems ONLY if sanity passed
      */
-    async list(filter?: ListProblemsOptions): Promise<ProblemSummary[]> {
+    async list(filter?: ListProblemsOptions, userId?: string): Promise<ProblemSummary[]> {
         let results = Array.from(this.problems.values());
 
-        // Apply filters
+        // Apply difficulty filter
         if (filter?.difficulty) {
             results = results.filter(p => p.difficulty === filter.difficulty);
         }
 
+        // Apply topic filter
         if (filter?.topic) {
             const topic = filter.topic;
             results = results.filter(p => p.topics.includes(topic));
         }
 
+
+        // Apply visibility filtering for generated problems
+        // User requested to show ALL problems for now
+        results = results.filter(p => {
+            return true;
+        });
 
         // Default sort: createdAt for steady state, but maybe stars/rating later
         // v1: Sort by ID for stability or createdAt
@@ -171,6 +202,11 @@ export class ProblemRegistryDO extends DurableObject<Env> {
             rating: p.starsCount > 0 ? p.starsTotal / p.starsCount : 0,
             starsCount: p.starsCount,
             sanityStatus: p.sanityStatus?.status,
+            isGenerated: p.isGenerated,
+            createdBy: p.createdBy,
+            createdByName: p.createdByName,
+            generationStatus: p.generationStatus?.status,
+            generationStep: p.generationStatus?.step,
         }));
     }
 

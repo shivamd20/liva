@@ -201,7 +201,7 @@ export async function judge(
  */
 function judgeResults(tests: TestCase[], results: CaseResult[]): TestResult[] {
   return tests.map((test, index) => {
-    const result = results.find(r => r.case === index);
+    const result = results.find(r => r.id === index);
 
     if (!result) {
       // Missing result for this test case

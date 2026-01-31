@@ -7,7 +7,7 @@
  * - UserSolution.java (user's code)
  */
 
-import type { Problem, TypeSpec } from '../types';
+import type { Problem } from '../types';
 import type { HarnessFiles, JudgeStdin, JudgeTestCase } from './types';
 import { buildJavaCompileCommand, buildJavaRunCommand } from '../engine';
 
@@ -25,52 +25,55 @@ const GSON_JAR = '/opt/libs/gson-2.13.2.jar';
  * Build all files needed for Java execution.
  */
 export function buildJavaHarness(
-  problem: Problem,
-  userCode: string
+    problem: Problem,
+    userCode: string
 ): HarnessFiles {
-  // Get Main.java from problem (required)
-  const mainJava = problem.javaHarness;
-  if (!mainJava) {
-    throw new Error(`Problem ${problem.problemId} is missing javaHarness (Main.java)`);
-  }
+    // Get Main.java from problem (required)
+    const mainJava = problem.javaHarness;
+    if (!mainJava) {
+        throw new Error(`Problem ${problem.problemId} is missing javaHarness (Main.java)`);
+    }
 
-  // Generate Common.java with helper classes
-  const commonJava = generateCommonJava(problem);
+    // DEBUG: Log problem specs
+    console.log('[HARNESS] Building harness for problem:', problem.problemId);
 
-  // Wrap user code as UserSolution.java
-  const userSolutionJava = wrapUserSolution(userCode, problem);
+    // Generate Common.java with helper classes
+    const commonJava = generateCommonJava(problem);
 
-  // Determine which files to compile
-  const filesToCompile = ['Main.java', 'Common.java', 'UserSolution.java'];
+    // Wrap user code as UserSolution.java
+    const userSolutionJava = wrapUserSolution(userCode, problem);
 
-  return {
-    files: [
-      { path: 'Main.java', content: mainJava },
-      { path: 'Common.java', content: commonJava },
-      { path: 'UserSolution.java', content: userSolutionJava },
-    ],
-    compileCmd: `javac -cp "${GSON_JAR}:." ${filesToCompile.join(' ')}`,
-    runCmd: `java -Xmx256m -cp "${GSON_JAR}:." Main`,
-  };
+    // Determine which files to compile
+    const filesToCompile = ['Main.java', 'Common.java', 'UserSolution.java'];
+
+    return {
+        files: [
+            { path: 'Main.java', content: mainJava },
+            { path: 'Common.java', content: commonJava },
+            { path: 'UserSolution.java', content: userSolutionJava },
+        ],
+        compileCmd: `javac -cp "${GSON_JAR}:." ${filesToCompile.join(' ')}`,
+        runCmd: `java -Xmx256m -cp "${GSON_JAR}:." Main`,
+    };
 }
 
 /**
  * Build stdin JSON from test cases.
  */
 export function buildStdin(problem: Problem, testFilter: 'all' | 'visible'): string {
-  const allTests = problem.tests || [];
-  const tests = testFilter === 'all'
-    ? allTests
-    : allTests.filter(t => t.visibility === 'visible');
+    const allTests = problem.tests || [];
+    const tests = testFilter === 'all'
+        ? allTests
+        : allTests.filter(t => t.visibility === 'visible');
 
-  const stdin: JudgeStdin = {
-    testcases: tests.map((test, index) => ({
-      id: index,
-      input: test.input,
-    })),
-  };
+    const stdin: JudgeStdin = {
+        testcases: tests.map((test, index) => ({
+            id: index,
+            input: test.input,
+        })),
+    };
 
-  return JSON.stringify(stdin);
+    return JSON.stringify(stdin);
 }
 
 // =============================================================================
@@ -81,27 +84,12 @@ export function buildStdin(problem: Problem, testFilter: 'all' | 'visible'): str
  * Generate Common.java with helper classes based on problem's type specs.
  */
 function generateCommonJava(problem: Problem): string {
-  const helpers: string[] = [];
+    const helpers: string[] = [];
 
-  // Check if we need TreeNode
-  if (needsType(problem, 'tree')) {
-    helpers.push(TREE_NODE_CLASS);
-  }
+    // Always include utility methods
+    helpers.push(UTILITY_METHODS);
 
-  // Check if we need ListNode
-  if (needsType(problem, 'linkedList')) {
-    helpers.push(LIST_NODE_CLASS);
-  }
-
-  // Check if we need Node (for graphs)
-  if (needsType(problem, 'graph')) {
-    helpers.push(GRAPH_NODE_CLASS);
-  }
-
-  // Always include utility methods
-  helpers.push(UTILITY_METHODS);
-
-  return `/**
+    return `/**
  * Common.java - Auto-generated helper classes
  * Problem: ${problem.problemId}
  */
@@ -115,34 +103,6 @@ ${helpers.join('\n\n')}
 `;
 }
 
-/**
- * Check if a problem needs a specific type.
- */
-function needsType(problem: Problem, kind: string): boolean {
-  return checkTypeSpec(problem.inputSpec, kind) ||
-    checkTypeSpec(problem.outputSpec, kind);
-}
-
-/**
- * Recursively check if a TypeSpec contains a specific kind.
- */
-function checkTypeSpec(spec: TypeSpec, kind: string): boolean {
-  if (spec.kind === kind) return true;
-
-  if (spec.kind === 'array' || spec.kind === 'matrix') {
-    return checkTypeSpec(spec.of, kind);
-  }
-
-  if (spec.kind === 'tuple') {
-    return spec.elements.some(e => checkTypeSpec(e, kind));
-  }
-
-  if (spec.kind === 'object') {
-    return Object.values(spec.fields).some(f => checkTypeSpec(f, kind));
-  }
-
-  return false;
-}
 
 // =============================================================================
 // User Solution Wrapping
@@ -153,21 +113,21 @@ function checkTypeSpec(spec: TypeSpec, kind: string): boolean {
  * The user code should define a class with the solution method.
  */
 function wrapUserSolution(userCode: string, problem: Problem): string {
-  // Check if user already has a class definition
-  const hasClassDef = /\bclass\s+\w+/.test(userCode);
+    // Check if user already has a class definition
+    const hasClassDef = /\bclass\s+\w+/.test(userCode);
 
-  if (hasClassDef) {
-    // User provided a complete class - rename it to UserSolution
-    // This is a simple regex replacement, may not handle all edge cases
-    const renamed = userCode.replace(
-      /\bclass\s+(\w+)/,
-      'class UserSolution'
-    );
-    return renamed;
-  }
+    if (hasClassDef) {
+        // User provided a complete class - rename it to UserSolution
+        // This is a simple regex replacement, may not handle all edge cases
+        const renamed = userCode.replace(
+            /\bclass\s+(\w+)/,
+            'class UserSolution'
+        );
+        return renamed;
+    }
 
-  // Wrap bare method in UserSolution class
-  return `/**
+    // Wrap bare method in UserSolution class
+    return `/**
  * UserSolution.java - User's solution
  */
 public class UserSolution {

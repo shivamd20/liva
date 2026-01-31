@@ -29,7 +29,7 @@ import {
 export function parseJudgeOutput(stdout: string): ParseResult {
   // Find the end sentinel first (scan from end)
   const endIndex = stdout.lastIndexOf(SENTINEL_END);
-  
+
   if (endIndex === -1) {
     return {
       success: false,
@@ -42,7 +42,7 @@ export function parseJudgeOutput(stdout: string): ParseResult {
   // Find the begin sentinel before the end sentinel
   const searchArea = stdout.substring(0, endIndex);
   const beginIndex = searchArea.lastIndexOf(SENTINEL_BEGIN);
-  
+
   if (beginIndex === -1) {
     return {
       success: false,
@@ -108,15 +108,15 @@ function validateJudgeOutput(obj: unknown): { valid: true } | { valid: false; er
   // Validate each result
   for (let i = 0; i < root.results.length; i++) {
     const result = root.results[i] as Record<string, unknown>;
-    
+
     if (typeof result !== 'object' || result === null) {
       return { valid: false, error: `results[${i}] must be an object` };
     }
-    
-    if (typeof result.case !== 'number') {
-      return { valid: false, error: `results[${i}].case must be a number` };
+
+    if (typeof result.id !== 'number') {
+      return { valid: false, error: `results[${i}].id must be a number` };
     }
-    
+
     if (result.status !== 'OK' && result.status !== 'ERROR') {
       return { valid: false, error: `results[${i}].status must be 'OK' or 'ERROR'` };
     }
