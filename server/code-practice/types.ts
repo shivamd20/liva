@@ -91,6 +91,22 @@ export interface ExecutionResult {
   runtimeError?: string;
 }
 
+export interface SanityCheckResult {
+  problemId: string;
+  reference: {
+    verdict: Verdict;
+    score: number;
+    error?: string;
+  };
+  starter: {
+    verdict: Verdict;
+    score: number;
+    error?: string;
+  };
+  overallStatus: 'passed' | 'failed';
+  timestamp: number;
+}
+
 export interface ExecutionRequest {
   code: string;
   language: Language;

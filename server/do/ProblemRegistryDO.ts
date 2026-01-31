@@ -23,7 +23,16 @@ interface ProblemMeta {
     starsTotal: number;
     starsCount: number;
     starredBy: Set<string>; // userIds
+
+    // Sanity Check Status (admin only mostly)
+    sanityStatus?: {
+        status: 'passed' | 'failed' | 'pending';
+        lastChecked: number;
+        error?: string;
+    };
 }
+
+export type SanityStatus = ProblemMeta['sanityStatus'];
 
 // Lightweight summary for listing
 export interface ProblemSummary {
@@ -33,6 +42,7 @@ export interface ProblemSummary {
     topics: string[];
     rating: number; // average
     starsCount: number;
+    sanityStatus?: 'passed' | 'failed' | 'pending';
 }
 
 export interface ListProblemsOptions {
@@ -110,6 +120,7 @@ export class ProblemRegistryDO extends DurableObject<Env> {
             starsTotal: existing?.starsTotal ?? 0,
             starsCount: existing?.starsCount ?? 0,
             starredBy: existing?.starredBy ?? new Set(),
+            sanityStatus: existing?.sanityStatus,
         };
 
         this.problems.set(meta.problemId, newMeta);
@@ -158,7 +169,8 @@ export class ProblemRegistryDO extends DurableObject<Env> {
             difficulty: p.difficulty,
             topics: p.topics,
             rating: p.starsCount > 0 ? p.starsTotal / p.starsCount : 0,
-            starsCount: p.starsCount
+            starsCount: p.starsCount,
+            sanityStatus: p.sanityStatus?.status,
         }));
     }
 
@@ -185,5 +197,16 @@ export class ProblemRegistryDO extends DurableObject<Env> {
         await this.saveProblem(p);
 
         return p.starsTotal / p.starsCount;
+    }
+
+    /**
+     * Update sanity status for a problem
+     */
+    async updateSanityStatus(problemId: string, status: NonNullable<SanityStatus>): Promise<void> {
+        const p = this.problems.get(problemId);
+        if (!p) throw new Error('Problem not found');
+
+        p.sanityStatus = status;
+        await this.saveProblem(p);
     }
 }

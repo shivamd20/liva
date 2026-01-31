@@ -63,6 +63,18 @@ export class ProblemStore {
     }
 
     /**
+     * Fetch the reference solution (Java) for internal use/sanity check
+     * NOT exposed to users.
+     */
+    async fetchReferenceSolution(problemId: string): Promise<string | null> {
+        const prefix = `${BUCKET_PREFIX}/${problemId}`;
+        const refRes = await this.bucket.get(`${prefix}/reference/java.java`);
+
+        if (!refRes) return null;
+        return refRes.text();
+    }
+
+    /**
      * Store a problem to R2 (Splits into parts)
      * This is used by the Admin Seeder
      */

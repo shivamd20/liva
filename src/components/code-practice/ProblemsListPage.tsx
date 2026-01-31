@@ -20,9 +20,11 @@ import {
   X,
   LayoutGrid,
   List as ListIcon,
-  Play
+  Play,
+  Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils'; // Assuming this exists, standard in shadcn
+import { SanityRunnerModal } from './SanityRunnerModal';
 
 type Difficulty = 'easy' | 'medium' | 'hard';
 type StatusFilter = 'all' | 'solved' | 'unsolved';
@@ -37,6 +39,7 @@ export default function ProblemsListPage() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sanityProblemId, setSanityProblemId] = useState<string | null>(null);
 
   // Filters
   const [difficultyFilter, setDifficultyFilter] = useState<Difficulty | 'all'>('all');
@@ -248,7 +251,7 @@ export default function ProblemsListPage() {
                     onClick={() => navigate(`/practice/${problem.problemId}`)}
                     className="group bg-card border hover:border-primary/40 transition-all duration-200 rounded-xl p-5 cursor-pointer shadow-sm hover:shadow-md flex flex-col justify-between"
                   >
-                    <div>
+                    <div className="relative">
                       <div className="flex justify-between items-start mb-3">
                         <div className={cn("inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset", config.bg, config.color, "ring-[currentColor]/20")}>
                           {config.label}
@@ -265,9 +268,16 @@ export default function ProblemsListPage() {
                           </span>
                         ))}
                       </div>
+
+                      {/* Sanity Status (Grid) */}
+                      {problem.sanityStatus && (
+                        <div className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className={cn("h-2.5 w-2.5 rounded-full border border-background shadow-sm", problem.sanityStatus === 'passed' ? "bg-green-500" : "bg-red-500")} title={`Sanity: ${problem.sanityStatus}`} />
+                        </div>
+                      )}
                     </div>
                   </div>
-                )
+                );
               }
 
               // List View
@@ -303,6 +313,27 @@ export default function ProblemsListPage() {
                     </span>
                   </div>
 
+                  {/* Sanity Trigger (List) */}
+                  <div className="hidden md:flex shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className={cn(
+                        "h-8 w-8 transition-opacity",
+                        problem.sanityStatus === 'passed' ? "text-green-500/50 hover:text-green-600" :
+                          problem.sanityStatus === 'failed' ? "text-red-500/50 hover:text-red-600" :
+                            "text-muted-foreground/30 hover:text-primary"
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSanityProblemId(problem.problemId);
+                      }}
+                      title="Run Sanity Check"
+                    >
+                      <Activity className="h-4 w-4" />
+                    </Button>
+                  </div>
+
                   <div className="shrink-0">
                     <Button variant="ghost" size="icon" className="text-muted-foreground group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all">
                       <ArrowRight className="w-4 h-4" />
@@ -314,6 +345,12 @@ export default function ProblemsListPage() {
           </div>
         )}
       </div>
-    </div>
+
+      <SanityRunnerModal
+        problemId={sanityProblemId}
+        onClose={() => setSanityProblemId(null)}
+        onOpenChange={(open) => !open && setSanityProblemId(null)}
+      />
+    </div >
   );
 }

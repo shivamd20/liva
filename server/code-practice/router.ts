@@ -12,6 +12,7 @@ import { judge } from './judge';
 import type { Language, Verdict, ExecutionResult, TestResult, Problem } from './types';
 import { ProblemStore } from '../lib/problem-store';
 import { problems as staticProblemMap } from '../../problems/index'; // Import for seeding
+import { SanityCheckResult } from './types';
 
 // Zod schemas
 const languageSchema = z.enum(['java', 'javascript', 'typescript', 'python']);
@@ -22,6 +23,10 @@ const listProblemsInput = z.object({
 }).optional();
 
 const getProblemInput = z.object({
+  problemId: z.string(),
+});
+
+const sanityCheckInput = z.object({
   problemId: z.string(),
 });
 
@@ -311,6 +316,77 @@ export const codePracticeRouter = t.router({
     const stats = await service.getStats(ctx.userId);
     return stats;
   }),
+
+
+  // ============ Sanity Check ============
+
+  sanityCheck: authedProcedure
+    .input(sanityCheckInput)
+    .mutation(async ({ input, ctx }): Promise<SanityCheckResult> => {
+      console.log(`[ROUTER] sanityCheck called: ${input.problemId}`);
+
+      const registry = getRegistryDO(ctx.env);
+      const store = new ProblemStore(ctx.env.files);
+
+      // 1. Fetch Problem
+      const problem = await store.fetchProblem(input.problemId);
+      if (!problem) throw new Error(`Problem not found: ${input.problemId}`);
+
+      // 2. Fetch Reference Solution (Java)
+      const referenceCode = await store.fetchReferenceSolution(input.problemId);
+      if (!referenceCode) throw new Error(`Reference solution not found for ${input.problemId}`);
+
+      const starterCode = problem.starterCode?.['java'] || '';
+
+      // 3. Execute Reference Solution
+      const refResult = await judge(
+        problem,
+        referenceCode,
+        'java',
+        'all',
+        ctx.env
+      );
+
+      // 4. Execute Starter Code
+      const starterResult = await judge(
+        problem,
+        starterCode,
+        'java',
+        'all',
+        ctx.env
+      );
+
+      // 5. Determine Sanity Status
+      const isRefPassing = refResult.verdict === 'AC';
+      // Starter code typically fails, which is fine/expected. 
+      // But verify logic: strict "starter must fail"? Not necessarily, 
+      // but "reference MUST pass" is strict.
+
+      const overallStatus = isRefPassing ? 'passed' : 'failed';
+
+      // 6. Update Registry
+      await registry.updateSanityStatus(input.problemId, {
+        status: overallStatus,
+        lastChecked: Date.now(),
+        error: !isRefPassing ? `Reference solution failed with ${refResult.verdict}` : undefined,
+      });
+
+      return {
+        problemId: input.problemId,
+        reference: {
+          verdict: refResult.verdict,
+          score: refResult.score,
+          error: refResult.runtimeError || refResult.compilationError,
+        },
+        starter: {
+          verdict: starterResult.verdict,
+          score: starterResult.score,
+          error: starterResult.runtimeError || starterResult.compilationError,
+        },
+        overallStatus,
+        timestamp: Date.now(),
+      };
+    }),
 
 
   // ============ ADMIN: Seed Migration ============
