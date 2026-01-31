@@ -58,9 +58,10 @@ export function buildJavaHarness(
  * Build stdin JSON from test cases.
  */
 export function buildStdin(problem: Problem, testFilter: 'all' | 'visible'): string {
-  const tests = testFilter === 'all' 
-    ? problem.tests 
-    : problem.tests.filter(t => t.visibility === 'visible');
+  const allTests = problem.tests || [];
+  const tests = testFilter === 'all'
+    ? allTests
+    : allTests.filter(t => t.visibility === 'visible');
 
   const stdin: JudgeStdin = {
     testcases: tests.map((test, index) => ({
@@ -81,7 +82,7 @@ export function buildStdin(problem: Problem, testFilter: 'all' | 'visible'): str
  */
 function generateCommonJava(problem: Problem): string {
   const helpers: string[] = [];
-  
+
   // Check if we need TreeNode
   if (needsType(problem, 'tree')) {
     helpers.push(TREE_NODE_CLASS);
@@ -118,8 +119,8 @@ ${helpers.join('\n\n')}
  * Check if a problem needs a specific type.
  */
 function needsType(problem: Problem, kind: string): boolean {
-  return checkTypeSpec(problem.inputSpec, kind) || 
-         checkTypeSpec(problem.outputSpec, kind);
+  return checkTypeSpec(problem.inputSpec, kind) ||
+    checkTypeSpec(problem.outputSpec, kind);
 }
 
 /**
@@ -127,19 +128,19 @@ function needsType(problem: Problem, kind: string): boolean {
  */
 function checkTypeSpec(spec: TypeSpec, kind: string): boolean {
   if (spec.kind === kind) return true;
-  
+
   if (spec.kind === 'array' || spec.kind === 'matrix') {
     return checkTypeSpec(spec.of, kind);
   }
-  
+
   if (spec.kind === 'tuple') {
     return spec.elements.some(e => checkTypeSpec(e, kind));
   }
-  
+
   if (spec.kind === 'object') {
     return Object.values(spec.fields).some(f => checkTypeSpec(f, kind));
   }
-  
+
   return false;
 }
 
@@ -154,7 +155,7 @@ function checkTypeSpec(spec: TypeSpec, kind: string): boolean {
 function wrapUserSolution(userCode: string, problem: Problem): string {
   // Check if user already has a class definition
   const hasClassDef = /\bclass\s+\w+/.test(userCode);
-  
+
   if (hasClassDef) {
     // User provided a complete class - rename it to UserSolution
     // This is a simple regex replacement, may not handle all edge cases
@@ -164,7 +165,7 @@ function wrapUserSolution(userCode: string, problem: Problem): string {
     );
     return renamed;
   }
-  
+
   // Wrap bare method in UserSolution class
   return `/**
  * UserSolution.java - User's solution

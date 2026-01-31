@@ -69,19 +69,20 @@ export default function ProblemSolvePage() {
   const generateStarterCode = useCallback(() => {
     if (!problem) return '';
 
-    if (problem.starterCode?.java) {
-      return problem.starterCode.java;
+    if (problem.starterCode?.['java']) {
+      return problem.starterCode['java'];
     }
 
     if (!problem.functionSignature) return '';
 
     const sig = problem.functionSignature;
     const params = sig.params.map(p => {
-      const javaType = typeSpecToJava(p.type);
+      // Use helper if type string not sufficient, or for consistency
+      const javaType = typeSpecToJava(p.typeSpec);
       return `${javaType} ${p.name}`;
     }).join(', ');
 
-    const returnType = typeSpecToJava(sig.returnType);
+    const returnType = typeSpecToJava(sig.returnTypeSpec);
 
     return `class Solution {
     public ${returnType} ${sig.name}(${params}) {
