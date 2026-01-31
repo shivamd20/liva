@@ -1,8 +1,7 @@
-import { useMemo, useState, useCallback, useEffect, useRef } from "react"
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
-import { Switch } from "@/components/ui/switch"
-import { ArrowLeft, Loader2, ChevronDown, Plus, X } from "lucide-react"
+import { ArrowLeft, Loader2, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -10,6 +9,7 @@ import { cn } from "@/lib/utils"
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Mastery = "solid" | "learning" | "weak" | "unknown"
+type MasteryLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
 type Track =
   | "foundations"
   | "distributed-systems"
@@ -24,8 +24,13 @@ type Track =
   | "operability"
   | "security"
 
-type DifficultyOverride = -1 | 0 | 1
-type PriorityBias = -1 | 0 | 1
+/** Per-level expectations for a concept. */
+interface LevelExpectation {
+  level: MasteryLevel
+  mustDemonstrate: string[]
+  commonMistakes: string[]
+  disqualifiers?: string[]
+}
 
 interface ProgressItem {
   conceptId: string
@@ -34,22 +39,11 @@ interface ProgressItem {
   track?: Track
   exposureCount: number
   accuracyEma: number
+  stabilityScore: number
   mastery: Mastery
-}
-
-interface UserConceptPrefs {
-  conceptId: string
-  enabled: boolean
-  difficultyOverride: DifficultyOverride
-  priorityBias: PriorityBias
-}
-
-interface UserTopicOverlay {
-  id: string
-  title: string
-  description: string
-  mappedConceptIds: string[]
-  createdAt: number
+  masteryLevel: MasteryLevel
+  /** Custom mastery level definitions for this concept. */
+  masterySpec?: LevelExpectation[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,20 +86,40 @@ const DIFFICULTY_LABELS: Record<string, string> = {
   advanced: "Advanced",
 }
 
-const MASTERY_LABELS: Record<Mastery, string> = {
-  solid: "Mastered",
-  learning: "Learning",
-  weak: "Needs work",
-  unknown: "New",
+/** 7-level mastery system labels. */
+const MASTERY_LEVEL_LABELS: Record<MasteryLevel, string> = {
+  0: "New",
+  1: "Recognizer",
+  2: "Explainer",
+  3: "Applier",
+  4: "Integrator",
+  5: "Tradeoff",
+  6: "Expert",
+  7: "Mastered",
+}
+
+/** 7-level mastery colors for visual indicator. */
+const MASTERY_LEVEL_COLORS: Record<MasteryLevel, string> = {
+  0: "bg-muted-foreground/40",
+  1: "bg-slate-400",
+  2: "bg-blue-400",
+  3: "bg-cyan-500",
+  4: "bg-teal-500",
+  5: "bg-amber-500",
+  6: "bg-orange-500",
+  7: "bg-emerald-500",
+}
+
+/** Group mastery levels into tiers for summary display. */
+const getMasteryTier = (level: MasteryLevel): "beginner" | "intermediate" | "advanced" => {
+  if (level <= 2) return "beginner"
+  if (level <= 4) return "intermediate"
+  return "advanced"
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utils
 // ─────────────────────────────────────────────────────────────────────────────
-
-function getDefaultPrefs(conceptId: string): UserConceptPrefs {
-  return { conceptId, enabled: true, difficultyOverride: 0, priorityBias: 0 }
-}
 
 function groupByTrack(items: ProgressItem[]): Map<Track, ProgressItem[]> {
   const groups = new Map<Track, ProgressItem[]>()
@@ -122,30 +136,30 @@ function groupByTrack(items: ProgressItem[]): Map<Track, ProgressItem[]> {
 // Components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Simple progress summary with bar and counts */
-function ProgressSummary({
-  items,
-  prefsMap,
-}: {
-  items: ProgressItem[]
-  prefsMap: Map<string, UserConceptPrefs>
-}) {
+/** Progress summary with bar and tier counts based on 7-level mastery system */
+function ProgressSummary({ items }: { items: ProgressItem[] }) {
   const stats = useMemo(() => {
-    let enabled = 0, solid = 0, learning = 0, weak = 0, unknown = 0
+    let beginner = 0  // Levels 0-2: New, Recognizer, Explainer
+    let intermediate = 0  // Levels 3-4: Applier, Integrator
+    let advanced = 0  // Levels 5-7: Tradeoff, Expert, Mastered
+    let totalScore = 0
 
     for (const item of items) {
-      const prefs = prefsMap.get(item.conceptId)
-      if (prefs?.enabled === false) continue
-      enabled++
-      if (item.mastery === "solid") solid++
-      else if (item.mastery === "learning") learning++
-      else if (item.mastery === "weak") weak++
-      else unknown++
+      const tier = getMasteryTier(item.masteryLevel)
+      if (tier === "beginner") beginner++
+      else if (tier === "intermediate") intermediate++
+      else advanced++
+      
+      // Score: each level contributes to progress (0-7 scale normalized to 0-100%)
+      totalScore += item.masteryLevel
     }
 
-    const progress = enabled > 0 ? Math.round(((solid + learning * 0.5) / enabled) * 100) : 0
-    return { enabled, solid, learning, weak, unknown, progress }
-  }, [items, prefsMap])
+    // Progress: average mastery level as percentage (max level 7 = 100%)
+    const maxPossibleScore = items.length * 7
+    const progress = maxPossibleScore > 0 ? Math.round((totalScore / maxPossibleScore) * 100) : 0
+    
+    return { total: items.length, beginner, intermediate, advanced, progress }
+  }, [items])
 
   return (
     <div className="px-5 py-6">
@@ -157,113 +171,137 @@ function ProgressSummary({
         />
       </div>
       
-      {/* Stats row */}
+      {/* Stats row - grouped by tiers */}
       <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" title="Advanced (L5-7)">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
-          {stats.solid}
+          {stats.advanced}
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
-          {stats.learning}
+        <span className="flex items-center gap-1.5" title="Intermediate (L3-4)">
+          <span className="h-2 w-2 rounded-full bg-teal-500" />
+          {stats.intermediate}
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-orange-500" />
-          {stats.weak}
-        </span>
-        <span className="flex items-center gap-1.5">
+        <span className="flex items-center gap-1.5" title="Beginner (L0-2)">
           <span className="h-2 w-2 rounded-full bg-muted-foreground/40" />
-          {stats.unknown}
+          {stats.beginner}
         </span>
+      </div>
+      
+      {/* Progress percentage */}
+      <div className="text-center mt-2">
+        <span className="text-xs text-muted-foreground/60">{stats.progress}% toward interview-ready</span>
       </div>
     </div>
   )
 }
 
-/** iOS-style segmented control */
-function SegmentedControl<T extends string | number>({
-  value,
-  onChange,
-  options,
-  disabled,
+/** Expandable level breakdown showing all mastery levels and progress */
+function LevelBreakdown({
+  masterySpec,
+  currentLevel,
 }: {
-  value: T
-  onChange: (v: T) => void
-  options: { value: T; label: string }[]
-  disabled?: boolean
+  masterySpec?: LevelExpectation[]
+  currentLevel: MasteryLevel
 }) {
+  const [expanded, setExpanded] = useState(false)
+
+  if (!masterySpec || masterySpec.length === 0) {
+    return null
+  }
+
   return (
-    <div className={cn(
-      "inline-flex rounded-lg bg-muted/50 p-1",
-      disabled && "opacity-50"
-    )}>
-      {options.map((opt) => (
-        <button
-          key={String(opt.value)}
-          type="button"
-          disabled={disabled}
-          onClick={() => onChange(opt.value)}
-          className={cn(
-            "px-4 py-2 text-sm font-medium rounded-md transition-all min-h-[44px] min-w-[60px]",
-            value === opt.value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground active:bg-background/50"
-          )}
-        >
-          {opt.label}
-        </button>
-      ))}
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="text-xs text-primary flex items-center gap-1"
+      >
+        {expanded ? "Hide" : "View"} all levels
+        <ChevronDown className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")} />
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-2">
+          {masterySpec.map((spec) => {
+            const isCompleted = spec.level < currentLevel
+            const isCurrent = spec.level === currentLevel
+            const isNext = spec.level === currentLevel + 1
+            const isFuture = spec.level > currentLevel + 1
+
+            return (
+              <div
+                key={spec.level}
+                className={cn(
+                  "p-3 rounded-lg border text-left",
+                  isCompleted && "bg-emerald-50/30 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800",
+                  isCurrent && "bg-amber-50/30 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800",
+                  isNext && "bg-blue-50/30 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800",
+                  isFuture && "opacity-40 border-border/50"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={cn(
+                    "h-2 w-2 rounded-full",
+                    MASTERY_LEVEL_COLORS[spec.level]
+                  )} />
+                  <span className="font-medium text-sm">
+                    L{spec.level} {MASTERY_LEVEL_LABELS[spec.level]}
+                  </span>
+                  {isCompleted && (
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400">✓</span>
+                  )}
+                  {isCurrent && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">Current</span>
+                  )}
+                  {isNext && (
+                    <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">Next</span>
+                  )}
+                </div>
+
+                {spec.mustDemonstrate.length > 0 && (
+                  <ul className="text-xs text-muted-foreground space-y-0.5 ml-4">
+                    {spec.mustDemonstrate.slice(0, 3).map((d, i) => (
+                      <li key={i} className="list-disc list-outside">{d}</li>
+                    ))}
+                    {spec.mustDemonstrate.length > 3 && (
+                      <li className="text-muted-foreground/60">+{spec.mustDemonstrate.length - 3} more...</li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
 
-/** Setting row for expanded concept */
-function SettingRow({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="flex items-center justify-between py-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      {children}
-    </div>
-  )
-}
-
-/** Single concept row - Apple style */
+/** Single concept row - displays progress info */
 function ConceptRow({
   item,
-  prefs,
   expanded,
   onToggle,
-  onPrefsChange,
 }: {
   item: ProgressItem
-  prefs: UserConceptPrefs
   expanded: boolean
   onToggle: () => void
-  onPrefsChange: (prefs: UserConceptPrefs) => void
 }) {
-  const masteryColor = {
-    solid: "bg-emerald-500",
-    learning: "bg-amber-500",
-    weak: "bg-orange-500",
-    unknown: "bg-muted-foreground/40",
-  }[item.mastery]
+  // Use 7-level mastery color
+  const masteryColor = MASTERY_LEVEL_COLORS[item.masteryLevel]
+
+  // Get next level unlock hint from mastery spec
+  const nextLevel = Math.min(item.masteryLevel + 1, 7) as MasteryLevel
+  const nextSpec = item.masterySpec?.find(s => s.level === nextLevel)
+  const nextUnlockHint = nextSpec?.mustDemonstrate[0]
 
   const subtitle = [
     item.difficulty_hint && DIFFICULTY_LABELS[item.difficulty_hint],
-    MASTERY_LABELS[item.mastery],
+    `L${item.masteryLevel} ${MASTERY_LEVEL_LABELS[item.masteryLevel]}`,
   ].filter(Boolean).join(" · ")
 
   return (
-    <div className={cn(
-      "bg-card/50 transition-colors",
-      !prefs.enabled && "opacity-50"
-    )}>
+    <div className="bg-card/50 transition-colors">
       {/* Main row - tappable */}
       <button
         type="button"
@@ -274,6 +312,11 @@ function ConceptRow({
         <div className="flex-1 min-w-0">
           <p className="text-[15px] font-medium truncate">{item.name}</p>
           <p className="text-xs text-muted-foreground">{subtitle}</p>
+          {nextUnlockHint && item.masteryLevel < 7 && (
+            <p className="text-xs text-blue-500 dark:text-blue-400 mt-0.5 truncate">
+              Next: {nextUnlockHint}
+            </p>
+          )}
         </div>
         <ChevronDown 
           className={cn(
@@ -283,41 +326,30 @@ function ConceptRow({
         />
       </button>
 
-      {/* Expanded settings */}
+      {/* Expanded details */}
       {expanded && (
         <div className="px-5 pb-4 border-t border-border/30">
-          <SettingRow label="Include in feed">
-            <Switch
-              checked={prefs.enabled}
-              onCheckedChange={(checked) => onPrefsChange({ ...prefs, enabled: checked })}
-            />
-          </SettingRow>
-          
-          <SettingRow label="Difficulty">
-            <SegmentedControl
-              value={prefs.difficultyOverride}
-              onChange={(v) => onPrefsChange({ ...prefs, difficultyOverride: v })}
-              options={[
-                { value: -1 as const, label: "Easier" },
-                { value: 0 as const, label: "Auto" },
-                { value: 1 as const, label: "Harder" },
-              ]}
-              disabled={!prefs.enabled}
-            />
-          </SettingRow>
-          
-          <SettingRow label="Focus">
-            <SegmentedControl
-              value={prefs.priorityBias}
-              onChange={(v) => onPrefsChange({ ...prefs, priorityBias: v })}
-              options={[
-                { value: -1 as const, label: "Less" },
-                { value: 0 as const, label: "Normal" },
-                { value: 1 as const, label: "More" },
-              ]}
-              disabled={!prefs.enabled}
-            />
-          </SettingRow>
+          {/* Stats */}
+          <div className="py-3 grid grid-cols-3 gap-4 text-center">
+            <div>
+              <p className="text-lg font-semibold">{item.exposureCount}</p>
+              <p className="text-xs text-muted-foreground">Questions</p>
+            </div>
+            <div>
+              <p className="text-lg font-semibold">{Math.round(item.accuracyEma * 100)}%</p>
+              <p className="text-xs text-muted-foreground">Accuracy</p>
+            </div>
+            <div>
+              <p className="text-lg font-semibold">{Math.round(item.stabilityScore * 100)}%</p>
+              <p className="text-xs text-muted-foreground">Stability</p>
+            </div>
+          </div>
+
+          {/* Level breakdown - expandable view of all mastery levels */}
+          <LevelBreakdown
+            masterySpec={item.masterySpec}
+            currentLevel={item.masteryLevel}
+          />
         </div>
       )}
     </div>
@@ -325,7 +357,7 @@ function ConceptRow({
 }
 
 /** Sticky track section header */
-function TrackHeader({ track, count, total }: { track: Track; count: number; total: number }) {
+function TrackHeader({ track, count }: { track: Track; count: number }) {
   return (
     <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm px-5 py-3 border-b border-border/30">
       <div className="flex items-center justify-between">
@@ -333,107 +365,9 @@ function TrackHeader({ track, count, total }: { track: Track; count: number; tot
           {TRACK_LABELS[track]}
         </span>
         <span className="text-xs text-muted-foreground/60">
-          {count}/{total}
+          {count} concepts
         </span>
       </div>
-    </div>
-  )
-}
-
-/** Simple add topic button that expands inline */
-function AddTopicSection({
-  overlays,
-  onAdd,
-  onRemove,
-}: {
-  overlays: UserTopicOverlay[]
-  onAdd: (title: string, description: string) => void
-  onRemove: (id: string) => void
-}) {
-  const [isAdding, setIsAdding] = useState(false)
-  const [title, setTitle] = useState("")
-  const [description, setDescription] = useState("")
-
-  const handleSubmit = () => {
-    if (!title.trim() || !description.trim()) return
-    onAdd(title.trim(), description.trim())
-    setTitle("")
-    setDescription("")
-    setIsAdding(false)
-  }
-
-  return (
-    <div className="px-5 py-6">
-      {/* Existing overlays */}
-      {overlays.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Personal Topics
-          </p>
-          {overlays.map((o) => (
-            <div key={o.id} className="flex items-start gap-3 py-3 border-b border-border/30 last:border-0">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{o.title}</p>
-                <p className="text-xs text-muted-foreground line-clamp-1">{o.description}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onRemove(o.id)}
-                className="p-2 -m-2 text-muted-foreground active:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Add button / form */}
-      {!isAdding ? (
-        <button
-          type="button"
-          onClick={() => setIsAdding(true)}
-          className="w-full flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground active:text-foreground transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Add personal topic
-        </button>
-      ) : (
-        <div className="space-y-3">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Topic name"
-            autoFocus
-            className="w-full bg-transparent border-b border-border/50 py-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30"
-          />
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Brief description"
-            className="w-full bg-transparent border-b border-border/50 py-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:border-foreground/30"
-          />
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setIsAdding(false)}
-              className="flex-1 py-3 text-sm text-muted-foreground"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!title.trim() || !description.trim()}
-              className="flex-1 py-3 text-sm font-medium disabled:opacity-40"
-            >
-              Add
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -447,105 +381,16 @@ export interface ProgressViewProps {
 }
 
 export function ProgressView({ onBack }: ProgressViewProps) {
-  const queryClient = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [localPrefs, setLocalPrefs] = useState<Map<string, UserConceptPrefs>>(new Map())
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
 
   // Fetch progress
-  const { data: progressData, isLoading: progressLoading, isError: progressError } = useQuery({
+  const { data: progressData, isLoading, isError } = useQuery({
     queryKey: ["system-shots", "progress"],
     queryFn: () => trpcClient.systemShots.getProgress.query(),
   })
 
-  // Fetch preferences
-  const { data: prefsData, isLoading: prefsLoading } = useQuery({
-    queryKey: ["system-shots", "preferences"],
-    queryFn: () => trpcClient.systemShots.getPreferences.query(),
-  })
-
-  // Initialize local prefs from server
-  useEffect(() => {
-    if (prefsData && localPrefs.size === 0) {
-      const map = new Map<string, UserConceptPrefs>()
-      for (const pref of prefsData.conceptPrefs) {
-        map.set(pref.conceptId, pref)
-      }
-      setLocalPrefs(map)
-    }
-  }, [prefsData, localPrefs.size])
-
   const items = progressData?.items ?? []
-  const overlays = prefsData?.topicOverlays ?? []
   const groupedItems = useMemo(() => groupByTrack(items), [items])
-
-  // Auto-save mutation
-  const saveMutation = useMutation({
-    mutationFn: (prefs: UserConceptPrefs[]) =>
-      trpcClient.systemShots.batchUpdateConceptPrefs.mutate({ prefs }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] })
-      setIsSaving(false)
-    },
-    onError: () => setIsSaving(false),
-  })
-
-  // Debounced auto-save
-  const scheduleAutoSave = useCallback((newPrefs: Map<string, UserConceptPrefs>) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current)
-    }
-    setIsSaving(true)
-    saveTimeoutRef.current = setTimeout(() => {
-      const changedPrefs = Array.from(newPrefs.values())
-      if (changedPrefs.length > 0) {
-        saveMutation.mutate(changedPrefs)
-      } else {
-        setIsSaving(false)
-      }
-    }, 800)
-  }, [saveMutation])
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current)
-      }
-    }
-  }, [])
-
-  // Topic mutations
-  const addOverlayMutation = useMutation({
-    mutationFn: (input: { title: string; description: string; mappedConceptIds: string[] }) =>
-      trpcClient.systemShots.addTopicOverlay.mutate(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] }),
-  })
-
-  const removeOverlayMutation = useMutation({
-    mutationFn: (id: string) => trpcClient.systemShots.removeTopicOverlay.mutate({ id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["system-shots", "preferences"] }),
-  })
-
-  // Handlers
-  const handlePrefsChange = useCallback((conceptId: string, prefs: UserConceptPrefs) => {
-    setLocalPrefs((prev) => {
-      const next = new Map(prev).set(conceptId, prefs)
-      scheduleAutoSave(next)
-      return next
-    })
-  }, [scheduleAutoSave])
-
-  const handleAddOverlay = useCallback((title: string, description: string) => {
-    addOverlayMutation.mutate({ title, description, mappedConceptIds: [] })
-  }, [addOverlayMutation])
-
-  const handleRemoveOverlay = useCallback((id: string) => {
-    removeOverlayMutation.mutate(id)
-  }, [removeOverlayMutation])
-
-  const isLoading = progressLoading || prefsLoading
 
   return (
     <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
@@ -564,9 +409,7 @@ export function ProgressView({ onBack }: ProgressViewProps) {
           Learning
         </h1>
         
-        <div className="w-20 flex justify-end pr-2">
-          {isSaving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-        </div>
+        <div className="w-20" />
       </div>
 
       {/* Content */}
@@ -577,7 +420,7 @@ export function ProgressView({ onBack }: ProgressViewProps) {
           </div>
         )}
 
-        {progressError && (
+        {isError && (
           <div className="flex min-h-[50vh] items-center justify-center px-8">
             <p className="text-center text-muted-foreground">
               Could not load progress. Pull down to retry.
@@ -585,51 +428,36 @@ export function ProgressView({ onBack }: ProgressViewProps) {
           </div>
         )}
 
-        {!isLoading && !progressError && items.length > 0 && (
+        {!isLoading && !isError && items.length > 0 && (
           <>
             {/* Progress summary */}
-            <ProgressSummary items={items} prefsMap={localPrefs} />
+            <ProgressSummary items={items} />
 
             {/* Concepts grouped by track */}
-            {Array.from(groupedItems.entries()).map(([track, trackItems]) => {
-              const enabledCount = trackItems.filter(
-                (i) => localPrefs.get(i.conceptId)?.enabled !== false
-              ).length
-              
-              return (
-                <div key={track}>
-                  <TrackHeader track={track} count={enabledCount} total={trackItems.length} />
-                  <div className="divide-y divide-border/30">
-                    {trackItems.map((item) => (
-                      <ConceptRow
-                        key={item.conceptId}
-                        item={item}
-                        prefs={localPrefs.get(item.conceptId) ?? getDefaultPrefs(item.conceptId)}
-                        expanded={expandedId === item.conceptId}
-                        onToggle={() => setExpandedId(
-                          expandedId === item.conceptId ? null : item.conceptId
-                        )}
-                        onPrefsChange={(prefs) => handlePrefsChange(item.conceptId, prefs)}
-                      />
-                    ))}
-                  </div>
+            {Array.from(groupedItems.entries()).map(([track, trackItems]) => (
+              <div key={track}>
+                <TrackHeader track={track} count={trackItems.length} />
+                <div className="divide-y divide-border/30">
+                  {trackItems.map((item) => (
+                    <ConceptRow
+                      key={item.conceptId}
+                      item={item}
+                      expanded={expandedId === item.conceptId}
+                      onToggle={() => setExpandedId(
+                        expandedId === item.conceptId ? null : item.conceptId
+                      )}
+                    />
+                  ))}
                 </div>
-              )
-            })}
-
-            {/* Add topics section */}
-            <AddTopicSection
-              overlays={overlays}
-              onAdd={handleAddOverlay}
-              onRemove={handleRemoveOverlay}
-            />
+              </div>
+            ))}
             
             {/* Bottom padding for safe area */}
             <div className="h-8" />
           </>
         )}
 
-        {!isLoading && !progressError && items.length === 0 && (
+        {!isLoading && !isError && items.length === 0 && (
           <div className="flex min-h-[50vh] items-center justify-center px-8">
             <p className="text-center text-muted-foreground">
               No concepts yet. Answer some questions to see your progress.

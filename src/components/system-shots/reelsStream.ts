@@ -1,4 +1,5 @@
 import type { ApiReel } from "./types"
+import { authFetch } from "@/lib/auth-fetch"
 
 /** Parse SSE stream: each event is "data: {JSON}\n\n". Content chunks have type 'content' and delta/content = stringified reel. */
 export async function consumeReelsStream(
@@ -6,7 +7,8 @@ export async function consumeReelsStream(
   onReel: (reel: ApiReel) => void,
   onError: (err: string) => void
 ): Promise<void> {
-  const res = await fetch(url, { credentials: "include" })
+  // Use authFetch to wait for session and retry on 401
+  const res = await authFetch(url)
   if (!res.ok) {
     onError(res.status === 401 ? "Unauthorized" : `Failed to load reels: ${res.status}`)
     return

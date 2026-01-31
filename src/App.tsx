@@ -29,6 +29,7 @@ const SpeechDemo = lazy(() => import('./components/Speech'));
 const CanvasDrawDemo = lazy(() => import('./components/CanvasDrawDemo'));
 const LegacyConversationTest = lazy(() => import('./components/LegacyConversationTest'));
 const VideoDetailPage = lazy(() => import('./components/videos/VideoDetailPage'));
+const SystemShotsHomePage = lazy(() => import('./components/system-shots/SystemShotsHomePage'));
 
 function BoardView({
   onNewBoard,
@@ -325,6 +326,7 @@ function AppContent() {
           <Route path="/app/videos" element={<BoardsPage />} />
           <Route path="/app/videos/:videoId" element={<VideoDetailPage />} />
           <Route path="/app/system-shots" element={<BoardsPage />} />
+          <Route path="/app/system-shots/home" element={<SystemShotsHomePage />} />
           <Route path="/test-ai" element={<TestAI />} />
           <Route path="/speech" element={<SpeechDemo />} />
           <Route path="/canvas-ai" element={<CanvasDrawDemo />} />

@@ -2,24 +2,45 @@
  * System Shots – LLM reel generation (MCQ only in V1).
  * Supports batch (non-streaming) and NDJSON streaming generation.
  * V2: Uses BatchComposer for intent-based generation with 4/3/2/1 distribution.
- * V3: Supports user preferences (filtering, priority bias) and topic overlays.
+ * V3: Practice problems integration.
+ * V4: Per-concept mastery level targeting with custom level expectations.
  */
 import { chat } from "@tanstack/ai";
 import { z } from "zod";
 import { LivaAIModel } from "../ai/liva-ai-model";
-import type { Reel, TopicStateRow, FeedIntent, UserConceptPrefs, UserTopicOverlay } from "./types";
+import type { Reel, TopicStateRow, FeedIntent, MasteryLevel, LevelExpectation } from "./types";
 import type { ConceptV2 } from "./types";
-import { composeBatch, getIntentPromptInstructions, type ConceptSkipCounts } from "./batch-composer";
+import { MASTERY_LEVELS } from "./types";
+import { composeBatch, getIntentPromptInstructions, type ConceptSkipCounts, type PracticeItem } from "./batch-composer";
 import { getMicroSignal } from "./intent-engine";
+import { getTargetLevelExpectation } from "./concepts";
 
-/** Generation options including user preferences. */
+/** Generation options. */
 export interface GenerationOptions {
   skipCounts?: ConceptSkipCounts;
-  userPrefs?: Map<string, UserConceptPrefs>;
-  topicOverlays?: UserTopicOverlay[];
+  /** Recently used problem IDs to avoid repetition. */
+  recentProblemIds?: string[];
+  /** Mastery levels per concept for targeted generation (cost-efficient: only target level sent to LLM). */
+  masteryLevels?: Map<string, MasteryLevel>;
 }
 
 const LOG_PREFIX = "[generateReels]";
+
+/** Cache TTL: 7 days in seconds. */
+const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 604800
+
+/**
+ * Build a cache key from the LLM prompt using SHA-256 hash.
+ * Prefix with "llm:reels:" for namespace isolation.
+ */
+async function buildCacheKey(prompt: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(prompt);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `llm:reels:${hashHex}`;
+}
 
 const mcqReelSchema = z.object({
   conceptId: z.string(),
@@ -28,7 +49,8 @@ const mcqReelSchema = z.object({
   correctIndex: z.number().min(0).max(3),
   explanation: z.string(),
   difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  intent: z.enum(["reinforce", "recall", "build", "mix"]).optional(),
+  intent: z.enum(["reinforce", "recall", "build", "mix", "practice"]).optional(),
+  problemId: z.string().optional(),
 });
 
 const batchSchema = z.object({
@@ -48,48 +70,78 @@ function extractJsonString(raw: string): string {
   return match ? match[1].trim() : trimmed;
 }
 
+/**
+ * Build level context for LLM prompt (cost-efficient: only target level sent).
+ * Returns empty string if no mastery spec exists for the concept.
+ */
+function buildLevelContext(
+  conceptId: string,
+  currentLevel: MasteryLevel
+): string {
+  const targetSpec = getTargetLevelExpectation(conceptId, currentLevel);
+  if (!targetSpec || targetSpec.mustDemonstrate.length === 0) return "";
+  
+  const targetLevel = Math.min(currentLevel + 1, 7) as MasteryLevel;
+  const levelName = MASTERY_LEVELS[targetLevel].name;
+  
+  // Build concise context (cost-efficient)
+  const mustDemo = targetSpec.mustDemonstrate.slice(0, 3).join("; ");
+  const mistakes = targetSpec.commonMistakes.slice(0, 2).join("; ");
+  
+  let context = `\nTARGET: L${targetLevel} ${levelName}`;
+  context += `\nTest: ${mustDemo}`;
+  if (mistakes) {
+    context += `\nExpose mistakes: ${mistakes}`;
+  }
+  
+  return context;
+}
+
 /** Intent-specific generation instructions. */
 interface ConceptWithIntentForPrompt {
   conceptId: string;
   conceptName: string;
   intent: FeedIntent;
-}
-
-/** Build user context section from topic overlays. */
-function buildUserContextSection(topicOverlays: UserTopicOverlay[]): string {
-  if (!topicOverlays || topicOverlays.length === 0) return "";
-  
-  const overlayDescriptions = topicOverlays
-    .map((o) => `- ${o.title}: ${o.description}`)
-    .join("\n");
-  
-  return `
-–––––––––––––––––
-USER CONTEXT (consider when relevant)
-
-The user is particularly interested in these topics. When generating questions, consider incorporating these contexts where they naturally fit:
-
-${overlayDescriptions}
-
-`;
+  /** For practice intent, the problem context. */
+  problemId?: string;
+  problemName?: string;
+  /** User's current mastery level for targeted generation. */
+  masteryLevel?: MasteryLevel;
 }
 
 /** NDJSON-only prompt: one JSON object per line, no markdown, no outer array. */
 function buildNDJSONPrompt(
   conceptsWithIntents: ConceptWithIntentForPrompt[],
   stateSummary: string,
-  count: number,
-  topicOverlays: UserTopicOverlay[] = []
+  count: number
 ): string {
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
-      const intentInstructions = getIntentPromptInstructions(c.intent);
+      const problemContext = c.intent === "practice" && c.problemId && c.problemName
+        ? { problemId: c.problemId, problemName: c.problemName }
+        : undefined;
+      const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
+      
+      // Add level context if mastery level is known (cost-efficient: only target level)
+      const levelContext = c.masteryLevel !== undefined 
+        ? buildLevelContext(c.conceptId, c.masteryLevel)
+        : "";
+      
+      if (c.intent === "practice" && c.problemName) {
+        return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
+   Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
+${intentInstructions}${levelContext}`;
+      }
+      
       return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
-${intentInstructions}`;
+${intentInstructions}${levelContext}`;
     })
     .join("\n\n");
 
-  const userContextSection = buildUserContextSection(topicOverlays);
+  const hasPractice = conceptsWithIntents.some(c => c.intent === "practice");
+  const practiceNote = hasPractice 
+    ? "\n- For PRACTICE problems, also include 'problemId' with the exact problem ID specified"
+    : "";
 
   return `You are a senior system design interviewer at a top-tier tech company.
 
@@ -98,18 +150,18 @@ Your task is to generate interview-grade MCQ questions, not trivia. You must obe
 OUTPUT FORMAT – CRITICAL: You MUST output only NDJSON (newline-delimited JSON).
 - Exactly one valid JSON object per line.
 - No markdown, no code fences, no outer array, no extra text before or after.
-- Each line must be a complete, valid JSON object with these exact keys: conceptId, prompt, options, correctIndex, explanation, difficulty, intent.
+- Each line must be a complete, valid JSON object with these exact keys: conceptId, prompt, options, correctIndex, explanation, difficulty, intent${hasPractice ? ", problemId (for practice)" : ""}.
 
 Example of exactly two lines (you will output ${count} lines):
 {"conceptId":"cap-theorem","prompt":"Why might a CP system choose to allow stale reads?","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","difficulty":1,"intent":"reinforce"}
-{"conceptId":"sharding","prompt":"How do you pick a shard key?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"recall"}
+{"conceptId":"sharding","prompt":"When designing Twitter, which shard key minimizes hot partitions for tweets?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"practice","problemId":"twitter"}
 
 –––––––––––––––––
 INPUT CONTEXT
 
 User topic mastery state:
 ${stateSummary}
-${userContextSection}
+
 –––––––––––––––––
 CONCEPTS TO GENERATE (with intents)
 
@@ -127,7 +179,7 @@ Generate exactly ${count} MCQ questions. One JSON object per line. No other outp
 - correctIndex: 0-3
 - explanation: brief explanation
 - difficulty: 1, 2, or 3 (1=foundational, 2=applied tradeoff, 3=deep/failure)
-- intent: the intent specified for this concept (reinforce, recall, build, or mix)
+- intent: the intent specified for this concept (reinforce, recall, build, mix, or practice)${practiceNote}
 
 Output ${count} lines now, one JSON object per line, in the same order as the concepts above:`;
 }
@@ -182,7 +234,8 @@ Output ${count} lines now, one JSON object per line:`;
  * Async generator: stream NDJSON from LLM, parse each line, validate, assign UUID, yield reel.
  * Uses chat(stream: true); accumulates by newlines; yields reels as they are parsed.
  * V2: Uses BatchComposer for intent-based generation.
- * V3: Supports user preferences and topic overlays.
+ * V3: Practice problems integration.
+ * V4: Per-concept mastery level targeting with custom level expectations.
  */
 export async function* generateReelsStream(
   env: Env,
@@ -191,29 +244,51 @@ export async function* generateReelsStream(
   count: number,
   options: GenerationOptions = {}
 ): AsyncGenerator<GenerateReelInput> {
-  const { skipCounts = {}, userPrefs = new Map(), topicOverlays = [] } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map() } = options;
   
   if (concepts.length === 0) {
     console.warn(`${LOG_PREFIX} stream concepts.length=0`);
     return;
   }
 
-  // Use batch composer to determine intents (with user preferences)
-  const batch = composeBatch(topicState, concepts, skipCounts, count, userPrefs);
-  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, overlays=${topicOverlays.length}`);
+  // Use batch composer to determine intents
+  const batch = composeBatch(topicState, concepts, skipCounts, count, {
+    recentProblemIds,
+  });
+  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, practiceItems=${batch.practiceItems.length}`);
 
   // Build concept map for name lookup
   const conceptMap = new Map(concepts.map((c) => [c.id, c]));
   
-  // Build concepts with intents for prompt
-  const conceptsWithIntents: ConceptWithIntentForPrompt[] = batch.items.map((item) => ({
-    conceptId: item.conceptId,
-    conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
-    intent: item.intent,
-  }));
+  // Build concepts with intents for prompt (including practice items and mastery levels)
+  const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
+    ...batch.items.map((item) => ({
+      conceptId: item.conceptId,
+      conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
+      intent: item.intent,
+      masteryLevel: masteryLevels.get(item.conceptId),
+    })),
+    ...batch.practiceItems.map((item) => ({
+      conceptId: item.conceptId,
+      conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
+      intent: item.intent as FeedIntent,
+      problemId: item.problemId,
+      problemName: item.problemName,
+      masteryLevel: masteryLevels.get(item.conceptId),
+    })),
+  ];
 
-  // Build intent map for later lookup
-  const intentMap = new Map(batch.items.map((item) => [item.conceptId, item.intent]));
+  // Build intent map and problem map for later lookup
+  const intentMap = new Map<string, FeedIntent>();
+  const problemMap = new Map<string, { problemId: string; problemName: string }>();
+  
+  for (const item of batch.items) {
+    intentMap.set(item.conceptId, item.intent);
+  }
+  for (const item of batch.practiceItems) {
+    intentMap.set(`${item.conceptId}:${item.problemId}`, item.intent);
+    problemMap.set(item.conceptId, { problemId: item.problemId, problemName: item.problemName });
+  }
 
   const stateSummary =
     topicState.length > 0
@@ -225,7 +300,29 @@ export async function* generateReelsStream(
           .join("; ")
       : "No prior activity.";
 
-  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, count, topicOverlays);
+  const totalCount = batch.items.length + batch.practiceItems.length;
+  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount);
+
+  // Check KV cache first
+  const cacheKey = await buildCacheKey(userPrompt);
+  try {
+    const cached = await env.LLM_CACHE?.get(cacheKey, "json");
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      console.log(`${LOG_PREFIX} cache HIT key=${cacheKey.slice(0, 30)}... reels=${cached.length}`);
+      for (const reel of cached as GenerateReelInput[]) {
+        // Generate new IDs for cached reels to avoid duplicates
+        yield { ...reel, id: crypto.randomUUID() };
+      }
+      return;
+    }
+  } catch (cacheErr) {
+    // Cache read error - treat as miss and proceed with LLM
+    console.warn(`${LOG_PREFIX} cache read error, proceeding with LLM`, cacheErr);
+  }
+  console.log(`${LOG_PREFIX} cache MISS key=${cacheKey.slice(0, 30)}...`);
+
+  // Accumulator for caching successful results
+  const accumulatedReels: GenerateReelInput[] = [];
 
   let stream: AsyncIterable<{ type: string; delta?: string; content?: string }>;
   try {
@@ -272,10 +369,12 @@ export async function* generateReelsStream(
         }
         const r = parsedReel.data;
         // Use intent from batch composer (fallback to LLM-provided or reinforce)
-        const intent = intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+        const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
+        const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
         const state = topicState.find((t) => t.conceptId === r.conceptId);
         const skipCount = skipCounts[r.conceptId] ?? 0;
-        const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0);
+        const problem = problemMap.get(r.conceptId);
+        const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
         
         const reel: GenerateReelInput = {
           id: crypto.randomUUID(),
@@ -289,11 +388,19 @@ export async function* generateReelsStream(
           intent,
           skipCount: 0,
           microSignal,
+          problemId: r.problemId ?? problem?.problemId ?? null,
         };
+        accumulatedReels.push(reel);
         yielded++;
         yield reel;
-        if (yielded >= count) {
+        if (yielded >= totalCount) {
           console.log(`${LOG_PREFIX} stream done yielded=${yielded}`);
+          // Cache successful results (non-blocking)
+          if (accumulatedReels.length > 0) {
+            env.LLM_CACHE?.put(cacheKey, JSON.stringify(accumulatedReels), {
+              expirationTtl: CACHE_TTL_SECONDS,
+            }).catch((err: unknown) => console.error(`${LOG_PREFIX} cache write failed`, err));
+          }
           return;
         }
       }
@@ -304,14 +411,16 @@ export async function* generateReelsStream(
       try {
         const parsed = JSON.parse(buffer.trim());
         const parsedReel = mcqReelSchema.safeParse(parsed);
-        if (parsedReel.success && yielded < count) {
+        if (parsedReel.success && yielded < totalCount) {
           const r = parsedReel.data;
-          const intent = intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+          const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
+          const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
           const state = topicState.find((t) => t.conceptId === r.conceptId);
           const skipCount = skipCounts[r.conceptId] ?? 0;
-          const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0);
+          const problem = problemMap.get(r.conceptId);
+          const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
           
-          yield {
+          const lastReel: GenerateReelInput = {
             id: crypto.randomUUID(),
             conceptId: r.conceptId,
             type: "mcq",
@@ -323,13 +432,23 @@ export async function* generateReelsStream(
             intent,
             skipCount: 0,
             microSignal,
+            problemId: r.problemId ?? problem?.problemId ?? null,
           };
+          accumulatedReels.push(lastReel);
+          yield lastReel;
         }
       } catch {
         // ignore
       }
     }
     console.log(`${LOG_PREFIX} stream end yielded=${yielded}`);
+    
+    // Cache successful results at stream end (non-blocking)
+    if (accumulatedReels.length > 0) {
+      env.LLM_CACHE?.put(cacheKey, JSON.stringify(accumulatedReels), {
+        expirationTtl: CACHE_TTL_SECONDS,
+      }).catch((err: unknown) => console.error(`${LOG_PREFIX} cache write failed`, err));
+    }
   } catch (err) {
     console.error(`${LOG_PREFIX} stream iteration error`, err);
   }
@@ -339,7 +458,8 @@ export async function* generateReelsStream(
  * Generate reels in one LLM call; returns array of reels with new UUIDs.
  * Uses a single non-streaming request then parses JSON (no outputSchema double-call).
  * V2: Uses BatchComposer for intent-based generation.
- * V3: Supports user preferences and topic overlays.
+ * V3: Practice problems integration.
+ * V4: Per-concept mastery level targeting with custom level expectations.
  */
 export async function generateReelsBatch(
   env: Env,
@@ -348,29 +468,51 @@ export async function generateReelsBatch(
   count: number,
   options: GenerationOptions = {}
 ): Promise<GenerateReelInput[]> {
-  const { skipCounts = {}, userPrefs = new Map(), topicOverlays = [] } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map() } = options;
   
   if (concepts.length === 0) {
     console.warn(`${LOG_PREFIX} concepts.length=0, returning []`);
     return [];
   }
 
-  // Use batch composer to determine intents (with user preferences)
-  const batch = composeBatch(topicState, concepts, skipCounts, count, userPrefs);
-  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, overlays=${topicOverlays.length}`);
+  // Use batch composer to determine intents
+  const batch = composeBatch(topicState, concepts, skipCounts, count, {
+    recentProblemIds,
+  });
+  console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, practiceItems=${batch.practiceItems.length}`);
 
   // Build concept map for name lookup
   const conceptMap = new Map(concepts.map((c) => [c.id, c]));
   
-  // Build concepts with intents for prompt
-  const conceptsWithIntents: ConceptWithIntentForPrompt[] = batch.items.map((item) => ({
-    conceptId: item.conceptId,
-    conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
-    intent: item.intent,
-  }));
+  // Build concepts with intents for prompt (including practice items and mastery levels)
+  const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
+    ...batch.items.map((item) => ({
+      conceptId: item.conceptId,
+      conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
+      intent: item.intent,
+      masteryLevel: masteryLevels.get(item.conceptId),
+    })),
+    ...batch.practiceItems.map((item) => ({
+      conceptId: item.conceptId,
+      conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
+      intent: item.intent as FeedIntent,
+      problemId: item.problemId,
+      problemName: item.problemName,
+      masteryLevel: masteryLevels.get(item.conceptId),
+    })),
+  ];
 
-  // Build intent map for later lookup
-  const intentMap = new Map(batch.items.map((item) => [item.conceptId, item.intent]));
+  // Build intent map and problem map for later lookup
+  const intentMap = new Map<string, FeedIntent>();
+  const problemMap = new Map<string, { problemId: string; problemName: string }>();
+  
+  for (const item of batch.items) {
+    intentMap.set(item.conceptId, item.intent);
+  }
+  for (const item of batch.practiceItems) {
+    intentMap.set(`${item.conceptId}:${item.problemId}`, item.intent);
+    problemMap.set(item.conceptId, { problemId: item.problemId, problemName: item.problemName });
+  }
 
   const stateSummary =
     topicState.length > 0
@@ -382,15 +524,36 @@ export async function generateReelsBatch(
           .join("; ")
       : "No prior activity.";
 
-  // Build prompt with intent instructions
+  const totalCount = batch.items.length + batch.practiceItems.length;
+  
+  // Build prompt with intent instructions (including practice problems and level context)
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
+      const problemContext = c.intent === "practice" && c.problemId && c.problemName
+        ? { problemId: c.problemId, problemName: c.problemName }
+        : undefined;
+      const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
+      
+      // Add level context if mastery level is known (cost-efficient: only target level)
+      const levelContext = c.masteryLevel !== undefined 
+        ? buildLevelContext(c.conceptId, c.masteryLevel)
+        : "";
+      
+      if (c.intent === "practice" && c.problemName) {
+        return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
+   Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
+${intentInstructions}${levelContext}`;
+      }
+      
       return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
-${getIntentPromptInstructions(c.intent)}`;
+${intentInstructions}${levelContext}`;
     })
     .join("\n\n");
 
-  const userContextSection = buildUserContextSection(topicOverlays);
+  const hasPractice = conceptsWithIntents.some(c => c.intent === "practice");
+  const practiceNote = hasPractice 
+    ? ',\n      "problemId": "<problem ID for practice questions>"'
+    : "";
 
   const userPrompt = `You are a senior system design interviewer at a top-tier tech company.
 
@@ -403,7 +566,7 @@ INPUT CONTEXT
 
 User topic mastery state:
 ${stateSummary}
-${userContextSection}
+
 –––––––––––––––––
 CONCEPTS TO GENERATE (with intents)
 
@@ -442,7 +605,7 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
       "correctIndex": 0,
       "explanation": "brief explanation",
       "difficulty": 1,
-      "intent": "reinforce"
+      "intent": "reinforce"${practiceNote}
     }
   ]
 }`;
@@ -500,10 +663,12 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
   console.log(`${LOG_PREFIX} success reels=${reels.length}`);
   return reels.map((r) => {
     // Use intent from batch composer (fallback to LLM-provided or reinforce)
-    const intent = intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+    const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
+    const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
     const state = topicState.find((t) => t.conceptId === r.conceptId);
     const skipCount = skipCounts[r.conceptId] ?? 0;
-    const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0);
+    const problem = problemMap.get(r.conceptId);
+    const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
     
     return {
       id: crypto.randomUUID(),
@@ -517,6 +682,7 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
       intent,
       skipCount: 0,
       microSignal,
+      problemId: r.problemId ?? problem?.problemId ?? null,
     };
   });
 }

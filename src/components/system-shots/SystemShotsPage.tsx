@@ -39,6 +39,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     staleTime: Number.POSITIVE_INFINITY,
   })
 
+  // authFetch in reelsStream.ts handles waiting for auth and 401 retries
   const feed = useReelsFeed({
     initialContinuedIds: localAnswerState.submittedAnswerReelIds,
     onError: (err) => toast.error(err === "Unauthorized" ? "Please sign in." : err),

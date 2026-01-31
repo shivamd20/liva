@@ -3,6 +3,7 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { AppRouter } from '../server/trpc';
 import { getUserId } from './utils/userIdentity';
 import { authClient } from './lib/auth-client';
+import { authFetch } from './lib/auth-fetch';
 
 const API_URL = '/api/v1';
 
@@ -10,6 +11,8 @@ export const trpcClient = createTRPCClient<AppRouter>({
   links: [
     httpBatchLink({
       url: API_URL,
+      // Use authFetch to wait for auth and retry on 401
+      fetch: authFetch,
       async headers() {
         const session = await authClient.getSession();
         const headers: Record<string, string> = {

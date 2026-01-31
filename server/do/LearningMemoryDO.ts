@@ -1,10 +1,13 @@
 import { DurableObject } from "cloudflare:workers";
 import { toServerSentEventsStream } from "@tanstack/ai";
-import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery, FeedIntent } from "../system-shots/types";
-import type { AnswerSubmittedPayload, UserConceptPrefs, UserTopicOverlay, PreferencesResponse, DifficultyOverride, PriorityBias } from "../system-shots/types";
+import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery, MasteryLevel, FeedIntent } from "../system-shots/types";
+import type { AnswerSubmittedPayload } from "../system-shots/types";
 import type { ConceptV2 } from "../system-shots/types";
 import { getConceptSeedRows, CONCEPT_V2 } from "../system-shots/concepts";
-import { getMicroSignal } from "../system-shots/intent-engine";
+import { getMicroSignal, deriveMasteryLevel } from "../system-shots/intent-engine";
+
+/** Number of recent problem IDs to track to avoid repetition. */
+const RECENT_PROBLEMS_LIMIT = 15;
 
 /** Generate next batch only when unconsumed reels (including skipped, which are replayed) drop below this. */
 const BUFFER_THRESHOLD = 5;
@@ -67,24 +70,6 @@ export class LearningMemoryDO extends DurableObject<Env> {
         skip_count INTEGER NOT NULL DEFAULT 0
       );
     `);
-    // User learning preferences tables
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS user_concept_prefs (
-        concept_id TEXT PRIMARY KEY,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        difficulty_override INTEGER NOT NULL DEFAULT 0,
-        priority_bias INTEGER NOT NULL DEFAULT 0
-      );
-    `);
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS user_topic_overlays (
-        id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL,
-        mapped_concept_ids TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      );
-    `);
     this.ensureReelsSkippedAtColumn();
     this.ensureNewColumns();
   }
@@ -106,13 +91,17 @@ export class LearningMemoryDO extends DurableObject<Env> {
       this.backfillStabilityScores();
     }
 
-    // Check and add intent and skip_count to reels
+    // Check and add intent, skip_count, and problem_id to reels
     const reelsInfo = this.sql.exec("PRAGMA table_info(reels)").toArray() as { name: string }[];
     if (!reelsInfo.some((r) => r.name === "intent")) {
       this.sql.exec("ALTER TABLE reels ADD COLUMN intent TEXT");
     }
     if (!reelsInfo.some((r) => r.name === "skip_count")) {
       this.sql.exec("ALTER TABLE reels ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0");
+    }
+    // V4: Add problem_id for practice problems
+    if (!reelsInfo.some((r) => r.name === "problem_id")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN problem_id TEXT");
     }
   }
 
@@ -194,6 +183,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       consumedAt: (row.consumed_at as number) ?? null,
       intent: (row.intent as Reel["intent"]) ?? null,
       skipCount: (row.skip_count as number) ?? 0,
+      problemId: (row.problem_id as string) ?? null,
     };
   }
 
@@ -451,16 +441,16 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const topicState = this.getTopicStateForGeneration();
     const concepts = this.getConceptsList();
     const skipCounts = this.getSkipCountsPerConcept();
-    const userPrefs = this.getConceptPrefsMap();
-    const topicOverlays = this.getTopicOverlays();
-    console.log(`${LOG_PREFIX} ensureBuffer generating topicStateConcepts=${topicState.length} concepts=${concepts.length} targetCount=${BUFFER_REFILL_COUNT} userPrefs=${userPrefs.size} overlays=${topicOverlays.length}`);
+    const recentProblemIds = this.getRecentProblemIds();
+    const masteryLevels = this.getMasteryLevelsMap();
+    console.log(`${LOG_PREFIX} ensureBuffer generating topicStateConcepts=${topicState.length} concepts=${concepts.length} targetCount=${BUFFER_REFILL_COUNT} recentProblems=${recentProblemIds.length} masteryLevels=${masteryLevels.size}`);
     const { generateReelsBatch } = await import("../system-shots/generate");
     const newReels = await generateReelsBatch(
       this.env,
       topicState,
       concepts,
       BUFFER_REFILL_COUNT,
-      { skipCounts, userPrefs, topicOverlays }
+      { skipCounts, recentProblemIds, masteryLevels }
     );
     console.log(`${LOG_PREFIX} ensureBuffer generated ${newReels.length} reels`);
     this.persistReels(newReels);
@@ -472,8 +462,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
   private persistOneReel(r: Omit<Reel, "createdAt" | "consumedAt">): void {
     const now = Date.now();
     this.sql.exec(
-      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       r.id,
       r.conceptId,
       r.type,
@@ -484,7 +474,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
       r.difficulty,
       now,
       r.intent ?? null,
-      r.skipCount ?? 0
+      r.skipCount ?? 0,
+      r.problemId ?? null
     );
   }
 
@@ -573,11 +564,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
       const skipCounts = this.getSkipCountsPerConcept();
-      const userPrefs = this.getConceptPrefsMap();
-      const topicOverlays = this.getTopicOverlays();
+      const recentProblemIds = this.getRecentProblemIds();
+      const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let yielded = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, userPrefs, topicOverlays })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
         this.persistOneReel(reel);
         const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
         yield toChunk(apiReel);
@@ -598,11 +589,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
       const skipCounts = this.getSkipCountsPerConcept();
-      const userPrefs = this.getConceptPrefsMap();
-      const topicOverlays = this.getTopicOverlays();
+      const recentProblemIds = this.getRecentProblemIds();
+      const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let generated = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, userPrefs, topicOverlays })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
         this.persistOneReel(reel);
         generated++;
         if (generated >= BUFFER_REFILL_COUNT) break;
@@ -647,6 +638,39 @@ export class LearningMemoryDO extends DurableObject<Env> {
     return result;
   }
 
+  /** Get recently used problem IDs to avoid repetition. */
+  getRecentProblemIds(limit: number = RECENT_PROBLEMS_LIMIT): string[] {
+    const rows = this.sql
+      .exec(
+        "SELECT DISTINCT problem_id FROM reels WHERE problem_id IS NOT NULL ORDER BY created_at DESC LIMIT ?",
+        limit
+      )
+      .toArray() as { problem_id: string }[];
+    return rows.map((r) => r.problem_id);
+  }
+
+  /** Get mastery levels for all concepts (for targeted LLM generation). */
+  getMasteryLevelsMap(): Map<string, MasteryLevel> {
+    const rows = this.sql
+      .exec(
+        "SELECT concept_id, exposure_count, accuracy_ema, failure_streak, stability_score FROM topic_state"
+      )
+      .toArray() as {
+        concept_id: string;
+        exposure_count: number;
+        accuracy_ema: number;
+        failure_streak: number;
+        stability_score: number;
+      }[];
+    
+    const map = new Map<string, MasteryLevel>();
+    for (const r of rows) {
+      const level = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
+      map.set(r.concept_id, level);
+    }
+    return map;
+  }
+
   /** Concepts for generation: full ConceptV2 from canon, filtered by IDs present in DB. */
   private getConceptsList(): ConceptV2[] {
     const rows = this.sql.exec("SELECT id FROM concepts").toArray() as { id: string }[];
@@ -676,7 +700,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
          COALESCE(t.exposure_count, 0) AS exposure_count,
          COALESCE(t.accuracy_ema, 0.5) AS accuracy_ema,
          COALESCE(t.failure_streak, 0) AS failure_streak,
-         COALESCE(t.last_at, 0) AS last_at
+         COALESCE(t.last_at, 0) AS last_at,
+         COALESCE(t.stability_score, 0) AS stability_score
          FROM concepts c
          LEFT JOIN topic_state t ON c.id = t.concept_id
          ORDER BY c.id`
@@ -689,9 +714,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
       accuracy_ema: number;
       failure_streak: number;
       last_at: number;
+      stability_score: number;
     }[];
     const items: ProgressItem[] = rows.map((r) => {
       const meta = CONCEPT_V2.find((c) => c.id === r.concept_id);
+      const masteryLevel = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
       return {
         conceptId: r.concept_id,
         name: r.name,
@@ -703,194 +730,21 @@ export class LearningMemoryDO extends DurableObject<Env> {
         accuracyEma: r.accuracy_ema,
         failureStreak: r.failure_streak,
         lastAt: r.last_at,
+        stabilityScore: r.stability_score,
         mastery: this.deriveMastery(r.exposure_count, r.accuracy_ema, r.failure_streak),
+        masteryLevel,
+        masterySpec: meta?.masterySpec,
       };
     });
     return { items };
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // User Learning Preferences CRUD
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  /** Get all user preferences (concept prefs + topic overlays). */
-  async getPreferences(): Promise<PreferencesResponse> {
-    console.log(`${LOG_PREFIX} getPreferences`);
-
-    // Get concept preferences (only non-default values are stored)
-    const prefRows = this.sql
-      .exec("SELECT concept_id, enabled, difficulty_override, priority_bias FROM user_concept_prefs")
-      .toArray() as { concept_id: string; enabled: number; difficulty_override: number; priority_bias: number }[];
-
-    const conceptPrefs: UserConceptPrefs[] = prefRows.map((r) => ({
-      conceptId: r.concept_id,
-      enabled: r.enabled === 1,
-      difficultyOverride: r.difficulty_override as DifficultyOverride,
-      priorityBias: r.priority_bias as PriorityBias,
-    }));
-
-    // Get topic overlays
-    const overlayRows = this.sql
-      .exec("SELECT id, title, description, mapped_concept_ids, created_at FROM user_topic_overlays ORDER BY created_at DESC")
-      .toArray() as { id: string; title: string; description: string; mapped_concept_ids: string; created_at: number }[];
-
-    const topicOverlays: UserTopicOverlay[] = overlayRows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      mappedConceptIds: JSON.parse(r.mapped_concept_ids) as string[],
-      createdAt: r.created_at,
-    }));
-
-    console.log(`${LOG_PREFIX} getPreferences conceptPrefs=${conceptPrefs.length} overlays=${topicOverlays.length}`);
-    return { conceptPrefs, topicOverlays };
-  }
-
-  /** Update a single concept's preferences. */
-  async updateConceptPref(
-    conceptId: string,
-    enabled: boolean,
-    difficultyOverride: DifficultyOverride,
-    priorityBias: PriorityBias
-  ): Promise<void> {
-    console.log(`${LOG_PREFIX} updateConceptPref conceptId=${conceptId} enabled=${enabled} diff=${difficultyOverride} priority=${priorityBias}`);
-
-    // If all values are default, delete the row (keep table sparse)
-    if (enabled && difficultyOverride === 0 && priorityBias === 0) {
-      this.sql.exec("DELETE FROM user_concept_prefs WHERE concept_id = ?", conceptId);
-      return;
-    }
-
-    this.sql.exec(
-      `INSERT INTO user_concept_prefs (concept_id, enabled, difficulty_override, priority_bias)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(concept_id) DO UPDATE SET
-         enabled = excluded.enabled,
-         difficulty_override = excluded.difficulty_override,
-         priority_bias = excluded.priority_bias`,
-      conceptId,
-      enabled ? 1 : 0,
-      difficultyOverride,
-      priorityBias
-    );
-  }
-
-  /** Batch update concept preferences. */
-  async batchUpdateConceptPrefs(prefs: UserConceptPrefs[]): Promise<void> {
-    console.log(`${LOG_PREFIX} batchUpdateConceptPrefs count=${prefs.length}`);
-    for (const pref of prefs) {
-      await this.updateConceptPref(
-        pref.conceptId,
-        pref.enabled,
-        pref.difficultyOverride,
-        pref.priorityBias
-      );
-    }
-  }
-
-  /** Reset concept preferences to defaults (optionally by track). */
-  async resetConceptPrefs(track?: string): Promise<void> {
-    console.log(`${LOG_PREFIX} resetConceptPrefs track=${track ?? "all"}`);
-
-    if (!track) {
-      // Reset all
-      this.sql.exec("DELETE FROM user_concept_prefs");
-      return;
-    }
-
-    // Reset by track: find concept IDs for the track, delete their prefs
-    const trackConcepts = CONCEPT_V2.filter((c) => c.track === track).map((c) => c.id);
-    for (const conceptId of trackConcepts) {
-      this.sql.exec("DELETE FROM user_concept_prefs WHERE concept_id = ?", conceptId);
-    }
-  }
-
-  /** Add a user topic overlay. */
-  async addTopicOverlay(title: string, description: string, mappedConceptIds: string[]): Promise<UserTopicOverlay> {
-    console.log(`${LOG_PREFIX} addTopicOverlay title="${title}" mappedConcepts=${mappedConceptIds.length}`);
-
-    const overlay: UserTopicOverlay = {
-      id: crypto.randomUUID(),
-      title,
-      description,
-      mappedConceptIds,
-      createdAt: Date.now(),
-    };
-
-    this.sql.exec(
-      "INSERT INTO user_topic_overlays (id, title, description, mapped_concept_ids, created_at) VALUES (?, ?, ?, ?, ?)",
-      overlay.id,
-      overlay.title,
-      overlay.description,
-      JSON.stringify(overlay.mappedConceptIds),
-      overlay.createdAt
-    );
-
-    return overlay;
-  }
-
-  /** Remove a user topic overlay. */
-  async removeTopicOverlay(id: string): Promise<void> {
-    console.log(`${LOG_PREFIX} removeTopicOverlay id=${id}`);
-    this.sql.exec("DELETE FROM user_topic_overlays WHERE id = ?", id);
-  }
-
-  /** Get enabled concept IDs (for feed generation filtering). */
-  getEnabledConceptIds(): Set<string> {
-    // Start with all concepts enabled
-    const allIds = new Set(CONCEPT_V2.map((c) => c.id));
-    
-    // Remove disabled ones
-    const disabledRows = this.sql
-      .exec("SELECT concept_id FROM user_concept_prefs WHERE enabled = 0")
-      .toArray() as { concept_id: string }[];
-    
-    for (const row of disabledRows) {
-      allIds.delete(row.concept_id);
-    }
-    
-    return allIds;
-  }
-
-  /** Get concept preferences map for batch composer. */
-  getConceptPrefsMap(): Map<string, UserConceptPrefs> {
-    const prefRows = this.sql
-      .exec("SELECT concept_id, enabled, difficulty_override, priority_bias FROM user_concept_prefs")
-      .toArray() as { concept_id: string; enabled: number; difficulty_override: number; priority_bias: number }[];
-
-    const map = new Map<string, UserConceptPrefs>();
-    for (const r of prefRows) {
-      map.set(r.concept_id, {
-        conceptId: r.concept_id,
-        enabled: r.enabled === 1,
-        difficultyOverride: r.difficulty_override as DifficultyOverride,
-        priorityBias: r.priority_bias as PriorityBias,
-      });
-    }
-    return map;
-  }
-
-  /** Get all topic overlays for prompt injection. */
-  getTopicOverlays(): UserTopicOverlay[] {
-    const rows = this.sql
-      .exec("SELECT id, title, description, mapped_concept_ids, created_at FROM user_topic_overlays")
-      .toArray() as { id: string; title: string; description: string; mapped_concept_ids: string; created_at: number }[];
-
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      description: r.description,
-      mappedConceptIds: JSON.parse(r.mapped_concept_ids) as string[],
-      createdAt: r.created_at,
-    }));
   }
 
   private persistReels(reels: Omit<Reel, "createdAt" | "consumedAt">[]): void {
     const now = Date.now();
     for (const r of reels) {
       this.sql.exec(
-        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
         r.id,
         r.conceptId,
         r.type,
@@ -901,7 +755,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
         r.difficulty,
         now,
         r.intent ?? null,
-        r.skipCount ?? 0
+        r.skipCount ?? 0,
+        r.problemId ?? null
       );
     }
   }

@@ -12,7 +12,7 @@ export type ReelType =
   | "voice";
 
 /** Feed intent for spaced repetition system. */
-export type FeedIntent = "reinforce" | "recall" | "build" | "mix";
+export type FeedIntent = "reinforce" | "recall" | "build" | "mix" | "practice";
 
 /** API/DB reel shape. V1: only MCQ generated and scored. */
 export interface Reel {
@@ -32,6 +32,8 @@ export interface Reel {
   skipCount?: number;
   /** Micro-signal hint for UI (computed on demand). */
   microSignal?: string | null;
+  /** Practice problem ID (only for practice intent reels). */
+  problemId?: string | null;
 }
 
 /** v2 locked concept type. */
@@ -68,7 +70,7 @@ export type Signal =
   | "interview_structuring"
   | "security_awareness";
 
-/** v2 frozen concept schema – no further fields. */
+/** v2 frozen concept schema – extended with mastery specs. */
 export interface ConceptV2 {
   id: string;
   name: string;
@@ -79,6 +81,8 @@ export interface ConceptV2 {
   related_tags: string[];
   signals: Signal[];
   typical_questions: string[];
+  /** Custom mastery level definitions for this concept. */
+  masterySpec?: LevelExpectation[];
 }
 
 /** Legacy concept shape (for DB seed rows only). */
@@ -131,8 +135,40 @@ export type EventPayload =
   | ReelShownPayload
   | AnswerSubmittedPayload;
 
-/** Mastery bucket derived from topic state (not stored). */
+/** Legacy mastery bucket (deprecated, use MasteryLevel). */
 export type Mastery = "solid" | "learning" | "weak" | "unknown";
+
+/** 7-level mastery system (0-7). */
+export type MasteryLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** Canonical mastery level definitions. */
+export const MASTERY_LEVELS = {
+  0: { name: "Unseen", short: "New", description: "Concept has not entered working memory" },
+  1: { name: "Recognizer", short: "Recognizer", description: "Can identify where concept applies" },
+  2: { name: "Explainer", short: "Explainer", description: "Can explain to another engineer" },
+  3: { name: "Applier", short: "Applier", description: "Can apply in isolation" },
+  4: { name: "Integrator", short: "Integrator", description: "Can compose with other concepts" },
+  5: { name: "Tradeoff Driver", short: "Tradeoff", description: "Uses concept to drive decisions" },
+  6: { name: "Failure-Aware Expert", short: "Expert", description: "Understands failure modes" },
+  7: { name: "Interview-Grade", short: "Mastered", description: "Usable under interview pressure" },
+} as const;
+
+/** Per-level expectations for a concept - what user must demonstrate at each level. */
+export interface LevelExpectation {
+  level: MasteryLevel;
+  /** What user must demonstrate to be at this level. */
+  mustDemonstrate: string[];
+  /** Common mistakes that indicate user is NOT at this level. */
+  commonMistakes: string[];
+  /** Optional: things that immediately disqualify user from this level. */
+  disqualifiers?: string[];
+}
+
+/** Full mastery specification for a concept. */
+export interface ConceptMasterySpec {
+  conceptId: string;
+  levelExpectations: LevelExpectation[];
+}
 
 /** Canonical practice problem: system design question with required concepts. */
 export interface PracticeProblem {
@@ -160,57 +196,16 @@ export interface ProgressItem {
   accuracyEma: number;
   failureStreak: number;
   lastAt: number;
+  stabilityScore: number;
+  /** Legacy 4-tier mastery (deprecated). */
   mastery: Mastery;
+  /** New 7-level mastery system. */
+  masteryLevel: MasteryLevel;
+  /** Custom mastery level definitions for this concept. */
+  masterySpec?: LevelExpectation[];
 }
 
 /** Response shape for getProgress. */
 export interface ProgressResponse {
   items: ProgressItem[];
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// User Learning Preferences
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Difficulty override: -1 = Easier, 0 = Auto (canonical), +1 = Harder */
-export type DifficultyOverride = -1 | 0 | 1;
-
-/** Priority bias: -1 = Less focus, 0 = Normal, +1 = More focus */
-export type PriorityBias = -1 | 0 | 1;
-
-/**
- * User concept preferences – signals that bias the feed without changing canonical structure.
- * Users may bias the path; they may not define the path.
- */
-export interface UserConceptPrefs {
-  conceptId: string;
-  /** Whether this concept is enabled in the feed. Disabled = excluded from generation. */
-  enabled: boolean;
-  /** Adjusts question difficulty tier: effective = clamp(canonical + override, 1, 3) */
-  difficultyOverride: DifficultyOverride;
-  /** Biases selection probability: score *= (1 + bias * 0.3) */
-  priorityBias: PriorityBias;
-}
-
-/**
- * User-added topic overlay – NOT a canonical concept.
- * These only affect LLM prompt context, never become prerequisites or unlock systems.
- */
-export interface UserTopicOverlay {
-  id: string;
-  /** Short title for the topic (e.g., "Cloudflare Durable Objects") */
-  title: string;
-  /** 1-2 line description fed to LLM for context */
-  description: string;
-  /** Optional mapping to canonical concept IDs for relevance scoring */
-  mappedConceptIds: string[];
-  createdAt: number;
-}
-
-/** Response shape for getPreferences API. */
-export interface PreferencesResponse {
-  /** Concept preferences (only non-default values stored) */
-  conceptPrefs: UserConceptPrefs[];
-  /** User-added topic overlays */
-  topicOverlays: UserTopicOverlay[];
 }

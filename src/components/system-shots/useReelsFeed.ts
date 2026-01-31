@@ -15,6 +15,8 @@ export interface FeedSegment {
 export interface UseReelsFeedOptions {
   initialContinuedIds?: string[]
   onError?: (err: string) => void
+  /** If false, disables auto-loading. Useful for waiting for auth. Default: true */
+  enabled?: boolean
 }
 
 export interface UseReelsFeedReturn {
@@ -31,7 +33,7 @@ let segmentIdCounter = 0
 const createSegmentId = () => `seg-${++segmentIdCounter}`
 
 export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedReturn {
-  const { initialContinuedIds = [], onError } = options
+  const { initialContinuedIds = [], onError, enabled = true } = options
 
   // Segments: either a batch of reels or a load-more sentinel
   const [segments, setSegments] = useState<FeedSegment[]>(() => [
@@ -223,13 +225,15 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     [segments, onError]
   )
 
-  // Auto-load initial segment
+  // Auto-load initial segment on mount
+  // authFetch in reelsStream.ts handles waiting for auth and 401 retries
   useEffect(() => {
+    if (!enabled) return; // Optional: skip if explicitly disabled
     const firstSentinel = segments.find((s) => s.type === "sentinel" && s.status === "idle")
     if (firstSentinel && segments.length === 1) {
       loadSegment(firstSentinel.id)
     }
-  }, []) // Only on mount
+  }, []) // Only on mount - authFetch handles auth waiting
 
   // Mark a reel as continued
   const markContinued = useCallback((reelId: string) => {
