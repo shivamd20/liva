@@ -90,7 +90,7 @@ export function resetAuthReady(): void {
 /**
  * Wait for auth to be ready with timeout.
  */
-async function waitForAuth(): Promise<boolean> {
+export async function waitForAuth(): Promise<boolean> {
   const timeoutPromise = new Promise<boolean>((resolve) => {
     setTimeout(() => resolve(false), AUTH_WAIT_TIMEOUT);
   });

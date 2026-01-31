@@ -369,30 +369,38 @@ export default {
 				req: request,
 				router: appRouter,
 				createContext: async () => {
-					// Check if this is a code practice or engine endpoint (public, no auth required)
-					const isPublicEndpoint = url.search.includes('codePractice.') || 
-						url.pathname.includes('codePractice') ||
-						url.search.includes('engine.') ||
-						url.pathname.includes('engine');
-					
-					if (isPublicEndpoint) {
-						// Public endpoints don't require authentication
-						return { env, userId: 'anonymous' };
-					}
-					
 					const auth = createAuth(env);
-					const session = await auth.api.getSession({ headers: request.headers });
-					let userId = session?.user?.id;
+					let userId: string | undefined;
+
+					try {
+						const session = await auth.api.getSession({ headers: request.headers });
+						userId = session?.user?.id;
+					} catch (e) {
+						// Ignore auth errors, will fall back to anonymous check
+					}
 
 					// SECURITY: The following bypass is for testing in dev mode only.
 					// if (!userId) {
 					// 	userId = request.headers.get('X-LIVA-USER-ID') || undefined;
 					// }
 
-					if (!userId) {
-						throw new Error('User authentication required');
+					if (userId) {
+						return { env, userId };
 					}
-					return { env, userId };
+
+					// Check if this is a code practice or engine endpoint (public, no auth required)
+					const isPublicEndpoint = url.search.includes('codePractice.') ||
+						url.pathname.includes('codePractice') ||
+						url.search.includes('engine.') ||
+						url.pathname.includes('engine');
+
+					if (isPublicEndpoint) {
+						// Public endpoints don't require authentication, but we mark as anonymous
+						// authedProcedure will reject this, publicProcedure will accept it
+						return { env, userId: 'anonymous' };
+					}
+
+					throw new Error('User authentication required');
 				},
 			});
 

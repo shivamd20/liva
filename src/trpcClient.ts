@@ -3,7 +3,7 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client';
 import type { AppRouter } from '../server/trpc';
 import { getUserId } from './utils/userIdentity';
 import { authClient } from './lib/auth-client';
-import { authFetch } from './lib/auth-fetch';
+import { authFetch, waitForAuth } from './lib/auth-fetch';
 
 const API_URL = '/api/v1';
 
@@ -14,6 +14,9 @@ export const trpcClient = createTRPCClient<AppRouter>({
       // Use authFetch to wait for auth and retry on 401
       fetch: authFetch,
       async headers() {
+        // Wait for auth to be ready so we get the token
+        await waitForAuth();
+
         const session = await authClient.getSession();
         const headers: Record<string, string> = {
           'X-LIVA-USER-ID': getUserId(),

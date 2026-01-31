@@ -12,7 +12,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '../ui/resizable';
-import { ArrowLeft, Play, Send, Loader2, FileText, History, TestTube, Plus, Trash2, LayoutTemplate, SquareChartGantt } from 'lucide-react';
+import { ArrowLeft, Play, Send, Loader2, FileText, History, TestTube, Plus, Trash2, LayoutTemplate, SquareChartGantt, RotateCcw } from 'lucide-react';
 import type { ExecutionResult } from '../../hooks/useCodePractice';
 
 type Language = 'java' | 'javascript' | 'typescript' | 'python';
@@ -42,6 +42,7 @@ export default function ProblemSolvePage() {
   const [code, setCode] = useState<string>('');
   const [result, setResult] = useState<ExecutionResult | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isLocalStorageLoaded, setIsLocalStorageLoaded] = useState(false);
 
   // Tabs state
   const [leftTab, setLeftTab] = useState('description');
@@ -92,7 +93,21 @@ export default function ProblemSolvePage() {
 
   // Initialize code
   useEffect(() => {
-    if (problemLoading) return;
+    if (problemLoading || isLocalStorageLoaded) return;
+
+    // 1. Try Local Storage first
+    if (problemId) {
+      const key = `code-practice-draft-${problemId}-${language}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        setCode(stored);
+        setIsInitialized(true);
+        setIsLocalStorageLoaded(true);
+        return;
+      }
+    }
+
+    // 2. Try Server Draft
     if (!draftFetched) return;
 
     if (!isInitialized && problem) {
@@ -103,18 +118,27 @@ export default function ProblemSolvePage() {
         setCode(starter);
       }
       setIsInitialized(true);
+      setIsLocalStorageLoaded(true);
     }
-  }, [problemLoading, draftFetched, draftData, generateStarterCode, isInitialized, problem]);
+  }, [problemLoading, draftFetched, draftData, generateStarterCode, isInitialized, problem, problemId, language, isLocalStorageLoaded]);
 
-  // Reset when language changes
+  // Reset when language or problem changes
   useEffect(() => {
     setIsInitialized(false);
+    setIsLocalStorageLoaded(false);
     setResult(null);
-  }, [language]);
+    setCustomTestCases([]);
+    setLeftTab('description');
+    setConsoleTab('testcases');
+  }, [language, problemId]);
 
   // Auto-save draft
   const handleCodeChange = useCallback((newCode: string) => {
     setCode(newCode);
+
+    if (problemId) {
+      localStorage.setItem(`code-practice-draft-${problemId}-${language}`, newCode);
+    }
 
     if (saveTimerRef.current) {
       clearTimeout(saveTimerRef.current);
@@ -126,6 +150,19 @@ export default function ProblemSolvePage() {
       }
     }, 1000);
   }, [problemId, language, saveDraft]);
+
+  const handleRestore = useCallback(() => {
+    if (!confirm('Are you sure you want to reset the code to the starter template? This will lose your changes.')) return;
+
+    const starter = generateStarterCode();
+    setCode(starter);
+    if (problemId) {
+      localStorage.removeItem(`code-practice-draft-${problemId}-${language}`);
+      saveDraft.mutate({ problemId, language, code: starter });
+    }
+    setResult(null);
+    setConsoleTab('testcases');
+  }, [generateStarterCode, problemId, language, saveDraft]);
 
   useEffect(() => {
     return () => {
@@ -257,6 +294,16 @@ export default function ProblemSolvePage() {
               </option>
             ))}
           </select>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleRestore}
+            title="Reset to starter code"
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
 
           <div className="h-4 w-px bg-border/60 mx-1" />
 
