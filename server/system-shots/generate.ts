@@ -395,12 +395,6 @@ export async function* generateReelsStream(
         yield reel;
         if (yielded >= totalCount) {
           console.log(`${LOG_PREFIX} stream done yielded=${yielded}`);
-          // Cache successful results (non-blocking)
-          if (accumulatedReels.length > 0) {
-            env.LLM_CACHE?.put(cacheKey, JSON.stringify(accumulatedReels), {
-              expirationTtl: CACHE_TTL_SECONDS,
-            }).catch((err: unknown) => console.error(`${LOG_PREFIX} cache write failed`, err));
-          }
           return;
         }
       }
@@ -442,15 +436,17 @@ export async function* generateReelsStream(
       }
     }
     console.log(`${LOG_PREFIX} stream end yielded=${yielded}`);
-    
-    // Cache successful results at stream end (non-blocking)
+  } catch (err) {
+    console.error(`${LOG_PREFIX} stream iteration error`, err);
+  } finally {
+    // Always write to cache when generator exits (normal completion, break, or error)
+    // This ensures cache is populated even when consumer breaks early
     if (accumulatedReels.length > 0) {
+      console.log(`${LOG_PREFIX} cache write (finally) reels=${accumulatedReels.length}`);
       env.LLM_CACHE?.put(cacheKey, JSON.stringify(accumulatedReels), {
         expirationTtl: CACHE_TTL_SECONDS,
       }).catch((err: unknown) => console.error(`${LOG_PREFIX} cache write failed`, err));
     }
-  } catch (err) {
-    console.error(`${LOG_PREFIX} stream iteration error`, err);
   }
 }
 
