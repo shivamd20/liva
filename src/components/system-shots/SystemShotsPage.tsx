@@ -384,7 +384,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                 <SentinelSection
                   key={segment.id}
                   segment={segment}
-                  onLoad={() => loadSegment(segment.id)}
+                  segmentId={segment.id}
+                  loadSegment={loadSegment}
                   isInitial={segments.length === 1}
                   sentinelRef={segment.status === "idle" || segment.status === "loading" ? sentinelRef : undefined}
                 />
@@ -409,17 +410,24 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
 /** Sentinel section - auto-loads on scroll via IntersectionObserver */
 function SentinelSection({
   segment,
-  onLoad,
+  segmentId,
+  loadSegment,
   isInitial,
   sentinelRef: externalSentinelRef,
 }: {
   segment: FeedSegment
-  onLoad: () => void
+  segmentId: string
+  loadSegment: (segmentId: string) => void
   isInitial: boolean
   sentinelRef?: React.MutableRefObject<HTMLDivElement | null>
 }) {
   const internalSentinelRef = useRef<HTMLDivElement | null>(null)
   const { status } = segment
+
+  // Create stable onLoad reference using the segmentId
+  const onLoad = useCallback(() => {
+    loadSegment(segmentId)
+  }, [loadSegment, segmentId])
 
   // Combine internal and external refs
   const setRefs = useCallback((el: HTMLDivElement | null) => {
