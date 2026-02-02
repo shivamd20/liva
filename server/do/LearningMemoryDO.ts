@@ -11,7 +11,7 @@ const RECENT_PROBLEMS_LIMIT = 15;
 
 /** Generate next batch only when unconsumed reels (including skipped, which are replayed) drop below this. */
 const BUFFER_THRESHOLD = 5;
-const BUFFER_REFILL_COUNT = 20;
+const BUFFER_REFILL_COUNT = 10;
 const ACCURACY_EMA_ALPHA = 0.2;
 const LOG_PREFIX = "[LearningMemoryDO]";
 
@@ -103,10 +103,6 @@ export class LearningMemoryDO extends DurableObject<Env> {
     if (!reelsInfo.some((r) => r.name === "problem_id")) {
       this.sql.exec("ALTER TABLE reels ADD COLUMN problem_id TEXT");
     }
-    // V5: Add reasoning for Chain of Thought
-    if (!reelsInfo.some((r) => r.name === "reasoning")) {
-      this.sql.exec("ALTER TABLE reels ADD COLUMN reasoning TEXT");
-    }
   }
 
   /** Backfill stability scores for existing topic_state rows. */
@@ -114,7 +110,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const rows = this.sql
       .exec("SELECT concept_id, exposure_count, accuracy_ema, failure_streak FROM topic_state")
       .toArray() as { concept_id: string; exposure_count: number; accuracy_ema: number; failure_streak: number }[];
-
+    
     for (const row of rows) {
       const stability = this.computeStabilityScore(
         row.exposure_count,
@@ -188,7 +184,6 @@ export class LearningMemoryDO extends DurableObject<Env> {
       intent: (row.intent as Reel["intent"]) ?? null,
       skipCount: (row.skip_count as number) ?? 0,
       problemId: (row.problem_id as string) ?? null,
-      reasoning: (row.reasoning as string) ?? null,
     };
   }
 
@@ -402,7 +397,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
     // Get concept difficulty from ConceptV2 canon
     const concept = CONCEPT_V2.find((c) => c.id === conceptId);
     const difficulty = this.difficultyHintToNumber(concept?.difficulty_hint);
-
+    
     // Compute stability score
     const stabilityScore = this.computeStabilityScore(exposureCount, accuracyEma, failureStreak, difficulty);
 
@@ -447,16 +442,15 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const concepts = this.getConceptsList();
     const skipCounts = this.getSkipCountsPerConcept();
     const recentProblemIds = this.getRecentProblemIds();
-    const recentPrompts = this.getRecentReelPrompts();
     const masteryLevels = this.getMasteryLevelsMap();
-    console.log(`${LOG_PREFIX} ensureBuffer generating topicStateConcepts=${topicState.length} concepts=${concepts.length} targetCount=${BUFFER_REFILL_COUNT} recentProblems=${recentProblemIds.length} recentPrompts=${recentPrompts.length} masteryLevels=${masteryLevels.size}`);
+    console.log(`${LOG_PREFIX} ensureBuffer generating topicStateConcepts=${topicState.length} concepts=${concepts.length} targetCount=${BUFFER_REFILL_COUNT} recentProblems=${recentProblemIds.length} masteryLevels=${masteryLevels.size}`);
     const { generateReelsBatch } = await import("../system-shots/generate");
     const newReels = await generateReelsBatch(
       this.env,
       topicState,
       concepts,
       BUFFER_REFILL_COUNT,
-      { skipCounts, recentProblemIds, recentPrompts, masteryLevels }
+      { skipCounts, recentProblemIds, masteryLevels }
     );
     console.log(`${LOG_PREFIX} ensureBuffer generated ${newReels.length} reels`);
     this.persistReels(newReels);
@@ -468,8 +462,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
   private persistOneReel(r: Omit<Reel, "createdAt" | "consumedAt">): void {
     const now = Date.now();
     this.sql.exec(
-      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id, reasoning)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       r.id,
       r.conceptId,
       r.type,
@@ -481,8 +475,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       now,
       r.intent ?? null,
       r.skipCount ?? 0,
-      r.problemId ?? null,
-      r.reasoning ?? null
+      r.problemId ?? null
     );
   }
 
@@ -494,12 +487,12 @@ export class LearningMemoryDO extends DurableObject<Env> {
   async *streamReels(cursor: string | undefined): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
     const orderBy =
       "ORDER BY (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END), COALESCE(skipped_at, 0), created_at, id LIMIT ?";
-
+    
     // Get topic state for micro signal computation
     const topicStateMap = new Map(
       this.getTopicStateForGeneration().map((t) => [t.conceptId, t])
     );
-
+    
     const toChunk = (reel: Reel) => {
       const enrichedReel = this.enrichReelWithMicroSignal(reel, topicStateMap);
       return {
@@ -547,7 +540,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
           )
           .toArray() as Record<string, unknown>[];
       }
-
+      
       // If we have existing reels after cursor, yield them
       if (rows.length > 0) {
         for (const r of rows) {
@@ -556,7 +549,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
         yield { type: "done", finishReason: "stop" };
         return;
       }
-
+      
       // No more reels after cursor - generate new ones if fresh buffer is low
       const freshCount = this.countFreshReels();
       console.log(`${LOG_PREFIX} streamReels cursor=${cursor}, no rows after cursor, freshCount=${freshCount}`);
@@ -565,18 +558,17 @@ export class LearningMemoryDO extends DurableObject<Env> {
         yield { type: "done", finishReason: "stop" };
         return;
       }
-
+      
       // Generate new reels
       console.log(`${LOG_PREFIX} streamReels generating new reels (cursor flow)`);
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
       const skipCounts = this.getSkipCountsPerConcept();
       const recentProblemIds = this.getRecentProblemIds();
-      const recentPrompts = this.getRecentReelPrompts();
       const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let yielded = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, recentPrompts, masteryLevels })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
         this.persistOneReel(reel);
         const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
         yield toChunk(apiReel);
@@ -591,25 +583,24 @@ export class LearningMemoryDO extends DurableObject<Env> {
     // Initial stream: generate if fresh buffer is low, then yield up to 10 from DB
     const freshCount = this.countFreshReels();
     console.log(`${LOG_PREFIX} streamReels initial freshCount=${freshCount} threshold=${BUFFER_THRESHOLD}`);
-
+    
     if (freshCount < BUFFER_THRESHOLD) {
       // Generate new reels first, then yield from DB (which includes newly generated + any skipped)
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
       const skipCounts = this.getSkipCountsPerConcept();
       const recentProblemIds = this.getRecentProblemIds();
-      const recentPrompts = this.getRecentReelPrompts();
       const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let generated = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, recentPrompts, masteryLevels })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
         this.persistOneReel(reel);
         generated++;
         if (generated >= BUFFER_REFILL_COUNT) break;
       }
       console.log(`${LOG_PREFIX} streamReels initial generated=${generated}`);
     }
-
+    
     // Yield up to 10 unconsumed reels from DB (skipped prioritized first, then fresh by created_at)
     const rows = this.sql
       .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, BUFFER_REFILL_COUNT)
@@ -658,17 +649,6 @@ export class LearningMemoryDO extends DurableObject<Env> {
     return rows.map((r) => r.problem_id);
   }
 
-  /** Get recently generated reel prompts to avoid repetition. */
-  getRecentReelPrompts(limit: number = 50): string[] {
-    const rows = this.sql
-      .exec(
-        "SELECT prompt FROM reels ORDER BY created_at DESC LIMIT ?",
-        limit
-      )
-      .toArray() as { prompt: string }[];
-    return rows.map((r) => r.prompt);
-  }
-
   /** Get mastery levels for all concepts (for targeted LLM generation). */
   getMasteryLevelsMap(): Map<string, MasteryLevel> {
     const rows = this.sql
@@ -682,7 +662,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
         failure_streak: number;
         stability_score: number;
       }[];
-
+    
     const map = new Map<string, MasteryLevel>();
     for (const r of rows) {
       const level = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
@@ -727,15 +707,15 @@ export class LearningMemoryDO extends DurableObject<Env> {
          ORDER BY c.id`
       )
       .toArray() as {
-        concept_id: string;
-        name: string;
-        difficulty_tier: number | null;
-        exposure_count: number;
-        accuracy_ema: number;
-        failure_streak: number;
-        last_at: number;
-        stability_score: number;
-      }[];
+      concept_id: string;
+      name: string;
+      difficulty_tier: number | null;
+      exposure_count: number;
+      accuracy_ema: number;
+      failure_streak: number;
+      last_at: number;
+      stability_score: number;
+    }[];
     const items: ProgressItem[] = rows.map((r) => {
       const meta = CONCEPT_V2.find((c) => c.id === r.concept_id);
       const masteryLevel = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
@@ -763,8 +743,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const now = Date.now();
     for (const r of reels) {
       this.sql.exec(
-        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id, reasoning)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`,
+        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
         r.id,
         r.conceptId,
         r.type,
@@ -776,8 +756,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
         now,
         r.intent ?? null,
         r.skipCount ?? 0,
-        r.problemId ?? null,
-        r.reasoning ?? null
+        r.problemId ?? null
       );
     }
   }

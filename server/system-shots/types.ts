@@ -34,8 +34,6 @@ export interface Reel {
   microSignal?: string | null;
   /** Practice problem ID (only for practice intent reels). */
   problemId?: string | null;
-  /** Internal reasoning for the correct answer (Chain of Thought). */
-  reasoning?: string | null;
 }
 
 /** v2 locked concept type. */
