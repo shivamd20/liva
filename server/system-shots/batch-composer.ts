@@ -17,17 +17,17 @@ import {
 } from "./intent-engine";
 import { PRACTICE_PROBLEMS_V1 } from "./concepts";
 
-/** Target distribution for a 10-reel batch. */
+/** Target distribution for a 20-reel batch. */
 export const BATCH_SLOTS = {
-  reinforce: 2,
-  recall: 2,
-  build: 1,
-  mix: 0,
-  practice: 5, // 50% of batch - real interview problems
+  reinforce: 4,
+  recall: 4, 
+  build: 2,
+  mix: 2, // Added mix back for novelty
+  practice: 8, // 40% of batch - real interview problems
 } as const;
 
 /** Total batch size (sum of all slots). */
-export const BATCH_SIZE = 10;
+export const BATCH_SIZE = 20;
 
 /** Median stability threshold below which new concepts are blocked. */
 export const MEDIAN_STABILITY_THRESHOLD = 0.55;
