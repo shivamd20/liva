@@ -8,12 +8,13 @@
 import { chat } from "@tanstack/ai";
 import { z } from "zod";
 import { LivaAIModel } from "../ai/liva-ai-model";
-import type { Reel, TopicStateRow, FeedIntent, MasteryLevel, LevelExpectation } from "./types";
+import type { Reel, TopicStateRow, FeedIntent, MasteryLevel, LevelExpectation, FocusOptions } from "./types";
 import type { ConceptV2 } from "./types";
 import { MASTERY_LEVELS } from "./types";
 import { composeBatch, getIntentPromptInstructions, type ConceptSkipCounts, type PracticeItem } from "./batch-composer";
 import { getMicroSignal } from "./intent-engine";
 import { getTargetLevelExpectation } from "./concepts";
+import { buildFocusModePromptExtension } from "./focus-prompt";
 
 /** Generation options. */
 export interface GenerationOptions {
@@ -22,6 +23,8 @@ export interface GenerationOptions {
   recentProblemIds?: string[];
   /** Mastery levels per concept for targeted generation (cost-efficient: only target level sent to LLM). */
   masteryLevels?: Map<string, MasteryLevel>;
+  /** Focus Mode options - when set, generates content for single topic only. */
+  focus?: FocusOptions;
 }
 
 const LOG_PREFIX = "[generateReels]";
@@ -80,20 +83,20 @@ function buildLevelContext(
 ): string {
   const targetSpec = getTargetLevelExpectation(conceptId, currentLevel);
   if (!targetSpec || targetSpec.mustDemonstrate.length === 0) return "";
-  
+
   const targetLevel = Math.min(currentLevel + 1, 7) as MasteryLevel;
   const levelName = MASTERY_LEVELS[targetLevel].name;
-  
+
   // Build concise context (cost-efficient)
   const mustDemo = targetSpec.mustDemonstrate.slice(0, 3).join("; ");
   const mistakes = targetSpec.commonMistakes.slice(0, 2).join("; ");
-  
+
   let context = `\nTARGET: L${targetLevel} ${levelName}`;
   context += `\nTest: ${mustDemo}`;
   if (mistakes) {
     context += `\nExpose mistakes: ${mistakes}`;
   }
-  
+
   return context;
 }
 
@@ -113,7 +116,8 @@ interface ConceptWithIntentForPrompt {
 function buildNDJSONPrompt(
   conceptsWithIntents: ConceptWithIntentForPrompt[],
   stateSummary: string,
-  count: number
+  count: number,
+  focusExtension?: string
 ): string {
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
@@ -121,25 +125,25 @@ function buildNDJSONPrompt(
         ? { problemId: c.problemId, problemName: c.problemName }
         : undefined;
       const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
-      
+
       // Add level context if mastery level is known (cost-efficient: only target level)
-      const levelContext = c.masteryLevel !== undefined 
+      const levelContext = c.masteryLevel !== undefined
         ? buildLevelContext(c.conceptId, c.masteryLevel)
         : "";
-      
+
       if (c.intent === "practice" && c.problemName) {
         return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
    Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
 ${intentInstructions}${levelContext}`;
       }
-      
+
       return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
 ${intentInstructions}${levelContext}`;
     })
     .join("\n\n");
 
   const hasPractice = conceptsWithIntents.some(c => c.intent === "practice");
-  const practiceNote = hasPractice 
+  const practiceNote = hasPractice
     ? "\n- For PRACTICE problems, also include 'problemId' with the exact problem ID specified"
     : "";
 
@@ -180,7 +184,7 @@ Generate exactly ${count} MCQ questions. One JSON object per line. No other outp
 - explanation: brief explanation
 - difficulty: 1, 2, or 3 (1=foundational, 2=applied tradeoff, 3=deep/failure)
 - intent: the intent specified for this concept (reinforce, recall, build, mix, or practice)${practiceNote}
-
+${focusExtension ? `\n${focusExtension}` : ""}
 Output ${count} lines now, one JSON object per line, in the same order as the concepts above:`;
 }
 
@@ -244,22 +248,29 @@ export async function* generateReelsStream(
   count: number,
   options: GenerationOptions = {}
 ): AsyncGenerator<GenerateReelInput> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map() } = options;
-  
-  if (concepts.length === 0) {
-    console.warn(`${LOG_PREFIX} stream concepts.length=0`);
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus } = options;
+
+  // FOCUS MODE: Filter to single concept when focus is active
+  let filteredConcepts = concepts;
+  if (focus) {
+    filteredConcepts = concepts.filter(c => c.id === focus.conceptId);
+    console.log(`${LOG_PREFIX} Focus Mode active for concept=${focus.conceptId} trend=${focus.performanceTrend} difficulty=${focus.targetDifficulty}`);
+  }
+
+  if (filteredConcepts.length === 0) {
+    console.warn(`${LOG_PREFIX} stream concepts.length=0${focus ? ` (focus: ${focus.conceptId} not found)` : ""}`);
     return;
   }
 
   // Use batch composer to determine intents
-  const batch = composeBatch(topicState, concepts, skipCounts, count, {
+  const batch = composeBatch(topicState, filteredConcepts, skipCounts, count, {
     recentProblemIds,
   });
   console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, practiceItems=${batch.practiceItems.length}`);
 
   // Build concept map for name lookup
-  const conceptMap = new Map(concepts.map((c) => [c.id, c]));
-  
+  const conceptMap = new Map(filteredConcepts.map((c) => [c.id, c]));
+
   // Build concepts with intents for prompt (including practice items and mastery levels)
   const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
     ...batch.items.map((item) => ({
@@ -281,7 +292,7 @@ export async function* generateReelsStream(
   // Build intent map and problem map for later lookup
   const intentMap = new Map<string, FeedIntent>();
   const problemMap = new Map<string, { problemId: string; problemName: string }>();
-  
+
   for (const item of batch.items) {
     intentMap.set(item.conceptId, item.intent);
   }
@@ -293,15 +304,18 @@ export async function* generateReelsStream(
   const stateSummary =
     topicState.length > 0
       ? topicState
-          .map(
-            (t) =>
-              `concept ${t.conceptId}: exposure=${t.exposureCount} accuracy_ema=${t.accuracyEma.toFixed(2)} failure_streak=${t.failureStreak} stability=${t.stabilityScore.toFixed(2)}`
-          )
-          .join("; ")
+        .map(
+          (t) =>
+            `concept ${t.conceptId}: exposure=${t.exposureCount} accuracy_ema=${t.accuracyEma.toFixed(2)} failure_streak=${t.failureStreak} stability=${t.stabilityScore.toFixed(2)}`
+        )
+        .join("; ")
       : "No prior activity.";
 
+  // Build Focus Mode prompt extension if active
+  const focusExtension = focus ? buildFocusModePromptExtension(focus) : undefined;
+
   const totalCount = batch.items.length + batch.practiceItems.length;
-  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount);
+  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount, focusExtension);
 
   // Check KV cache first
   const cacheKey = await buildCacheKey(userPrompt);
@@ -375,7 +389,7 @@ export async function* generateReelsStream(
         const skipCount = skipCounts[r.conceptId] ?? 0;
         const problem = problemMap.get(r.conceptId);
         const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
-        
+
         const reel: GenerateReelInput = {
           id: crypto.randomUUID(),
           conceptId: r.conceptId,
@@ -413,7 +427,7 @@ export async function* generateReelsStream(
           const skipCount = skipCounts[r.conceptId] ?? 0;
           const problem = problemMap.get(r.conceptId);
           const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
-          
+
           const lastReel: GenerateReelInput = {
             id: crypto.randomUUID(),
             conceptId: r.conceptId,
@@ -464,22 +478,29 @@ export async function generateReelsBatch(
   count: number,
   options: GenerationOptions = {}
 ): Promise<GenerateReelInput[]> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map() } = options;
-  
-  if (concepts.length === 0) {
-    console.warn(`${LOG_PREFIX} concepts.length=0, returning []`);
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus } = options;
+
+  // FOCUS MODE: Filter to single concept when focus is active
+  let filteredConcepts = concepts;
+  if (focus) {
+    filteredConcepts = concepts.filter(c => c.id === focus.conceptId);
+    console.log(`${LOG_PREFIX} Focus Mode (batch) active for concept=${focus.conceptId} trend=${focus.performanceTrend} difficulty=${focus.targetDifficulty}`);
+  }
+
+  if (filteredConcepts.length === 0) {
+    console.warn(`${LOG_PREFIX} concepts.length=0${focus ? ` (focus: ${focus.conceptId} not found)` : ""}, returning []`);
     return [];
   }
 
   // Use batch composer to determine intents
-  const batch = composeBatch(topicState, concepts, skipCounts, count, {
+  const batch = composeBatch(topicState, filteredConcepts, skipCounts, count, {
     recentProblemIds,
   });
   console.log(`${LOG_PREFIX} batch composed: medianStability=${batch.medianStability.toFixed(2)}, buildBlocked=${batch.buildBlocked}, slots=${JSON.stringify(batch.slotFillInfo)}, practiceItems=${batch.practiceItems.length}`);
 
   // Build concept map for name lookup
-  const conceptMap = new Map(concepts.map((c) => [c.id, c]));
-  
+  const conceptMap = new Map(filteredConcepts.map((c) => [c.id, c]));
+
   // Build concepts with intents for prompt (including practice items and mastery levels)
   const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
     ...batch.items.map((item) => ({
@@ -501,7 +522,7 @@ export async function generateReelsBatch(
   // Build intent map and problem map for later lookup
   const intentMap = new Map<string, FeedIntent>();
   const problemMap = new Map<string, { problemId: string; problemName: string }>();
-  
+
   for (const item of batch.items) {
     intentMap.set(item.conceptId, item.intent);
   }
@@ -513,15 +534,15 @@ export async function generateReelsBatch(
   const stateSummary =
     topicState.length > 0
       ? topicState
-          .map(
-            (t) =>
-              `concept ${t.conceptId}: exposure=${t.exposureCount} accuracy_ema=${t.accuracyEma.toFixed(2)} failure_streak=${t.failureStreak} stability=${t.stabilityScore.toFixed(2)}`
-          )
-          .join("; ")
+        .map(
+          (t) =>
+            `concept ${t.conceptId}: exposure=${t.exposureCount} accuracy_ema=${t.accuracyEma.toFixed(2)} failure_streak=${t.failureStreak} stability=${t.stabilityScore.toFixed(2)}`
+        )
+        .join("; ")
       : "No prior activity.";
 
   const totalCount = batch.items.length + batch.practiceItems.length;
-  
+
   // Build prompt with intent instructions (including practice problems and level context)
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
@@ -529,25 +550,25 @@ export async function generateReelsBatch(
         ? { problemId: c.problemId, problemName: c.problemName }
         : undefined;
       const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
-      
+
       // Add level context if mastery level is known (cost-efficient: only target level)
-      const levelContext = c.masteryLevel !== undefined 
+      const levelContext = c.masteryLevel !== undefined
         ? buildLevelContext(c.conceptId, c.masteryLevel)
         : "";
-      
+
       if (c.intent === "practice" && c.problemName) {
         return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
    Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
 ${intentInstructions}${levelContext}`;
       }
-      
+
       return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
 ${intentInstructions}${levelContext}`;
     })
     .join("\n\n");
 
   const hasPractice = conceptsWithIntents.some(c => c.intent === "practice");
-  const practiceNote = hasPractice 
+  const practiceNote = hasPractice
     ? ',\n      "problemId": "<problem ID for practice questions>"'
     : "";
 
@@ -665,7 +686,7 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
     const skipCount = skipCounts[r.conceptId] ?? 0;
     const problem = problemMap.get(r.conceptId);
     const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
-    
+
     return {
       id: crypto.randomUUID(),
       conceptId: r.conceptId,

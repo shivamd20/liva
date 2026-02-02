@@ -1,6 +1,7 @@
 import { t, protectedProcedure } from "../trpc-config";
 import { z } from "zod";
 import { LearningMemoryDO } from "../do/LearningMemoryDO";
+import { CONCEPT_V2 } from "./concepts";
 
 const LOG_PREFIX = "[systemShots]";
 
@@ -41,4 +42,29 @@ export const systemShotsRouter = t.router({
     console.log(`${LOG_PREFIX} getProgress DO return items=${result.items.length}`);
     return result;
   }),
+
+  /** Get all available topics for Focus Mode topic switcher. */
+  getAvailableTopics: protectedProcedure.query(async () => {
+    // Return topics from canonical concept list
+    return CONCEPT_V2.map((c) => ({
+      id: c.id,
+      name: c.name,
+      track: c.track,
+      difficulty: c.difficulty_hint,
+    }));
+  }),
+
+  /** Get Focus Mode state for a specific concept. */
+  getFocusState: protectedProcedure
+    .input(z.object({ conceptId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.userId;
+      console.log(`${LOG_PREFIX} getFocusState userId=${userId} conceptId=${input.conceptId}`);
+
+      const doId = ctx.env.SYSTEM_SHOTS_DO.idFromName(userId);
+      const stub = ctx.env.SYSTEM_SHOTS_DO.get(doId) as unknown as LearningMemoryDO;
+      const state = stub.getFocusState(input.conceptId);
+      return state;
+    }),
 });
+

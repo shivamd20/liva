@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { toServerSentEventsStream } from "@tanstack/ai";
-import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery, MasteryLevel, FeedIntent } from "../system-shots/types";
+import type { Reel, TopicStateRow, ProgressResponse, ProgressItem, Mastery, MasteryLevel, FeedIntent, FocusState, FocusProblemEntry, PerformanceTrend, FocusOptions } from "../system-shots/types";
 import type { AnswerSubmittedPayload } from "../system-shots/types";
 import type { ConceptV2 } from "../system-shots/types";
 import { getConceptSeedRows, CONCEPT_V2 } from "../system-shots/concepts";
@@ -12,8 +12,13 @@ const RECENT_PROBLEMS_LIMIT = 15;
 /** Generate next batch only when unconsumed reels (including skipped, which are replayed) drop below this. */
 const BUFFER_THRESHOLD = 5;
 const BUFFER_REFILL_COUNT = 10;
+/** Cooldown period before skipped reels reappear in feed (3 days). */
+const SKIP_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
 const ACCURACY_EMA_ALPHA = 0.2;
 const LOG_PREFIX = "[LearningMemoryDO]";
+
+/** Max recent problems to track in Focus Mode memory window. */
+const FOCUS_MEMORY_LIMIT = 5;
 
 export class LearningMemoryDO extends DurableObject<Env> {
   state: DurableObjectState;
@@ -72,6 +77,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
     `);
     this.ensureReelsSkippedAtColumn();
     this.ensureNewColumns();
+    this.ensureFocusStateTable();
   }
 
   /** Add skipped_at to reels if missing (migration for existing DOs). */
@@ -105,12 +111,199 @@ export class LearningMemoryDO extends DurableObject<Env> {
     }
   }
 
+  /** Create focus_state table if it doesn't exist (Focus Mode support). */
+  private ensureFocusStateTable(): void {
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS focus_state (
+        concept_id TEXT PRIMARY KEY,
+        recent_reel_ids TEXT NOT NULL DEFAULT '[]',
+        recent_problems TEXT NOT NULL DEFAULT '[]',
+        performance_trend TEXT NOT NULL DEFAULT 'stagnant',
+        target_difficulty INTEGER NOT NULL DEFAULT 1,
+        last_updated INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  }
+
+  // ============================================================================
+  // Focus Mode State Management
+  // ============================================================================
+
+  /** Get focus state for a specific concept. Returns null if no state exists. */
+  getFocusState(conceptId: string): FocusState | null {
+    const rows = this.sql
+      .exec("SELECT * FROM focus_state WHERE concept_id = ?", conceptId)
+      .toArray() as {
+        concept_id: string;
+        recent_reel_ids: string;
+        recent_problems: string;
+        performance_trend: string;
+        target_difficulty: number;
+        last_updated: number;
+      }[];
+
+    const row = rows[0];
+    if (!row) return null;
+
+    return {
+      conceptId: row.concept_id,
+      recentReelIds: JSON.parse(row.recent_reel_ids) as string[],
+      recentProblems: JSON.parse(row.recent_problems) as FocusProblemEntry[],
+      performanceTrend: row.performance_trend as PerformanceTrend,
+      targetDifficulty: row.target_difficulty as 1 | 2 | 3,
+      lastUpdated: row.last_updated,
+    };
+  }
+
+  /** 
+   * Update focus state after a user answers a reel in Focus Mode.
+   * Updates recent problems, calculates performance trend, and adapts difficulty.
+   */
+  updateFocusState(
+    conceptId: string,
+    reelId: string,
+    difficulty: number,
+    outcome: "pass" | "fail" | "skipped"
+  ): FocusState {
+    const now = Date.now();
+    const existing = this.getFocusState(conceptId);
+
+    // Get reel concept/pattern for problem entry
+    const reelRows = this.sql
+      .exec("SELECT prompt FROM reels WHERE id = ?", reelId)
+      .toArray() as { prompt: string }[];
+    const prompt = reelRows[0]?.prompt ?? "";
+
+    // Extract concept pattern from prompt (first 50 chars as identifier)
+    const concept = prompt.slice(0, 50);
+
+    // Build new problem entry
+    const newEntry: FocusProblemEntry = {
+      reelId,
+      concept,
+      difficulty,
+      outcome,
+      timestamp: now,
+    };
+
+    // Update recent lists (keep last FOCUS_MEMORY_LIMIT)
+    const recentReelIds = existing?.recentReelIds ?? [];
+    const recentProblems = existing?.recentProblems ?? [];
+
+    const updatedReelIds = [...recentReelIds, reelId].slice(-FOCUS_MEMORY_LIMIT);
+    const updatedProblems = [...recentProblems, newEntry].slice(-FOCUS_MEMORY_LIMIT);
+
+    // Calculate performance trend
+    const performanceTrend = this.calculatePerformanceTrend(updatedProblems);
+
+    // Calculate adaptive difficulty
+    const currentDifficulty = existing?.targetDifficulty ?? 1;
+    const targetDifficulty = this.calculateAdaptiveDifficulty(
+      performanceTrend,
+      currentDifficulty
+    );
+
+    // Persist to DB
+    this.sql.exec(
+      `INSERT INTO focus_state (concept_id, recent_reel_ids, recent_problems, performance_trend, target_difficulty, last_updated)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(concept_id) DO UPDATE SET
+         recent_reel_ids = excluded.recent_reel_ids,
+         recent_problems = excluded.recent_problems,
+         performance_trend = excluded.performance_trend,
+         target_difficulty = excluded.target_difficulty,
+         last_updated = excluded.last_updated`,
+      conceptId,
+      JSON.stringify(updatedReelIds),
+      JSON.stringify(updatedProblems),
+      performanceTrend,
+      targetDifficulty,
+      now
+    );
+
+    console.log(`${LOG_PREFIX} updateFocusState concept=${conceptId} trend=${performanceTrend} difficulty=${targetDifficulty}`);
+
+    return {
+      conceptId,
+      recentReelIds: updatedReelIds,
+      recentProblems: updatedProblems,
+      performanceTrend,
+      targetDifficulty,
+      lastUpdated: now,
+    };
+  }
+
+  /**
+   * Calculate performance trend from recent problem outcomes.
+   * - 3+ consecutive passes → improving
+   * - 2+ consecutive fails → declining
+   * - Otherwise → stagnant
+   */
+  private calculatePerformanceTrend(recentProblems: FocusProblemEntry[]): PerformanceTrend {
+    if (recentProblems.length === 0) return "stagnant";
+
+    // Get last 3-5 outcomes (excluding skipped)
+    const outcomes = recentProblems
+      .filter(p => p.outcome !== "skipped")
+      .slice(-5)
+      .map(p => p.outcome);
+
+    if (outcomes.length < 2) return "stagnant";
+
+    // Check for improving: last 3 are passes
+    const last3 = outcomes.slice(-3);
+    if (last3.length >= 3 && last3.every(o => o === "pass")) {
+      return "improving";
+    }
+
+    // Check for declining: last 2 are fails
+    const last2 = outcomes.slice(-2);
+    if (last2.length >= 2 && last2.every(o => o === "fail")) {
+      return "declining";
+    }
+
+    return "stagnant";
+  }
+
+  /**
+   * Calculate adaptive difficulty based on performance trend.
+   * - Improving → increase difficulty (max 3)
+   * - Declining → decrease difficulty (min 1)
+   * - Stagnant → maintain current
+   */
+  private calculateAdaptiveDifficulty(
+    trend: PerformanceTrend,
+    currentDifficulty: number
+  ): 1 | 2 | 3 {
+    switch (trend) {
+      case "improving":
+        return Math.min(3, currentDifficulty + 1) as 1 | 2 | 3;
+      case "declining":
+        return Math.max(1, currentDifficulty - 1) as 1 | 2 | 3;
+      case "stagnant":
+      default:
+        return currentDifficulty as 1 | 2 | 3;
+    }
+  }
+
+  /** Build FocusOptions for LLM generation from current state. */
+  buildFocusOptions(conceptId: string): FocusOptions {
+    const state = this.getFocusState(conceptId);
+
+    return {
+      conceptId,
+      recentProblems: state?.recentProblems ?? [],
+      performanceTrend: state?.performanceTrend ?? "stagnant",
+      targetDifficulty: state?.targetDifficulty ?? 1,
+    };
+  }
+
   /** Backfill stability scores for existing topic_state rows. */
   private backfillStabilityScores(): void {
     const rows = this.sql
       .exec("SELECT concept_id, exposure_count, accuracy_ema, failure_streak FROM topic_state")
       .toArray() as { concept_id: string; exposure_count: number; accuracy_ema: number; failure_streak: number }[];
-    
+
     for (const row of rows) {
       const stability = this.computeStabilityScore(
         row.exposure_count,
@@ -169,6 +362,17 @@ export class LearningMemoryDO extends DurableObject<Env> {
     return row.c;
   }
 
+  /** Count fresh reels for a specific concept (Focus Mode) */
+  private countFreshReelsForConcept(conceptId: string): number {
+    const row = this.sql
+      .exec(
+        "SELECT COUNT(*) as c FROM reels WHERE consumed_at IS NULL AND skipped_at IS NULL AND concept_id = ?",
+        conceptId
+      )
+      .one() as { c: number };
+    return row.c;
+  }
+
   private rowToReel(row: Record<string, unknown>): Reel {
     return {
       id: row.id as string,
@@ -202,13 +406,14 @@ export class LearningMemoryDO extends DurableObject<Env> {
   /** Get next unconsumed reel (skipped first); trigger ensureBuffer (await) when low. Kept for backward compat. */
   async getNextReel(): Promise<Reel | null> {
     console.log(`${LOG_PREFIX} getNextReel start`);
+    const reappearanceThreshold = Date.now() - SKIP_COOLDOWN_MS;
     const unconsumedCount = this.countUnconsumedReels();
     console.log(`${LOG_PREFIX} getNextReel unconsumedCount=${unconsumedCount}`);
 
     const orderLimit =
       "ORDER BY (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END), COALESCE(skipped_at, 0), created_at, id LIMIT 1";
     const rows = this.sql
-      .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderLimit}`)
+      .exec(`SELECT * FROM reels WHERE consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?) ${orderLimit}`, reappearanceThreshold)
       .toArray() as Record<string, unknown>[];
     const row = rows[0];
 
@@ -221,7 +426,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       console.log(`${LOG_PREFIX} getNextReel no row, calling ensureBuffer`);
       await this.ensureBuffer();
       const retryRows = this.sql
-        .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderLimit}`)
+        .exec(`SELECT * FROM reels WHERE consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?) ${orderLimit}`, reappearanceThreshold)
         .toArray() as Record<string, unknown>[];
       const retry = retryRows[0];
       if (!retry) {
@@ -243,6 +448,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
   /** Cursor-based page of unconsumed reels. Skipped reels are replayed and ordered first (oldest skip first), then by created_at. */
   async getReels(cursor: string | undefined, limit: number): Promise<{ reels: Reel[]; nextCursor: string | null }> {
     console.log(`${LOG_PREFIX} getReels start cursor=${cursor ?? "none"} limit=${limit}`);
+    const reappearanceThreshold = Date.now() - SKIP_COOLDOWN_MS;
     const beforeCount = this.countUnconsumedReels();
     console.log(`${LOG_PREFIX} getReels unconsumedCount before ensureBuffer=${beforeCount}`);
 
@@ -263,7 +469,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       if (!cursorRow) {
         console.log(`${LOG_PREFIX} getReels cursor reel not found, falling back to first page`);
         rows = this.sql
-          .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, limit)
+          .exec(`SELECT * FROM reels WHERE consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?) ${orderBy}`, reappearanceThreshold, limit)
           .toArray() as Record<string, unknown>[];
       } else {
         const cOrd0 = cursorRow.skipped_at == null ? 1 : 0;
@@ -272,12 +478,13 @@ export class LearningMemoryDO extends DurableObject<Env> {
         const cOrd3 = cursorRow.id;
         rows = this.sql
           .exec(
-            `SELECT * FROM reels WHERE consumed_at IS NULL AND (
+            `SELECT * FROM reels WHERE consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?) AND (
               (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
               ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
               ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
               ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
             ) ${orderBy}`,
+            reappearanceThreshold,
             cOrd0,
             cOrd0,
             cOrd1,
@@ -294,7 +501,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       }
     } else {
       rows = this.sql
-        .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, limit)
+        .exec(`SELECT * FROM reels WHERE consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?) ${orderBy}`, reappearanceThreshold, limit)
         .toArray() as Record<string, unknown>[];
     }
     // Enrich reels with micro signals
@@ -397,7 +604,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
     // Get concept difficulty from ConceptV2 canon
     const concept = CONCEPT_V2.find((c) => c.id === conceptId);
     const difficulty = this.difficultyHintToNumber(concept?.difficulty_hint);
-    
+
     // Compute stability score
     const stabilityScore = this.computeStabilityScore(exposureCount, accuracyEma, failureStreak, difficulty);
 
@@ -483,16 +690,34 @@ export class LearningMemoryDO extends DurableObject<Env> {
    * Async generator: yield reels for SSE. No cursor = initial stream (ensure buffer, stream up to 10).
    * With cursor = next page (reels after cursor, up to 10). Yields StreamChunk-like objects for toServerSentEventsStream.
    * Does not cancel generation if client disconnects.
+   * @param cursor - Optional cursor for pagination
+   * @param options - Optional streaming options including Focus Mode
    */
-  async *streamReels(cursor: string | undefined): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
+  async *streamReels(
+    cursor: string | undefined,
+    options: { focusConceptId?: string } = {}
+  ): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
+    const { focusConceptId } = options;
+    const reappearanceThreshold = Date.now() - SKIP_COOLDOWN_MS;
+
+    // Build base query conditions
+    const baseCondition = focusConceptId
+      ? "consumed_at IS NULL AND concept_id = ? AND (skipped_at IS NULL OR skipped_at <= ?)"
+      : "consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?)";
     const orderBy =
       "ORDER BY (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END), COALESCE(skipped_at, 0), created_at, id LIMIT ?";
-    
+
     // Get topic state for micro signal computation
     const topicStateMap = new Map(
       this.getTopicStateForGeneration().map((t) => [t.conceptId, t])
     );
-    
+
+    // Build focus options for generation (if Focus Mode is active)
+    const focusOptions = focusConceptId ? this.buildFocusOptions(focusConceptId) : undefined;
+    if (focusConceptId) {
+      console.log(`${LOG_PREFIX} streamReels Focus Mode active: concept=${focusConceptId} trend=${focusOptions?.performanceTrend} difficulty=${focusOptions?.targetDifficulty}`);
+    }
+
     const toChunk = (reel: Reel) => {
       const enrichedReel = this.enrichReelWithMicroSignal(reel, topicStateMap);
       return {
@@ -510,37 +735,69 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const cursorRow = cursorRows[0];
       let rows: Record<string, unknown>[];
       if (!cursorRow) {
-        rows = this.sql
-          .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, BUFFER_REFILL_COUNT)
-          .toArray() as Record<string, unknown>[];
+        rows = focusConceptId
+          ? this.sql
+            .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, focusConceptId, reappearanceThreshold, BUFFER_REFILL_COUNT)
+            .toArray() as Record<string, unknown>[]
+          : this.sql
+            .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, reappearanceThreshold, BUFFER_REFILL_COUNT)
+            .toArray() as Record<string, unknown>[];
       } else {
         const cOrd0 = cursorRow.skipped_at == null ? 1 : 0;
         const cOrd1 = cursorRow.skipped_at ?? 0;
         const cOrd2 = cursorRow.created_at;
         const cOrd3 = cursorRow.id;
-        rows = this.sql
-          .exec(
-            `SELECT * FROM reels WHERE consumed_at IS NULL AND (
-              (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
-              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
-              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
-              ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
-            ) ${orderBy}`,
-            cOrd0,
-            cOrd0,
-            cOrd1,
-            cOrd0,
-            cOrd1,
-            cOrd2,
-            cOrd0,
-            cOrd1,
-            cOrd2,
-            cOrd3,
-            BUFFER_REFILL_COUNT
-          )
-          .toArray() as Record<string, unknown>[];
+
+        if (focusConceptId) {
+          rows = this.sql
+            .exec(
+              `SELECT * FROM reels WHERE ${baseCondition} AND (
+                (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
+              ) ${orderBy}`,
+              focusConceptId,
+              reappearanceThreshold,
+              cOrd0,
+              cOrd0,
+              cOrd1,
+              cOrd0,
+              cOrd1,
+              cOrd2,
+              cOrd0,
+              cOrd1,
+              cOrd2,
+              cOrd3,
+              BUFFER_REFILL_COUNT
+            )
+            .toArray() as Record<string, unknown>[];
+        } else {
+          rows = this.sql
+            .exec(
+              `SELECT * FROM reels WHERE ${baseCondition} AND (
+                (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
+                ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
+              ) ${orderBy}`,
+              reappearanceThreshold,
+              cOrd0,
+              cOrd0,
+              cOrd1,
+              cOrd0,
+              cOrd1,
+              cOrd2,
+              cOrd0,
+              cOrd1,
+              cOrd2,
+              cOrd3,
+              BUFFER_REFILL_COUNT
+            )
+            .toArray() as Record<string, unknown>[];
+        }
       }
-      
+
       // If we have existing reels after cursor, yield them
       if (rows.length > 0) {
         for (const r of rows) {
@@ -549,18 +806,18 @@ export class LearningMemoryDO extends DurableObject<Env> {
         yield { type: "done", finishReason: "stop" };
         return;
       }
-      
+
       // No more reels after cursor - generate new ones if fresh buffer is low
-      const freshCount = this.countFreshReels();
-      console.log(`${LOG_PREFIX} streamReels cursor=${cursor}, no rows after cursor, freshCount=${freshCount}`);
+      const freshCount = focusConceptId ? this.countFreshReelsForConcept(focusConceptId) : this.countFreshReels();
+      console.log(`${LOG_PREFIX} streamReels cursor=${cursor}, no rows after cursor, freshCount=${freshCount}${focusConceptId ? ` (focus=${focusConceptId})` : ""}`);
       if (freshCount >= BUFFER_THRESHOLD) {
         // Enough fresh reels exist elsewhere, don't generate (user may have skipped earlier reels)
         yield { type: "done", finishReason: "stop" };
         return;
       }
-      
+
       // Generate new reels
-      console.log(`${LOG_PREFIX} streamReels generating new reels (cursor flow)`);
+      console.log(`${LOG_PREFIX} streamReels generating new reels (cursor flow)${focusConceptId ? ` for focus=${focusConceptId}` : ""}`);
       const topicState = this.getTopicStateForGeneration();
       const concepts = this.getConceptsList();
       const skipCounts = this.getSkipCountsPerConcept();
@@ -568,7 +825,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let yielded = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels, focus: focusOptions })) {
         this.persistOneReel(reel);
         const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
         yield toChunk(apiReel);
@@ -581,9 +838,9 @@ export class LearningMemoryDO extends DurableObject<Env> {
     }
 
     // Initial stream: generate if fresh buffer is low, then yield up to 10 from DB
-    const freshCount = this.countFreshReels();
-    console.log(`${LOG_PREFIX} streamReels initial freshCount=${freshCount} threshold=${BUFFER_THRESHOLD}`);
-    
+    const freshCount = focusConceptId ? this.countFreshReelsForConcept(focusConceptId) : this.countFreshReels();
+    console.log(`${LOG_PREFIX} streamReels initial freshCount=${freshCount} threshold=${BUFFER_THRESHOLD}${focusConceptId ? ` (focus=${focusConceptId})` : ""}`);
+
     if (freshCount < BUFFER_THRESHOLD) {
       // Generate new reels first, then yield from DB (which includes newly generated + any skipped)
       const topicState = this.getTopicStateForGeneration();
@@ -593,22 +850,26 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const masteryLevels = this.getMasteryLevelsMap();
       const { generateReelsStream } = await import("../system-shots/generate");
       let generated = 0;
-      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels })) {
+      for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels, focus: focusOptions })) {
         this.persistOneReel(reel);
         generated++;
         if (generated >= BUFFER_REFILL_COUNT) break;
       }
-      console.log(`${LOG_PREFIX} streamReels initial generated=${generated}`);
+      console.log(`${LOG_PREFIX} streamReels initial generated=${generated}${focusConceptId ? ` for focus=${focusConceptId}` : ""}`);
     }
-    
+
     // Yield up to 10 unconsumed reels from DB (skipped prioritized first, then fresh by created_at)
-    const rows = this.sql
-      .exec(`SELECT * FROM reels WHERE consumed_at IS NULL ${orderBy}`, BUFFER_REFILL_COUNT)
-      .toArray() as Record<string, unknown>[];
+    const rows = focusConceptId
+      ? this.sql
+        .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, focusConceptId, reappearanceThreshold, BUFFER_REFILL_COUNT)
+        .toArray() as Record<string, unknown>[]
+      : this.sql
+        .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, reappearanceThreshold, BUFFER_REFILL_COUNT)
+        .toArray() as Record<string, unknown>[];
     for (const r of rows) {
       yield toChunk(this.rowToReel(r));
     }
-    console.log(`${LOG_PREFIX} streamReels initial yielded=${rows.length}`);
+    console.log(`${LOG_PREFIX} streamReels initial yielded=${rows.length}${focusConceptId ? ` for focus=${focusConceptId}` : ""}`);
     yield { type: "done", finishReason: "stop" };
   }
 
@@ -662,7 +923,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
         failure_streak: number;
         stability_score: number;
       }[];
-    
+
     const map = new Map<string, MasteryLevel>();
     for (const r of rows) {
       const level = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
@@ -707,15 +968,15 @@ export class LearningMemoryDO extends DurableObject<Env> {
          ORDER BY c.id`
       )
       .toArray() as {
-      concept_id: string;
-      name: string;
-      difficulty_tier: number | null;
-      exposure_count: number;
-      accuracy_ema: number;
-      failure_streak: number;
-      last_at: number;
-      stability_score: number;
-    }[];
+        concept_id: string;
+        name: string;
+        difficulty_tier: number | null;
+        exposure_count: number;
+        accuracy_ema: number;
+        failure_streak: number;
+        last_at: number;
+        stability_score: number;
+      }[];
     const items: ProgressItem[] = rows.map((r) => {
       const meta = CONCEPT_V2.find((c) => c.id === r.concept_id);
       const masteryLevel = deriveMasteryLevel(r.exposure_count, r.accuracy_ema, r.failure_streak, r.stability_score);
@@ -765,7 +1026,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
     const url = new URL(request.url);
     if (url.pathname.endsWith("/stream")) {
       const cursor = url.searchParams.get("cursor") ?? undefined;
-      const stream = this.streamReels(cursor);
+      const focusConceptId = url.searchParams.get("focus") ?? undefined;
+      const stream = this.streamReels(cursor, { focusConceptId });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return new Response(toServerSentEventsStream(stream as any), {
         headers: {

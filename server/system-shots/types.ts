@@ -209,3 +209,42 @@ export interface ProgressItem {
 export interface ProgressResponse {
   items: ProgressItem[];
 }
+
+// ============================================================================
+// Focus Mode Types
+// ============================================================================
+
+/** Performance trend for adaptive difficulty in Focus Mode. */
+export type PerformanceTrend = "improving" | "stagnant" | "declining";
+
+/** Recent problem entry for Focus Mode memory window. */
+export interface FocusProblemEntry {
+  reelId: string;
+  concept: string;
+  difficulty: number;
+  outcome: "pass" | "fail" | "skipped";
+  timestamp: number;
+}
+
+/** Focus state for a single concept (stored per user, per topic). */
+export interface FocusState {
+  conceptId: string;
+  /** Last 5 reel IDs to avoid immediate repetition. */
+  recentReelIds: string[];
+  /** Last 5 problem entries with outcome details. */
+  recentProblems: FocusProblemEntry[];
+  /** Derived performance trend based on recent outcomes. */
+  performanceTrend: PerformanceTrend;
+  /** Target difficulty for next generation (1-3). */
+  targetDifficulty: 1 | 2 | 3;
+  /** Timestamp of last update. */
+  lastUpdated: number;
+}
+
+/** Options for Focus Mode generation (passed to LLM). */
+export interface FocusOptions {
+  conceptId: string;
+  recentProblems: FocusProblemEntry[];
+  performanceTrend: PerformanceTrend;
+  targetDifficulty: 1 | 2 | 3;
+}

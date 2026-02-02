@@ -1,14 +1,16 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useSearchParams } from "react-router-dom"
 import { trpcClient } from "@/trpcClient"
 import { ReelCard } from "./ReelCard"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, BarChart2, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
-import { REEL_THEMES, type ReelTheme, type ApiReel } from "./types"
+import { REEL_THEMES, type ReelTheme, type ApiReel, type ConceptInfo } from "./types"
 import { ProgressView } from "./ProgressView"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useReelsFeed, type FeedSegment } from "./useReelsFeed"
+import { FocusSidebar, SidebarTrigger } from "./FocusSidebar"
 
 export type { ReelTheme } from "./types"
 
@@ -29,8 +31,13 @@ export interface SystemShotsPageProps {
 
 export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const queryClient = useQueryClient()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [showProgressView, setShowProgressView] = useState(false)
   const [currentReelIndex, setCurrentReelIndex] = useState(0)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  // Focus Mode: sync with URL
+  const focusFromUrl = searchParams.get("focus") ?? null
 
   const { data: localAnswerState = EMPTY_ANSWER_STATE } = useQuery({
     queryKey: LOCAL_ANSWER_STATE_KEY,
@@ -39,12 +46,33 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     staleTime: Number.POSITIVE_INFINITY,
   })
 
+  // Handle focus change - update URL
+  const handleFocusChange = useCallback((conceptId: string | null) => {
+    if (conceptId) {
+      setSearchParams({ focus: conceptId })
+    } else {
+      setSearchParams({})
+    }
+  }, [setSearchParams])
+
   // authFetch in reelsStream.ts handles waiting for auth and 401 retries
   const feed = useReelsFeed({
     initialContinuedIds: localAnswerState.submittedAnswerReelIds,
     onError: (err) => toast.error(err === "Unauthorized" ? "Please sign in." : err),
+    focusConceptId: focusFromUrl,
+    onFocusChange: handleFocusChange,
   })
-  const { segments, reelsToShow, loadSegment, markContinued } = feed
+  const { segments, reelsToShow, loadSegment, markContinued, focusedConceptId, switchFocus, clearFocus } = feed
+
+  // Fetch available topics for story bar
+  const { data: availableTopics = [] } = useQuery({
+    queryKey: ["system-shots", "available-topics"],
+    queryFn: async () => {
+      const result = await trpcClient.systemShots.getAvailableTopics.query()
+      return result as ConceptInfo[]
+    },
+    staleTime: 1000 * 60 * 60, // 1 hour - topics rarely change
+  })
 
   const reelRefs = useRef<(HTMLElement | null)[]>([])
   const sentinelRef = useRef<HTMLDivElement | null>(null)
@@ -197,13 +225,13 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   }, [reelsToShow, answeredByReelId, submittedReelIds, submitSkip])
 
   // Check if initial loading (either old sentinel loading or new reels segment with no reels yet)
-  const isInitialLoading = 
+  const isInitialLoading =
     (segments.length === 1 && segments[0].type === "sentinel" && segments[0].status === "loading") ||
     (segments.length === 1 && segments[0].type === "reels" && segments[0].status === "loading" && (!segments[0].reels || segments[0].reels.length === 0))
-  
+
   // Check if we're streaming more reels (reels segment exists with loading status and has some reels)
   const isStreaming = segments.some((s) => s.type === "reels" && s.status === "loading" && s.reels && s.reels.length > 0)
-  
+
   const hasNoReels = reelsToShow.length === 0 && !isInitialLoading && !isStreaming
 
   const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
@@ -227,62 +255,57 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   let reelIndex = 0
 
   return (
-    <div className="absolute inset-0 flex flex-col overflow-hidden bg-background">
-      {/* Progress bar */}
-      <div className="fixed top-0 left-0 right-0 z-30 h-0.5 w-full bg-muted/40" aria-hidden>
-        <div
-          className="h-full bg-accent/90 rounded-r-full transition-all duration-500 ease-out"
-          style={{ width: `${progressPercent}%` }}
-        />
-      </div>
+    <div className="absolute inset-0 flex overflow-hidden bg-background">
+      {/* Focus Sidebar - calm, minimal, supportive */}
+      <FocusSidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        topics={availableTopics}
+        activeTopicId={focusedConceptId}
+        onTopicSelect={switchFocus}
+        onClearFocus={clearFocus}
+        onBack={onBack}
+        onProgress={() => setShowProgressView(true)}
+      />
 
-      {/* Back button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onBack}
-        className="fixed top-5 left-5 z-20 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-background/90"
-        aria-label="Go back"
-      >
-        <ArrowLeft className="h-5 w-5" />
-      </Button>
+      {/* Mobile sidebar trigger - subtle left edge affordance */}
+      <SidebarTrigger onOpen={() => setSidebarOpen(true)} />
 
-      {/* Progress view button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => setShowProgressView(true)}
-        className="fixed top-5 right-5 z-20 flex h-11 w-11 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-background/70 text-foreground shadow-sm backdrop-blur-md hover:bg-background/90"
-        aria-label="View progress"
-      >
-        <BarChart2 className="h-5 w-5" />
-      </Button>
+      {/* Main reel container - full width on mobile, with sidebar offset on desktop */}
+      <div className="flex-1 flex flex-col min-h-0 md:ml-56">
+        {/* Progress bar - thin, unobtrusive */}
+        <div className="fixed top-0 left-0 right-0 z-30 h-0.5 w-full bg-muted/20" aria-hidden>
+          <div
+            className="h-full bg-muted-foreground/30 rounded-r-full transition-all duration-500 ease-out"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
 
-      {/* Main content */}
-      <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory overscroll-contain touch-pan-y">
-        {/* Render segments in order */}
-        {segments.map((segment) => {
-          if (segment.type === "reels") {
-            // Render reels from this segment
-            const reelElements = (segment.reels ?? [])
-              .filter((reel) => !new Set(localAnswerState.submittedAnswerReelIds).has(reel.id))
-              .map((reel) => {
-                const i = reelIndex++
-                const theme: ReelTheme = REEL_THEMES[i % REEL_THEMES.length]
-                const themeVar = `var(--color-${theme})`
-                const dynamicBg = {
-                  height: "100dvh" as const,
-                  minHeight: "100dvh" as const,
-                  background: `
+        {/* Reel scroll container - doom scroll enabled */}
+        <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory overscroll-contain touch-pan-y">
+          {/* Render segments in order */}
+          {segments.map((segment) => {
+            if (segment.type === "reels") {
+              // Render reels from this segment
+              const reelElements = (segment.reels ?? [])
+                .filter((reel) => !new Set(localAnswerState.submittedAnswerReelIds).has(reel.id))
+                .map((reel) => {
+                  const i = reelIndex++
+                  const theme: ReelTheme = REEL_THEMES[i % REEL_THEMES.length]
+                  const themeVar = `var(--color-${theme})`
+                  const dynamicBg = {
+                    height: "100dvh" as const,
+                    minHeight: "100dvh" as const,
+                    background: `
                     linear-gradient(135deg, color-mix(in oklch, ${themeVar} 4%, var(--background)) 0%, transparent 50%),
                     linear-gradient(225deg, color-mix(in oklch, ${themeVar} 3%, var(--background)) 0%, transparent 45%),
                     linear-gradient(to bottom, var(--background) 0%, color-mix(in oklch, ${themeVar} 6%, var(--muted)) 100%)
                   `,
-                  backgroundSize: "200% 200%, 200% 200%, 100% 100%",
-                }
-                const displayReel =
-                  reel.type === "mcq"
-                    ? {
+                    backgroundSize: "200% 200%, 200% 200%, 100% 100%",
+                  }
+                  const displayReel =
+                    reel.type === "mcq"
+                      ? {
                         id: reel.id,
                         type: "mcq" as const,
                         prompt: reel.prompt,
@@ -290,93 +313,94 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                         options: reel.options ?? [],
                         correctIndex: reel.correctIndex ?? 0,
                       }
-                    : {
+                      : {
                         id: reel.id,
                         type: "flash" as const,
                         prompt: reel.prompt,
                         explanation: reel.explanation,
                       }
+                  return (
+                    <div
+                      key={reel.id}
+                      ref={(el) => { reelRefs.current[i] = el }}
+                      className="typeform-bg w-full shrink-0 snap-start snap-always"
+                      style={dynamicBg}
+                    >
+                      <ReelCard
+                        reel={displayReel}
+                        theme={theme}
+                        reelIndex={i}
+                        selectedIndex={reel.type === "mcq" ? answeredByReelId[reel.id] : undefined}
+                        onSelectOption={reel.type === "mcq" ? (index) => handleSelectOption(reel, index) : undefined}
+                        onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i, totalRenderedReels)}
+                        microSignal={reel.microSignal}
+                      />
+                    </div>
+                  )
+                })
+
+              // If segment is still streaming and has no reels yet, show skeleton
+              if (segment.status === "loading" && reelElements.length === 0) {
                 return (
                   <div
-                    key={reel.id}
-                    ref={(el) => { reelRefs.current[i] = el }}
-                    className="typeform-bg w-full shrink-0 snap-start snap-always"
-                    style={dynamicBg}
+                    key={`streaming-skeleton-${segment.id}`}
+                    ref={(el) => { loadingIndicatorRef.current = el }}
+                    className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
                   >
-                    <ReelCard
-                      reel={displayReel}
-                      theme={theme}
-                      reelIndex={i}
-                      selectedIndex={reel.type === "mcq" ? answeredByReelId[reel.id] : undefined}
-                      onSelectOption={reel.type === "mcq" ? (index) => handleSelectOption(reel, index) : undefined}
-                      onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i, totalRenderedReels)}
-                      microSignal={reel.microSignal}
-                    />
+                    <div className="w-full max-w-2xl space-y-4">
+                      <Skeleton className="h-8 w-full rounded-lg" />
+                      <Skeleton className="h-32 w-full rounded-xl" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                      <Skeleton className="h-12 w-full rounded-xl" />
+                    </div>
                   </div>
                 )
-              })
+              }
 
-            // If segment is still streaming and has no reels yet, show skeleton
-            if (segment.status === "loading" && reelElements.length === 0) {
-              return (
-                <div
-                  key={`streaming-skeleton-${segment.id}`}
-                  ref={(el) => { loadingIndicatorRef.current = el }}
-                  className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
-                >
-                  <div className="w-full max-w-2xl space-y-4">
-                    <Skeleton className="h-8 w-full rounded-lg" />
-                    <Skeleton className="h-32 w-full rounded-xl" />
-                    <Skeleton className="h-12 w-full rounded-xl" />
-                    <Skeleton className="h-12 w-full rounded-xl" />
-                    <Skeleton className="h-12 w-full rounded-xl" />
-                    <Skeleton className="h-12 w-full rounded-xl" />
+              // If segment is still streaming and has some reels, show streaming indicator after reels
+              if (segment.status === "loading" && reelElements.length > 0) {
+                return [
+                  ...reelElements,
+                  <div
+                    key={`streaming-indicator-${segment.id}`}
+                    ref={(el) => { loadingIndicatorRef.current = el }}
+                    className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">Loading more...</p>
+                    </div>
                   </div>
-                </div>
+                ]
+              }
+
+              return reelElements
+            }
+
+            if (segment.type === "sentinel") {
+              return (
+                <SentinelSection
+                  key={segment.id}
+                  segment={segment}
+                  onLoad={() => loadSegment(segment.id)}
+                  isInitial={segments.length === 1}
+                  sentinelRef={segment.status === "idle" || segment.status === "loading" ? sentinelRef : undefined}
+                />
               )
             }
 
-            // If segment is still streaming and has some reels, show streaming indicator after reels
-            if (segment.status === "loading" && reelElements.length > 0) {
-              return [
-                ...reelElements,
-                <div
-                  key={`streaming-indicator-${segment.id}`}
-                  ref={(el) => { loadingIndicatorRef.current = el }}
-                  className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
-                >
-                  <div className="flex flex-col items-center gap-3">
-                    <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">Loading more...</p>
-                  </div>
-                </div>
-              ]
-            }
+            return null
+          })}
 
-            return reelElements
-          }
-
-          if (segment.type === "sentinel") {
-            return (
-              <SentinelSection
-                key={segment.id}
-                segment={segment}
-                onLoad={() => loadSegment(segment.id)}
-                isInitial={segments.length === 1}
-                sentinelRef={segment.status === "idle" || segment.status === "loading" ? sentinelRef : undefined}
-              />
-            )
-          }
-
-          return null
-        })}
-
-        {/* Empty state */}
-        {hasNoReels && (
-          <div className="flex min-h-[100dvh] w-full items-center justify-center">
-            <p className="text-muted-foreground">No reels available. Try again later.</p>
-          </div>
-        )}
+          {/* Empty state */}
+          {hasNoReels && (
+            <div className="flex min-h-[100dvh] w-full items-center justify-center">
+              <p className="text-muted-foreground">No reels available. Try again later.</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -396,7 +420,7 @@ function SentinelSection({
 }) {
   const internalSentinelRef = useRef<HTMLDivElement | null>(null)
   const { status } = segment
-  
+
   // Combine internal and external refs
   const setRefs = useCallback((el: HTMLDivElement | null) => {
     internalSentinelRef.current = el
@@ -487,14 +511,14 @@ function SentinelSection({
 
   // Idle - invisible trigger element with fallback button for accessibility
   return (
-    <div 
+    <div
       ref={setRefs}
       className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
     >
       {/* Fallback button for accessibility (hidden by default, shows if JS fails) */}
-      <Button 
-        onClick={onLoad} 
-        variant="ghost" 
+      <Button
+        onClick={onLoad}
+        variant="ghost"
         size="sm"
         className="text-muted-foreground hover:text-foreground"
       >
@@ -504,4 +528,5 @@ function SentinelSection({
   )
 }
 
-export default SystemShotsPage;
+export default SystemShotsPage
+

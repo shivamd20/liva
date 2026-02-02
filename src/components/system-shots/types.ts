@@ -38,3 +38,26 @@ export const THEME_BG: Record<ReelTheme, string> = {
   "chart-4": "bg-chart-4",
   "chart-5": "bg-chart-5",
 }
+
+// ============================================================================
+// Focus Mode Types
+// ============================================================================
+
+/** Concept info for topic switcher display. */
+export interface ConceptInfo {
+  id: string
+  name: string
+  track?: string
+  difficulty?: "intro" | "core" | "advanced"
+}
+
+/** Focus Mode state for the feed. */
+export interface FocusModeState {
+  /** Currently focused concept ID, or null for mixed feed. */
+  focusedConceptId: string | null
+  /** Available topics for switcher. */
+  availableTopics: ConceptInfo[]
+  /** Whether Focus Mode is active. */
+  isActive: boolean
+}
+
