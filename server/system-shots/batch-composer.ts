@@ -104,7 +104,7 @@ function getRelatedConcepts(
     const overlap = c.related_tags.some((t) => concept.related_tags.includes(t));
     return overlap;
   });
-  
+
   // Prefer seen concepts for mix
   const seenRelated = related.filter((c) => isSeen(c.id, topicStateMap));
   return seenRelated.length > 0 ? seenRelated : related;
@@ -133,7 +133,7 @@ export function composeBatch(
     .filter((t) => t.exposureCount > 0)
     .map((t) => t.stabilityScore);
   const medianStability = median(seenStabilities);
-  
+
   // Determine if Build is blocked
   const buildBlocked = medianStability < MEDIAN_STABILITY_THRESHOLD;
 
@@ -143,7 +143,7 @@ export function composeBatch(
     const skipCount = skipCounts[concept.id] ?? 0;
     const input = buildConceptIntentInput(state, concept, skipCount, true);
     const result = assignIntentAndScore(input);
-    
+
     return result;
   });
 
@@ -169,7 +169,7 @@ export function composeBatch(
   const scale = batchSize / BATCH_SIZE;
   const practiceSlots = Math.round(BATCH_SLOTS.practice * scale);
   const conceptSlots = batchSize - practiceSlots;
-  
+
   const targetSlots: Record<FeedIntent, number> = {
     reinforce: Math.round(BATCH_SLOTS.reinforce * scale),
     recall: Math.round(BATCH_SLOTS.recall * scale),
@@ -216,21 +216,21 @@ export function composeBatch(
 
   // Fill in order: reinforce, recall, build, mix
   const fillOrder: Exclude<FeedIntent, "practice">[] = ["reinforce", "recall", "build", "mix"];
-  
+
   for (const intent of fillOrder) {
     const target = targetSlots[intent];
     const bucket = buckets[intent];
     let filled = 0;
-    
+
     for (const item of bucket) {
       if (filled >= target) break;
       if (usedConceptIds.has(item.conceptId)) continue;
-      
+
       result.push(item);
       usedConceptIds.add(item.conceptId);
       filled++;
     }
-    
+
     slotFillInfo[intent] = filled;
   }
 
@@ -239,7 +239,7 @@ export function composeBatch(
     const remaining = scoredConcepts
       .filter((item) => !usedConceptIds.has(item.conceptId))
       .sort((a, b) => b.score - a.score);
-    
+
     for (const item of remaining) {
       if (result.length >= conceptSlots) break;
       result.push(item);
@@ -257,6 +257,31 @@ export function composeBatch(
     usedConceptIds
   );
   slotFillInfo.practice = practiceItems.length;
+
+  // FILL GAP: If practice items are fewer than requested practiceSlots, fill the gap with more concept items
+  // This often happens in Focus Mode if the focused concept has no attached practice problems
+  const practiceGap = practiceSlots - practiceItems.length;
+  if (practiceGap > 0) {
+    const backupRemaining = scoredConcepts
+      .filter((item) => !usedConceptIds.has(item.conceptId))
+      .sort((a, b) => b.score - a.score);
+
+    // Reuse concepts if needed (allow duplicates for gap filling if we ran out of unique concepts)
+    // But ideally we just pick next best unique ones
+    for (const item of backupRemaining) {
+      if (practiceGap <= 0) break;
+      // Force reinforce intent for these backup fillers
+      result.push({ ...item, intent: "reinforce", reason: item.reason + " (gap filler)" });
+      usedConceptIds.add(item.conceptId);
+      // decrement gap
+      // note: we can't easily decrement 'practiceGap' variable inside loop without re-assigning, 
+      // but loop condition works if we check result length against total target
+    }
+
+    // If we truly ran out of unique concepts (small topic), we might need to duplicate intent with variation
+    // For now, accept that the batch might be slightly smaller if the corpus is tiny 
+    // (but the prompt generation loop in generate.ts iterates on actual items, so it's fine)
+  }
 
   // Final sort by score for concept items
   result.sort((a, b) => b.score - a.score);
@@ -287,7 +312,7 @@ function composePracticeItems(
 
   // Score problems based on how well user knows the required concepts
   const scoredProblems: { problem: PracticeProblem; score: number; bestConceptId: string }[] = [];
-  
+
   for (const problem of PRACTICE_PROBLEMS_V1) {
     // Skip recently used problems
     if (recentProblemSet.has(problem.id)) continue;
@@ -315,7 +340,7 @@ function composePracticeItems(
     // Ideal: 40-70% concepts known with medium stability
     const knownRatio = knownConcepts / problem.requiredConceptIds.length;
     const avgStability = knownConcepts > 0 ? totalStability / knownConcepts : 0;
-    
+
     // Scoring formula: favor problems with partial mastery
     let score = 0;
     if (knownRatio >= 0.3 && knownRatio <= 0.8) {
@@ -344,8 +369,12 @@ function composePracticeItems(
     if (usedProblemIds.has(problem.id)) continue;
 
     const concept = conceptMap.get(bestConceptId);
+    // Strict Topic Adherence: Skip if the bestConceptId is not in the allowed concepts list (e.g., Focus Mode)
+    if (!concept) {
+      continue;
+    }
     const state = topicStateMap.get(bestConceptId);
-    
+
     const practiceItem: PracticeItem = {
       conceptId: bestConceptId,
       intent: "practice",

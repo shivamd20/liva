@@ -152,7 +152,8 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
         ids.push(id)
       }
     }
-    excludeIdsRef.current = ids.slice(-50)
+    // Limit to just the last 5 IDs to prevent payload bloat, trusting server logic for older history
+    excludeIdsRef.current = ids.slice(-5)
   }, [segments, excludedSet])
 
   // ============ DERIVED STATE ============
@@ -164,8 +165,14 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     for (const seg of segments) {
       if (seg.type === "reels" && seg.reels) {
         for (const r of seg.reels) {
-          const key = `${r.conceptId}|${r.prompt}|${(r.options ?? []).join(",")}`
-          if (contentKeys.has(key)) continue
+          // Robust dedupe: sort options to handle shuffled variances, trim prompt
+          const sortedOptions = [...(r.options ?? [])].sort().join("|")
+          const key = `${r.conceptId}|${r.prompt.trim()}|${sortedOptions}`
+
+          if (contentKeys.has(key)) {
+            console.log(`[useReelsFeed] Optimistically hiding duplicate reel: ${r.id} (content match)`)
+            continue
+          }
           contentKeys.add(key)
           reels.push(r)
         }
@@ -173,6 +180,13 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     }
     return reels
   }, [segments])
+
+  // Debug log for current reels
+  useEffect(() => {
+    if (allReels.length > 0) {
+      console.log(`[useReelsFeed] Current Reels List (${allReels.length}):`, allReels.map(r => `${r.id} (${r.conceptId})`))
+    }
+  }, [allReels])
 
   // Filter out continued reels and excluded (seen) reels
   const reelsToShow = useMemo(

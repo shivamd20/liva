@@ -25,12 +25,18 @@ export interface GenerationOptions {
   masteryLevels?: Map<string, MasteryLevel>;
   /** Focus Mode options - when set, generates content for single topic only. */
   focus?: FocusOptions;
+  /** List of recently generated prompt texts to avoid repetition. */
+  /** List of recently generated prompt texts to avoid repetition. */
+  recentPrompts?: string[];
+  /** Force bypass of KV cache (useful for retry loops). */
+  bypassCache?: boolean;
 }
 
-const LOG_PREFIX = "[generateReels]";
+import { CACHE_TTL_SECONDS, GENERATION_LOG_PREFIX } from "./constants";
 
-/** Cache TTL: 7 days in seconds. */
-const CACHE_TTL_SECONDS = 7 * 24 * 60 * 60; // 604800
+const LOG_PREFIX = GENERATION_LOG_PREFIX;
+
+
 
 /**
  * Build a cache key from the LLM prompt using SHA-256 hash.
@@ -120,7 +126,8 @@ function buildNDJSONPrompt(
   conceptsWithIntents: ConceptWithIntentForPrompt[],
   stateSummary: string,
   count: number,
-  focusExtension?: string
+  focusExtension?: string,
+  recentPrompts?: string[]
 ): string {
   const conceptInstructions = conceptsWithIntents
     .map((c, i) => {
@@ -150,6 +157,21 @@ ${intentInstructions}${levelContext}`;
     ? "\n- For PRACTICE problems, also include 'problemId' with the exact problem ID specified"
     : "";
 
+  // Build detailed diversity context if recent prompts are provided
+  let diversityContext = "";
+  if (recentPrompts && recentPrompts.length > 0) {
+    // Truncate to last 10 to save context window
+    const recent = recentPrompts.slice(-10).map((p) => `- "${p.slice(0, 100)}..."`).join("\n");
+    diversityContext = `
+––––––––––––––––
+DIVERSITY CONSTRAINTS – CRITICAL
+The user has recently seen the following questions.
+You MUST NOT generate similar questions.
+You MUST choose a DIFFERENT sub-topic or angle (e.g. if recent query was Storage Calc, choose API or Failure Mode).
+RECENTLY SEEN:
+${recent}`;
+  }
+
   return `You are a senior system design interviewer at a top-tier tech company.
 
 Your task is to generate interview-grade MCQ questions, not trivia. You must obey all constraints strictly.
@@ -160,8 +182,8 @@ OUTPUT FORMAT – CRITICAL: You MUST output only NDJSON (newline-delimited JSON)
 - Each line must be a complete, valid JSON object with these exact keys: conceptId, prompt, options, correctIndex, explanation, difficulty, intent${hasPractice ? ", problemId (for practice)" : ""}.
 
 Example of exactly two lines (you will output ${count} lines):
-{"conceptId":"cap-theorem","prompt":"Why might a CP system choose to allow stale reads?","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","difficulty":1,"intent":"reinforce"}
-{"conceptId":"sharding","prompt":"When designing Twitter, which shard key minimizes hot partitions for tweets?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"practice","problemId":"twitter"}
+{"conceptId":"cap-theorem","prompt":"In a CP system during a partition, why is unavailable preferrable to stale data?","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","difficulty":1,"intent":"reinforce"}
+{"conceptId":"sharding","prompt":"Twitter: Which shard key minimizes hot partitions?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"practice","problemId":"twitter"}
 
 –––––––––––––––––
 INPUT CONTEXT
@@ -175,6 +197,7 @@ CONCEPTS TO GENERATE (with intents)
 Generate exactly one question for each concept below, following the specified intent:
 
 ${conceptInstructions}
+${diversityContext}
 
 –––––––––––––––––
 RULES
@@ -191,52 +214,6 @@ ${focusExtension ? `\n${focusExtension}` : ""}
 Output ${count} lines now, one JSON object per line, in the same order as the concepts above:`;
 }
 
-/** Legacy prompt builder for backwards compatibility. */
-function buildLegacyNDJSONPrompt(
-  conceptIds: string[],
-  conceptNames: string,
-  stateSummary: string,
-  count: number
-): string {
-  return `You are a senior system design interviewer at a top-tier tech company.
-
-Your task is to generate interview-grade MCQ questions, not trivia. You must obey all constraints strictly.
-
-OUTPUT FORMAT – CRITICAL: You MUST output only NDJSON (newline-delimited JSON).
-- Exactly one valid JSON object per line.
-- No markdown, no code fences, no outer array, no extra text before or after.
-- Each line must be a complete, valid JSON object with these exact keys: conceptId, prompt, options, correctIndex, explanation, difficulty.
-
-Example of exactly two lines (you will output ${count} lines):
-{"conceptId":"cap-theorem","prompt":"Why might a CP system choose to allow stale reads?","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","difficulty":1}
-{"conceptId":"sharding","prompt":"How do you pick a shard key?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2}
-
-–––––––––––––––––
-INPUT CONTEXT
-
-Concepts (use only these conceptId values):
-${conceptNames}
-
-Concept IDs (use exactly as given):
-${conceptIds.join(", ")}
-
-User topic mastery state:
-${stateSummary}
-
-–––––––––––––––––
-RULES
-
-Generate exactly ${count} MCQ questions. One JSON object per line. No other output.
-- conceptId: one of the IDs above
-- prompt: question text
-- options: exactly 4 strings
-- correctIndex: 0-3
-- explanation: brief explanation
-- difficulty: 1, 2, or 3 (1=foundational, 2=applied tradeoff, 3=deep/failure)
-
-Output ${count} lines now, one JSON object per line:`;
-}
-
 /**
  * Async generator: stream NDJSON from LLM, parse each line, validate, assign UUID, yield reel.
  * Uses chat(stream: true); accumulates by newlines; yields reels as they are parsed.
@@ -251,7 +228,7 @@ export async function* generateReelsStream(
   count: number,
   options: GenerationOptions = {}
 ): AsyncGenerator<GenerateReelInput> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus, recentPrompts = [], bypassCache = false } = options;
 
   // FOCUS MODE: Filter to single concept when focus is active
   let filteredConcepts = concepts;
@@ -318,25 +295,35 @@ export async function* generateReelsStream(
   const focusExtension = focus ? buildFocusModePromptExtension(focus) : undefined;
 
   const totalCount = batch.items.length + batch.practiceItems.length;
-  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount, focusExtension);
+  // Pass recentPrompts to builder
+  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount, focusExtension, recentPrompts);
 
-  // Check KV cache first
+  // Check KV cache first (unless bypassed)
   const cacheKey = await buildCacheKey(userPrompt);
-  try {
-    const cached = await env.LLM_CACHE?.get(cacheKey, "json");
-    if (cached && Array.isArray(cached) && cached.length > 0) {
-      console.log(`${LOG_PREFIX} cache HIT key=${cacheKey.slice(0, 30)}... reels=${cached.length}`);
-      for (const reel of cached as GenerateReelInput[]) {
-        // Generate new IDs for cached reels to avoid duplicates
-        yield { ...reel, id: crypto.randomUUID() };
+  if (!bypassCache) {
+    try {
+      const cached = await env.LLM_CACHE?.get(cacheKey, "json");
+      if (cached && Array.isArray(cached) && cached.length > 0) {
+        console.log(`${LOG_PREFIX} cache HIT key=${cacheKey.slice(0, 30)}... reels=${cached.length}`);
+        for (const reel of cached as GenerateReelInput[]) {
+          // Generate new IDs for cached reels to avoid duplicates
+          yield { ...reel, id: crypto.randomUUID() };
+        }
+        return;
       }
-      return;
+    } catch (cacheErr) {
+      // Cache read error - treat as miss and proceed with LLM
+      console.warn(`${LOG_PREFIX} cache read error, proceeding with LLM`, cacheErr);
     }
-  } catch (cacheErr) {
-    // Cache read error - treat as miss and proceed with LLM
-    console.warn(`${LOG_PREFIX} cache read error, proceeding with LLM`, cacheErr);
+  } else {
+    console.log(`${LOG_PREFIX} cache BYPASS key=${cacheKey.slice(0, 30)}...`);
   }
-  console.log(`${LOG_PREFIX} cache MISS key=${cacheKey.slice(0, 30)}...`);
+
+  if (!bypassCache) {
+    console.log(`${LOG_PREFIX} cache MISS key=${cacheKey.slice(0, 30)}...`);
+  }
+
+  // Accumulator for caching successful results
 
   // Accumulator for caching successful results
   const accumulatedReels: GenerateReelInput[] = [];
@@ -344,10 +331,12 @@ export async function* generateReelsStream(
   let stream: AsyncIterable<{ type: string; delta?: string; content?: string }>;
   try {
     const adapter = await new LivaAIModel(env).getAdapter();
-    console.log(`${LOG_PREFIX} stream start concepts=${concepts.length} count=${count}`);
+    console.log(`${LOG_PREFIX} stream start concepts=${concepts.length} count=${count} temperature=0.7`);
     const result = chat({
       adapter,
       messages: [{ role: "user", content: userPrompt }],
+      // Higher temperature for variety
+      temperature: 0.7,
       stream: true,
     }) as AsyncIterable<{ type: string; delta?: string; content?: string }>;
     stream = result;
@@ -364,6 +353,8 @@ export async function* generateReelsStream(
       if (chunk.type !== "content") continue;
       const text = (chunk as { delta?: string; content?: string }).delta ?? (chunk as { content?: string }).content ?? "";
       if (!text) continue;
+
+      console.log(`${LOG_PREFIX} raw chunk (${text.length} chars): ${text.slice(0, 50).replace(/\n/g, "\\n")}...`);
       buffer += text;
 
       const lines = buffer.split("\n");
@@ -391,6 +382,7 @@ export async function* generateReelsStream(
           continue;
         }
         const r = parsedReel.data;
+        console.log(`${LOG_PREFIX} valid reel parsed: ${r.conceptId} [${r.intent}]`);
         // Use intent from batch composer (fallback to LLM-provided or reinforce)
         const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
         const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
@@ -487,7 +479,7 @@ export async function generateReelsBatch(
   count: number,
   options: GenerationOptions = {}
 ): Promise<GenerateReelInput[]> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus, recentPrompts = [] } = options;
 
   // FOCUS MODE: Filter to single concept when focus is active
   let filteredConcepts = concepts;
@@ -634,7 +626,11 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
       "intent": "reinforce"${practiceNote}
     }
   ]
-}`;
+}
+${recentPrompts && recentPrompts.length > 0
+      ? `\nREMINDER: Do NOT generate questions similar to:\n${recentPrompts.slice(-10).map(p => `- ${p.slice(0, 50)}...`).join("\n")}`
+      : ""
+    }`;
 
   let rawText: string;
   try {
@@ -643,6 +639,8 @@ Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
     rawText = (await chat({
       adapter,
       messages: [{ role: "user", content: userPrompt }],
+      // Higher temperature for variety
+      temperature: 0.7,
       stream: false,
     })) as string;
   } catch (err) {

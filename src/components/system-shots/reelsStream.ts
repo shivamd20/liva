@@ -60,6 +60,7 @@ export async function consumeReelsStream(
       if (done) break
 
       buffer += decoder.decode(value, { stream: true })
+      // console.log(`[reelsStream] read chunk: ${value.length} bytes, buffer len: ${buffer.length}`)
       const parts = buffer.split("\n\n")
       buffer = parts.pop() ?? ""
 
