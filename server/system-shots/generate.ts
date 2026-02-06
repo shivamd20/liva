@@ -69,6 +69,9 @@ export type GenerateReelInput = Omit<Reel, "createdAt" | "consumedAt"> & {
 /** Strip markdown code fence and trim; return raw if no fence. */
 function extractJsonString(raw: string): string {
   const trimmed = raw.trim();
+  // Skip pure fence lines (opening or closing) - including lines that start with ``` but have no JSON
+  if (/^```(?:json)?\s*$/.test(trimmed) || trimmed === "```") return "";
+  if (trimmed.startsWith("```") && !trimmed.includes("{")) return "";
   const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)```$/);
   return match ? match[1].trim() : trimmed;
 }
@@ -369,11 +372,17 @@ export async function* generateReelsStream(
       for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
+        // Strip markdown code fence (```json ... ```) if LLM wrapped the output
+        const jsonStr = extractJsonString(trimmed);
+        if (!jsonStr) continue; // skip fence-only lines
         let parsed: unknown;
         try {
-          parsed = JSON.parse(trimmed);
+          parsed = JSON.parse(jsonStr);
         } catch {
-          console.warn(`${LOG_PREFIX} stream skip invalid JSON line: ${trimmed.slice(0, 80)}...`);
+          // Only warn for lines that look like JSON (start with {) - avoid noise from fence fragments
+          if (jsonStr.startsWith("{")) {
+            console.warn(`${LOG_PREFIX} stream skip invalid JSON line: ${trimmed.slice(0, 80)}...`);
+          }
           continue;
         }
         const parsedReel = mcqReelSchema.safeParse(parsed);
@@ -417,7 +426,7 @@ export async function* generateReelsStream(
     // last line in buffer
     if (buffer.trim()) {
       try {
-        const parsed = JSON.parse(buffer.trim());
+        const parsed = JSON.parse(extractJsonString(buffer.trim()));
         const parsedReel = mcqReelSchema.safeParse(parsed);
         if (parsedReel.success && yielded < totalCount) {
           const r = parsedReel.data;

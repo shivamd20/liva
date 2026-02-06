@@ -1,16 +1,20 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
+import { useSession } from "@/lib/auth-client"
 import { trpcClient } from "@/trpcClient"
 import { ReelCard } from "./ReelCard"
 import { Button } from "@/components/ui/button"
-import { Loader2 } from "lucide-react"
+import { Loader2, RefreshCcw } from "lucide-react"
+import { ModeToggle } from "@/components/ui/mode-toggle"
 import { toast } from "sonner"
 import { REEL_THEMES, type ReelTheme, type ApiReel, type ConceptInfo } from "./types"
 import { ProgressView } from "./ProgressView"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useReelsFeed, type FeedSegment } from "./useReelsFeed"
 import { FocusSidebar, SidebarTrigger } from "./FocusSidebar"
+import { addSeen, getSeenSet } from "./seenReelsCache"
+import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 
 export type { ReelTheme } from "./types"
 
@@ -30,11 +34,18 @@ export interface SystemShotsPageProps {
 }
 
 export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
+  const { data: session } = useSession()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showProgressView, setShowProgressView] = useState(false)
   const [currentReelIndex, setCurrentReelIndex] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [seenReelIds, setSeenReelIds] = useState<Set<string>>(() => getSeenSet())
+
+  const addSeenReel = useCallback((reelId: string) => {
+    addSeen(reelId)
+    setSeenReelIds(getSeenSet())
+  }, [])
 
   // Focus Mode: sync with URL
   const focusFromUrl = searchParams.get("focus") ?? null
@@ -58,11 +69,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   // authFetch in reelsStream.ts handles waiting for auth and 401 retries
   const feed = useReelsFeed({
     initialContinuedIds: localAnswerState.submittedAnswerReelIds,
+    excludedReelIds: seenReelIds,
     onError: (err) => toast.error(err === "Unauthorized" ? "Please sign in." : err),
     focusConceptId: focusFromUrl,
     onFocusChange: handleFocusChange,
   })
-  const { segments, reelsToShow, loadSegment, markContinued, focusedConceptId, switchFocus, clearFocus } = feed
+  const { segments, reelsToShow, loadSegment, markContinued, focusedConceptId, switchFocus, clearFocus, refresh } = feed
 
   // Fetch available topics for story bar
   const { data: availableTopics = [] } = useQuery({
@@ -78,6 +90,13 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const sentinelRef = useRef<HTMLDivElement | null>(null)
   const loadingIndicatorRef = useRef<HTMLDivElement | null>(null)
   const skipObservedRef = useRef<Set<string>>(new Set())
+
+  // Engagement tracking: reel view time and session
+  const reelViewEnterTimeRef = useRef<number | null>(null)
+  const lastViewedReelIdRef = useRef<string | null>(null)
+  const lastViewedReelIndexRef = useRef<number>(-1)
+  const sessionStartTimeRef = useRef<number>(Date.now())
+  const sessionReelsViewedRef = useRef<Set<string>>(new Set())
 
   const submittedReelIds = useMemo(
     () => new Set(localAnswerState.submittedReelIds),
@@ -119,6 +138,13 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     (reel: ApiReel, index: number) => {
       if (submittedAnswerReelIds.has(reel.id)) return
       const correct = reel.correctIndex !== null && index === reel.correctIndex
+      mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_ANSWER, {
+        reelId: reel.id,
+        conceptId: reel.conceptId,
+        selectedIndex: index,
+        correct,
+        reelType: "mcq",
+      })
       // Only update answeredByReelId and submittedReelIds - do NOT add to submittedAnswerReelIds
       // The card should remain visible so user can see feedback and click Continue
       updateLocalAnswerState((prev) => ({
@@ -138,7 +164,17 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   }, [])
 
   const handleContinue = useCallback(
-    (reel: ApiReel, _selectedIndex: number | undefined, index: number, totalRenderedReels: number) => {
+    (reel: ApiReel, selectedIndex: number | undefined, index: number, totalRenderedReels: number) => {
+      mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_CONTINUE, {
+        reelId: reel.id,
+        conceptId: reel.conceptId,
+        reelType: reel.type,
+        reelIndex: index,
+        totalReels: totalRenderedReels,
+        hadAnswer: reel.type === "mcq" && selectedIndex !== undefined,
+        correct: reel.type === "mcq" && reel.correctIndex !== null && selectedIndex === reel.correctIndex,
+      })
+      addSeenReel(reel.id)
       if (reel.type === "flash") {
         if (submittedAnswerReelIds.has(reel.id)) return
         updateLocalAnswerState((prev) => ({
@@ -160,39 +196,124 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         }, 50)
       }
     },
-    [submittedAnswerReelIds, submitAnswerMutation, scrollToReel, updateLocalAnswerState, markContinued]
+    [addSeenReel, submittedAnswerReelIds, submitAnswerMutation, scrollToReel, updateLocalAnswerState, markContinued]
   )
 
   const submitSkip = useCallback(
     (reelId: string) => {
       if (skipObservedRef.current.has(reelId) || submittedReelIds.has(reelId)) return
       skipObservedRef.current.add(reelId)
+      const reel = reelsToShow.find((r) => r.id === reelId)
+      mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_SKIP, {
+        reelId,
+        conceptId: reel?.conceptId,
+        reelType: reel?.type,
+        reason: "scrolled_away",
+      })
+      addSeenReel(reelId)
       updateLocalAnswerState((prev) => ({
         ...prev,
         submittedReelIds: [...prev.submittedReelIds, reelId],
       }))
       submitAnswerMutation.mutate({ reelId, selectedIndex: null, correct: false, skipped: true })
     },
-    [submittedReelIds, submitAnswerMutation, updateLocalAnswerState]
+    [addSeenReel, reelsToShow, submittedReelIds, submitAnswerMutation, updateLocalAnswerState]
   )
 
-  // Track current reel for progress bar
+  // Track view open on mount, view close on unmount
+  useEffect(() => {
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_VIEW_OPEN, {
+      focusConceptId: focusFromUrl,
+    })
+    return () => {
+      const sessionDurationMs = Date.now() - sessionStartTimeRef.current
+      mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_VIEW_CLOSE, {
+        sessionDurationMs,
+        sessionDurationSec: Math.round(sessionDurationMs / 1000),
+        uniqueReelsViewed: sessionReelsViewedRef.current.size,
+        focusConceptId: focusFromUrl,
+      })
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps -- intentional: only on mount/unmount
+
+  // Compute total rendered reels count and IDs in DOM order (for engagement tracking)
+  const { totalRenderedReels, renderedReelIds, renderedReelMap } = useMemo(() => {
+    const ids: string[] = []
+    const map = new Map<string, ApiReel>()
+    for (const segment of segments) {
+      if (segment.type === "reels" && segment.reels) {
+        for (const reel of segment.reels) {
+          if (!submittedAnswerReelIds.has(reel.id)) {
+            ids.push(reel.id)
+            map.set(reel.id, reel)
+          }
+        }
+      }
+    }
+    return {
+      totalRenderedReels: ids.length,
+      renderedReelIds: ids,
+      renderedReelMap: map,
+    }
+  }, [segments, submittedAnswerReelIds])
+
+  // Track current reel for progress bar + engagement (time spent, scroll)
   useEffect(() => {
     const nodes = reelRefs.current
-    if (nodes.length === 0) return
+    const reelIds = renderedReelIds
+    const reelMap = renderedReelMap
+    if (nodes.length === 0 || reelIds.length === 0) return
+
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           if (!entry.isIntersecting) continue
           const index = nodes.indexOf(entry.target as HTMLElement)
-          if (index !== -1) setCurrentReelIndex(index)
+          if (index !== -1) {
+            const reelId = reelIds[index]
+            const prevIndex = lastViewedReelIndexRef.current
+            const reel = reelMap.get(reelId)
+
+            // Record time spent on previous reel when scrolling to new one
+            if (reelViewEnterTimeRef.current !== null && lastViewedReelIdRef.current && lastViewedReelIdRef.current !== reelId) {
+              const timeSpentMs = Date.now() - reelViewEnterTimeRef.current
+              mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_TIME_SPENT, {
+                reelId: lastViewedReelIdRef.current,
+                timeSpentMs,
+                timeSpentSec: Math.round(timeSpentMs / 1000),
+                fromIndex: prevIndex,
+                toIndex: index,
+                scrollDirection: index > prevIndex ? "down" : "up",
+              })
+              mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_SCROLL, {
+                fromReelId: lastViewedReelIdRef.current,
+                toReelId: reelId,
+                fromIndex: prevIndex,
+                toIndex: index,
+                direction: index > prevIndex ? "down" : "up",
+              })
+            }
+
+            lastViewedReelIdRef.current = reelId
+            lastViewedReelIndexRef.current = index
+            reelViewEnterTimeRef.current = Date.now()
+            sessionReelsViewedRef.current.add(reelId)
+            mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_VIEW, {
+              reelId,
+              reelIndex: index,
+              totalReels: reelIds.length,
+              conceptId: reel?.conceptId,
+              reelType: reel?.type,
+            })
+            setCurrentReelIndex(index)
+          }
         }
       },
       { threshold: 0.5 }
     )
     nodes.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [reelsToShow.length])
+  }, [renderedReelIds, renderedReelMap])
 
   // Mark as skipped when scrolled away without answering
   useEffect(() => {
@@ -234,21 +355,38 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
 
   const hasNoReels = reelsToShow.length === 0 && !isInitialLoading && !isStreaming
 
-  const progressPercent = reelsToShow.length > 0 ? ((currentReelIndex + 1) / reelsToShow.length) * 100 : 0
+  const progressPercent = totalRenderedReels > 0 ? ((currentReelIndex + 1) / totalRenderedReels) * 100 : 0
 
-  // Compute total rendered reels count (based on submittedAnswerReelIds filter, matching the DOM)
-  const totalRenderedReels = useMemo(() => {
-    let count = 0
-    for (const segment of segments) {
-      if (segment.type === "reels" && segment.reels) {
-        count += segment.reels.filter((reel) => !submittedAnswerReelIds.has(reel.id)).length
-      }
-    }
-    return count
-  }, [segments, submittedAnswerReelIds])
+  const handleSidebarOpen = useCallback(() => {
+    setSidebarOpen(true)
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_SIDEBAR_OPEN)
+  }, [])
+
+  const handleSidebarClose = useCallback(() => {
+    setSidebarOpen(false)
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_SIDEBAR_CLOSE)
+  }, [])
+
+  const handleBack = useCallback(() => {
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_BACK, {
+      sessionDurationMs: Date.now() - sessionStartTimeRef.current,
+      uniqueReelsViewed: sessionReelsViewedRef.current.size,
+    })
+    onBack()
+  }, [onBack])
+
+  const handleProgressOpen = useCallback(() => {
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_PROGRESS_OPEN)
+    setShowProgressView(true)
+  }, [])
+
+  const handleProgressClose = useCallback(() => {
+    mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_PROGRESS_CLOSE)
+    setShowProgressView(false)
+  }, [])
 
   if (showProgressView) {
-    return <ProgressView onBack={() => setShowProgressView(false)} />
+    return <ProgressView onBack={handleProgressClose} />
   }
 
   // Build flat list with reel index tracking
@@ -259,17 +397,22 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
       {/* Focus Sidebar - calm, minimal, supportive */}
       <FocusSidebar
         isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
+        onClose={handleSidebarClose}
         topics={availableTopics}
         activeTopicId={focusedConceptId}
         onTopicSelect={switchFocus}
         onClearFocus={clearFocus}
-        onBack={onBack}
-        onProgress={() => setShowProgressView(true)}
+        onBack={handleBack}
+        onProgress={handleProgressOpen}
+        session={session}
+        onRefresh={refresh}
       />
 
-      {/* Mobile sidebar trigger - subtle left edge affordance */}
-      <SidebarTrigger onOpen={() => setSidebarOpen(true)} />
+      {/* Hamburger (top-left) and dark mode toggle (top-right) */}
+      <SidebarTrigger isOpen={sidebarOpen} onToggle={() => (sidebarOpen ? handleSidebarClose() : handleSidebarOpen())} />
+      <div className="fixed top-4 right-4 z-50">
+        <ModeToggle />
+      </div>
 
       {/* Main reel container - full width on mobile, with sidebar offset on desktop */}
       <div className="flex-1 flex flex-col min-h-0 md:ml-56">
@@ -386,6 +529,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                   segment={segment}
                   segmentId={segment.id}
                   loadSegment={loadSegment}
+                  onRefresh={refresh}
                   isInitial={segments.length === 1}
                   sentinelRef={segment.status === "idle" || segment.status === "loading" ? sentinelRef : undefined}
                 />
@@ -397,8 +541,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
 
           {/* Empty state */}
           {hasNoReels && (
-            <div className="flex min-h-[100dvh] w-full items-center justify-center">
+            <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center gap-4">
               <p className="text-muted-foreground">No reels available. Try again later.</p>
+              <Button onClick={refresh} variant="outline" className="gap-2">
+                <RefreshCcw className="h-4 w-4" />
+                Refresh
+              </Button>
             </div>
           )}
         </div>
@@ -412,12 +560,14 @@ function SentinelSection({
   segment,
   segmentId,
   loadSegment,
+  onRefresh,
   isInitial,
   sentinelRef: externalSentinelRef,
 }: {
   segment: FeedSegment
   segmentId: string
   loadSegment: (segmentId: string) => void
+  onRefresh?: () => void
   isInitial: boolean
   sentinelRef?: React.MutableRefObject<HTMLDivElement | null>
 }) {
@@ -481,8 +631,14 @@ function SentinelSection({
   // Done - no more reels
   if (status === "done") {
     return (
-      <div className="flex min-h-[50dvh] w-full items-center justify-center">
+      <div className="flex min-h-[50dvh] w-full flex-col items-center justify-center gap-4">
         <p className="text-muted-foreground">You've reached the end!</p>
+        {onRefresh && (
+          <Button onClick={onRefresh} variant="outline" className="gap-2">
+            <RefreshCcw className="h-4 w-4" />
+            Refresh
+          </Button>
+        )}
       </div>
     )
   }
@@ -493,7 +649,8 @@ function SentinelSection({
       <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <p className="text-destructive">Failed to load reels</p>
-          <Button onClick={onLoad} variant="outline">
+          <Button onClick={onRefresh ?? onLoad} variant="outline" className="gap-2">
+            <RefreshCcw className="h-4 w-4" />
             Retry
           </Button>
         </div>

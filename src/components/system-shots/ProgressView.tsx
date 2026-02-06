@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
 import { ArrowLeft, Loader2, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -213,7 +214,14 @@ function LevelBreakdown({
     <div className="mt-3">
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          const newExpanded = !expanded
+          mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_PROGRESS_LEVEL_BREAKDOWN_EXPAND, {
+            expanded: newExpanded,
+            currentLevel,
+          })
+          setExpanded(newExpanded)
+        }}
         className="text-xs text-primary flex items-center gap-1"
       >
         {expanded ? "Hide" : "View"} all levels
@@ -443,9 +451,19 @@ export function ProgressView({ onBack }: ProgressViewProps) {
                       key={item.conceptId}
                       item={item}
                       expanded={expandedId === item.conceptId}
-                      onToggle={() => setExpandedId(
-                        expandedId === item.conceptId ? null : item.conceptId
-                      )}
+                      onToggle={() => {
+                        const willExpand = expandedId !== item.conceptId
+                        if (willExpand) {
+                          mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_PROGRESS_CONCEPT_EXPAND, {
+                            conceptId: item.conceptId,
+                            conceptName: item.name,
+                            track: item.track,
+                            masteryLevel: item.masteryLevel,
+                            exposureCount: item.exposureCount,
+                          })
+                        }
+                        setExpandedId(expandedId === item.conceptId ? null : item.conceptId)
+                      }}
                     />
                   ))}
                 </div>

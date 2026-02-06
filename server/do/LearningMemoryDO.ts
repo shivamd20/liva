@@ -665,8 +665,63 @@ export class LearningMemoryDO extends DurableObject<Env> {
     console.log(`${LOG_PREFIX} ensureBuffer done unconsumedCount=${afterCount}`);
   }
 
-  /** Persist a single reel (for streaming: persist as we yield). */
-  private persistOneReel(r: Omit<Reel, "createdAt" | "consumedAt">): void {
+  /**
+   * Find existing reel with same content (concept_id, prompt, options, correct_index).
+   * Used to avoid storing duplicate reels from LLM generation.
+   * Returns { reel, skippedAt } so caller can avoid yielding recently skipped reels.
+   */
+  private findExistingReelByContent(
+    conceptId: string,
+    prompt: string,
+    options: string[] | null,
+    correctIndex: number | null
+  ): { reel: Reel; skippedAt: number | null } | null {
+    const optionsJson = options != null ? JSON.stringify(options) : null;
+    const rows = this.sql
+      .exec(
+        `SELECT * FROM reels WHERE concept_id = ? AND prompt = ?
+         AND (options = ? OR (options IS NULL AND ? IS NULL))
+         AND (correct_index = ? OR (correct_index IS NULL AND ? IS NULL))
+         AND consumed_at IS NULL LIMIT 1`,
+        conceptId,
+        prompt,
+        optionsJson,
+        optionsJson,
+        correctIndex,
+        correctIndex
+      )
+      .toArray() as Record<string, unknown>[];
+    const row = rows[0];
+    if (!row) return null;
+    const reel = this.rowToReel(row);
+    const skippedAt = row.skipped_at as number | null;
+    return { reel, skippedAt };
+  }
+
+  /**
+   * Persist a reel or return existing if duplicate content.
+   * Prevents storing identical reels (same prompt, options, correct_index) from LLM.
+   * Returns { reel, shouldYield } - shouldYield is false if existing reel was skipped in last 3 days.
+   */
+  private persistOrGetReel(
+    r: Omit<Reel, "createdAt" | "consumedAt">,
+    reappearanceThreshold: number
+  ): { reel: Reel; shouldYield: boolean } {
+    const existing = this.findExistingReelByContent(
+      r.conceptId,
+      r.prompt,
+      r.options,
+      r.correctIndex
+    );
+    if (existing) {
+      const { reel, skippedAt } = existing;
+      const skippedRecently = skippedAt != null && skippedAt > reappearanceThreshold;
+      console.log(`${LOG_PREFIX} persistOrGetReel duplicate, using existing id=${reel.id} skippedRecently=${skippedRecently}`);
+      return {
+        reel: { ...reel, createdAt: reel.createdAt ?? Date.now(), consumedAt: null },
+        shouldYield: !skippedRecently,
+      };
+    }
     const now = Date.now();
     this.sql.exec(
       `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
@@ -684,6 +739,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       r.skipCount ?? 0,
       r.problemId ?? null
     );
+    return { reel: { ...r, createdAt: now, consumedAt: null }, shouldYield: true };
   }
 
   /**
@@ -695,12 +751,20 @@ export class LearningMemoryDO extends DurableObject<Env> {
    */
   async *streamReels(
     cursor: string | undefined,
-    options: { focusConceptId?: string } = {}
+    options: { focusConceptId?: string; excludeIds?: string[] } = {}
   ): AsyncGenerator<{ type: string; delta?: string; content?: string; finishReason?: string | null }> {
-    const { focusConceptId } = options;
+    const { focusConceptId, excludeIds = [] } = options;
     const reappearanceThreshold = Date.now() - SKIP_COOLDOWN_MS;
 
-    // Build base query conditions
+    // Exclude recently viewed/received reels - never send these again
+    const excludeClause =
+      excludeIds.length > 0
+        ? ` AND id NOT IN (${excludeIds.map(() => "?").join(",")})`
+        : "";
+    const excludeParams = excludeIds;
+    const excludeSet = new Set(excludeIds);
+
+    // Build base query conditions (skipped reels hidden for 3 days)
     const baseCondition = focusConceptId
       ? "consumed_at IS NULL AND concept_id = ? AND (skipped_at IS NULL OR skipped_at <= ?)"
       : "consumed_at IS NULL AND (skipped_at IS NULL OR skipped_at <= ?)";
@@ -737,10 +801,10 @@ export class LearningMemoryDO extends DurableObject<Env> {
       if (!cursorRow) {
         rows = focusConceptId
           ? this.sql
-            .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, focusConceptId, reappearanceThreshold, BUFFER_REFILL_COUNT)
+            .exec(`SELECT * FROM reels WHERE ${baseCondition}${excludeClause} ${orderBy}`, focusConceptId, reappearanceThreshold, ...excludeParams, BUFFER_REFILL_COUNT)
             .toArray() as Record<string, unknown>[]
           : this.sql
-            .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, reappearanceThreshold, BUFFER_REFILL_COUNT)
+            .exec(`SELECT * FROM reels WHERE ${baseCondition}${excludeClause} ${orderBy}`, reappearanceThreshold, ...excludeParams, BUFFER_REFILL_COUNT)
             .toArray() as Record<string, unknown>[];
       } else {
         const cOrd0 = cursorRow.skipped_at == null ? 1 : 0;
@@ -751,7 +815,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
         if (focusConceptId) {
           rows = this.sql
             .exec(
-              `SELECT * FROM reels WHERE ${baseCondition} AND (
+              `SELECT * FROM reels WHERE ${baseCondition}${excludeClause} AND (
                 (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
                 ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
                 ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
@@ -759,6 +823,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
               ) ${orderBy}`,
               focusConceptId,
               reappearanceThreshold,
+              ...excludeParams,
               cOrd0,
               cOrd0,
               cOrd1,
@@ -775,13 +840,14 @@ export class LearningMemoryDO extends DurableObject<Env> {
         } else {
           rows = this.sql
             .exec(
-              `SELECT * FROM reels WHERE ${baseCondition} AND (
+              `SELECT * FROM reels WHERE ${baseCondition}${excludeClause} AND (
                 (CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) > ? OR
                 ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) > ?) OR
                 ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at > ?) OR
                 ((CASE WHEN skipped_at IS NULL THEN 1 ELSE 0 END) = ? AND COALESCE(skipped_at, 0) = ? AND created_at = ? AND id > ?)
               ) ${orderBy}`,
               reappearanceThreshold,
+              ...excludeParams,
               cOrd0,
               cOrd0,
               cOrd1,
@@ -812,6 +878,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       console.log(`${LOG_PREFIX} streamReels cursor=${cursor}, no rows after cursor, freshCount=${freshCount}${focusConceptId ? ` (focus=${focusConceptId})` : ""}`);
       if (freshCount >= BUFFER_THRESHOLD) {
         // Enough fresh reels exist elsewhere, don't generate (user may have skipped earlier reels)
+        console.log(`${LOG_PREFIX} streamReels cursor flow yielding 0 (freshCount >= threshold)`);
         yield { type: "done", finishReason: "stop" };
         return;
       }
@@ -826,9 +893,9 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const { generateReelsStream } = await import("../system-shots/generate");
       let yielded = 0;
       for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels, focus: focusOptions })) {
-        this.persistOneReel(reel);
-        const apiReel: Reel = { ...reel, createdAt: Date.now(), consumedAt: null };
-        yield toChunk(apiReel);
+        const { reel: persisted, shouldYield } = this.persistOrGetReel(reel, reappearanceThreshold);
+        if (!shouldYield || excludeSet.has(persisted.id)) continue;
+        yield toChunk(persisted);
         yielded++;
         if (yielded >= BUFFER_REFILL_COUNT) break;
       }
@@ -851,7 +918,7 @@ export class LearningMemoryDO extends DurableObject<Env> {
       const { generateReelsStream } = await import("../system-shots/generate");
       let generated = 0;
       for await (const reel of generateReelsStream(this.env, topicState, concepts, BUFFER_REFILL_COUNT, { skipCounts, recentProblemIds, masteryLevels, focus: focusOptions })) {
-        this.persistOneReel(reel);
+        this.persistOrGetReel(reel, reappearanceThreshold);
         generated++;
         if (generated >= BUFFER_REFILL_COUNT) break;
       }
@@ -861,13 +928,16 @@ export class LearningMemoryDO extends DurableObject<Env> {
     // Yield up to 10 unconsumed reels from DB (skipped prioritized first, then fresh by created_at)
     const rows = focusConceptId
       ? this.sql
-        .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, focusConceptId, reappearanceThreshold, BUFFER_REFILL_COUNT)
+        .exec(`SELECT * FROM reels WHERE ${baseCondition}${excludeClause} ${orderBy}`, focusConceptId, reappearanceThreshold, ...excludeParams, BUFFER_REFILL_COUNT)
         .toArray() as Record<string, unknown>[]
       : this.sql
-        .exec(`SELECT * FROM reels WHERE ${baseCondition} ${orderBy}`, reappearanceThreshold, BUFFER_REFILL_COUNT)
+        .exec(`SELECT * FROM reels WHERE ${baseCondition}${excludeClause} ${orderBy}`, reappearanceThreshold, ...excludeParams, BUFFER_REFILL_COUNT)
         .toArray() as Record<string, unknown>[];
     for (const r of rows) {
       yield toChunk(this.rowToReel(r));
+    }
+    if (rows.length === 0) {
+      console.log(`${LOG_PREFIX} streamReels initial yielding 0 reels${focusConceptId ? ` (focus=${focusConceptId})` : ""}`);
     }
     console.log(`${LOG_PREFIX} streamReels initial yielded=${rows.length}${focusConceptId ? ` for focus=${focusConceptId}` : ""}`);
     yield { type: "done", finishReason: "stop" };
@@ -1001,24 +1071,9 @@ export class LearningMemoryDO extends DurableObject<Env> {
   }
 
   private persistReels(reels: Omit<Reel, "createdAt" | "consumedAt">[]): void {
-    const now = Date.now();
+    const threshold = 0; // Not used for yield - persistReels only persists
     for (const r of reels) {
-      this.sql.exec(
-        `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-        r.id,
-        r.conceptId,
-        r.type,
-        r.prompt,
-        r.options != null ? JSON.stringify(r.options) : null,
-        r.correctIndex ?? null,
-        r.explanation,
-        r.difficulty,
-        now,
-        r.intent ?? null,
-        r.skipCount ?? 0,
-        r.problemId ?? null
-      );
+      this.persistOrGetReel(r, threshold);
     }
   }
 
@@ -1027,7 +1082,11 @@ export class LearningMemoryDO extends DurableObject<Env> {
     if (url.pathname.endsWith("/stream")) {
       const cursor = url.searchParams.get("cursor") ?? undefined;
       const focusConceptId = url.searchParams.get("focus") ?? undefined;
-      const stream = this.streamReels(cursor, { focusConceptId });
+      const excludeIdsParam = url.searchParams.get("excludeIds") ?? "";
+      const excludeIds = excludeIdsParam
+        ? excludeIdsParam.split(",").filter((id) => /^[0-9a-f-]{36}$/i.test(id.trim())).slice(0, 50)
+        : [];
+      const stream = this.streamReels(cursor, { focusConceptId, excludeIds });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return new Response(toServerSentEventsStream(stream as any), {
         headers: {

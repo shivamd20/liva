@@ -36,6 +36,29 @@ export const MixpanelEvents = {
     AI_GENERATE_START: 'AI: Generate Start',
     AI_GENERATE_SUCCESS: 'AI: Generate Success',
     AI_GENERATE_ERROR: 'AI: Generate Error',
+
+    // System Shots (Reels) - Engagement
+    SYSTEM_SHOTS_VIEW_OPEN: 'System Shots: View Open',
+    SYSTEM_SHOTS_VIEW_CLOSE: 'System Shots: View Close',
+    SYSTEM_SHOTS_REEL_VIEW: 'System Shots: Reel View',
+    SYSTEM_SHOTS_REEL_TIME_SPENT: 'System Shots: Reel Time Spent',
+    SYSTEM_SHOTS_REEL_ANSWER: 'System Shots: Reel Answer',
+    SYSTEM_SHOTS_REEL_CONTINUE: 'System Shots: Reel Continue',
+    SYSTEM_SHOTS_REEL_SKIP: 'System Shots: Reel Skip',
+    SYSTEM_SHOTS_REEL_SCROLL: 'System Shots: Reel Scroll',
+    SYSTEM_SHOTS_SIDEBAR_OPEN: 'System Shots: Sidebar Open',
+    SYSTEM_SHOTS_SIDEBAR_CLOSE: 'System Shots: Sidebar Close',
+    SYSTEM_SHOTS_TOPIC_SELECT: 'System Shots: Topic Select',
+    SYSTEM_SHOTS_TOPIC_CLEAR: 'System Shots: Topic Clear',
+    SYSTEM_SHOTS_BACK: 'System Shots: Back',
+    SYSTEM_SHOTS_PROGRESS_OPEN: 'System Shots: Progress Open',
+    SYSTEM_SHOTS_PROGRESS_CLOSE: 'System Shots: Progress Close',
+    SYSTEM_SHOTS_PROGRESS_CONCEPT_EXPAND: 'System Shots: Progress Concept Expand',
+    SYSTEM_SHOTS_PROGRESS_LEVEL_BREAKDOWN_EXPAND: 'System Shots: Progress Level Breakdown Expand',
+    SYSTEM_SHOTS_FEED_LOAD_START: 'System Shots: Feed Load Start',
+    SYSTEM_SHOTS_FEED_LOAD_SUCCESS: 'System Shots: Feed Load Success',
+    SYSTEM_SHOTS_FEED_LOAD_ERROR: 'System Shots: Feed Load Error',
+    SYSTEM_SHOTS_FEED_END: 'System Shots: Feed End',
 } as const;
 
 export type MixpanelEvent = typeof MixpanelEvents[keyof typeof MixpanelEvents];
