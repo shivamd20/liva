@@ -184,7 +184,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
   // Debug log for current reels
   useEffect(() => {
     if (allReels.length > 0) {
-      console.log(`[useReelsFeed] Current Reels List (${allReels.length}):`, allReels.map(r => `${r.id} (${r.conceptId})`))
+      // console.log(`[useReelsFeed] Current Reels List (${allReels.length}):`, allReels.map(r => `${r.id} (${r.conceptId})`))
     }
   }, [allReels])
 
