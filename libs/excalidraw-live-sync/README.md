@@ -82,6 +82,44 @@ useExcalidrawLiveSync({
 })
 ```
 
+## Offline-first sync plan (proposal)
+
+The goal is to make collaboration resilient when the client goes offline, then reconnects without losing local work or duplicating elements. The proposal below is intentionally incremental so it can be implemented in stages while keeping the current online flow intact.
+
+### 1) Storage abstraction (adapter + queue)
+- Introduce a `OfflineStorageAdapter` with a default `LocalStorageAdapter` for the browser and a `MemoryStorageAdapter` fallback for non-browser environments.
+- Persist an **ordered queue of updates** per board that captures the minimal patch or full scene snapshot.
+- Store the queue under a board-scoped key (example: `liva.offline.queue.<boardId>`).
+
+### 2) Offline detection + enqueue
+- When `navigator.onLine` is false or the WebSocket is disconnected, enqueue updates rather than sending them.
+- Preserve the latest local scene snapshot even if the UI refreshes.
+- Track a `lastKnownRemoteVersion` and include it with queued updates to assist with conflict resolution.
+
+### 3) Reconnect flush (with merge safety)
+- On reconnect, flush queued updates in order.
+- Each flush step should:
+  - Fetch the latest remote board.
+  - Merge with the local snapshot via **version-based element merge** to avoid duplicates.
+  - Send the merged result as a single update (or a compact patch if available).
+- If the flush fails mid-way, preserve the remaining queue for the next reconnect.
+
+### 4) Conflict resolution guardrails
+- Use element `id` + `version` to pick the newest element per id.
+- Prefer remote deletions if the remote `version` is higher.
+- Ensure a single authoritative update is sent after merge to avoid duplicate creations.
+
+### 5) UX & telemetry
+- Add status states: `offline`, `syncing`, `synced`.
+- Surface a small banner when offline changes are pending.
+- Emit telemetry for queue size, flush durations, and merge conflicts.
+
+### 6) Extensibility
+- Allow custom adapters (IndexedDB, file system) by passing `storageAdapter`.
+- Allow custom merge strategies by passing `mergeStrategy`.
+
+This plan pairs with an `OfflineUpdateQueue` utility (see source exports) to validate the queue behavior and is ready to be wired into the hook in a follow-up iteration.
+
 ## License
 
 MIT
