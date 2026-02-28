@@ -395,22 +395,19 @@ export default {
 		if (shareMatch && request.method === "GET") {
 			const videoId = shareMatch[1];
 			try {
-				const results = await env.liva_db.prepare(
-					"SELECT id FROM user WHERE id IN (SELECT userId FROM session LIMIT 50)"
-				).all();
-				for (const row of (results.results || [])) {
-					const userId = (row as any).id;
-					const doId = env.VIDEOS_DO.idFromName(userId);
-					const stub = env.VIDEOS_DO.get(doId) as any;
-					const video = await stub.getVideo(videoId);
-					if (video) {
-						return Response.json({
-							sessionId: video.sessionId,
-							title: video.title || "Untitled Video",
-							description: video.description,
-							createdAt: new Date(video.createdAt).toISOString(),
-						});
-					}
+				await env.liva_db.exec(
+					"CREATE TABLE IF NOT EXISTS video_shares (video_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL, title TEXT, description TEXT, created_at INTEGER)"
+				);
+				const row = await env.liva_db.prepare(
+					"SELECT * FROM video_shares WHERE video_id = ?"
+				).bind(videoId).first();
+				if (row) {
+					return Response.json({
+						sessionId: (row as any).session_id,
+						title: (row as any).title || "Untitled Video",
+						description: (row as any).description,
+						createdAt: new Date((row as any).created_at || Date.now()).toISOString(),
+					});
 				}
 			} catch (e) {
 				console.error("Share lookup error:", e);

@@ -102,6 +102,16 @@ export class LearningMemoryDO extends DurableObject<Env> {
     if (!reelsInfo.some((r) => r.name === "problem_id")) {
       this.sql.exec("ALTER TABLE reels ADD COLUMN problem_id TEXT");
     }
+    // V5: Add metadata, chain_id, chain_order for new reel types
+    if (!reelsInfo.some((r) => r.name === "metadata")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN metadata TEXT");
+    }
+    if (!reelsInfo.some((r) => r.name === "chain_id")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN chain_id TEXT");
+    }
+    if (!reelsInfo.some((r) => r.name === "chain_order")) {
+      this.sql.exec("ALTER TABLE reels ADD COLUMN chain_order INTEGER");
+    }
   }
 
   /** Backfill stability scores for existing topic_state rows. */
@@ -370,8 +380,8 @@ export class LearningMemoryDO extends DurableObject<Env> {
     }
     const now = Date.now();
     this.sql.exec(
-      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
+      `INSERT INTO reels (id, concept_id, type, prompt, options, correct_index, explanation, difficulty, created_at, consumed_at, intent, skip_count, problem_id, metadata, chain_id, chain_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)`,
       r.id,
       r.conceptId,
       r.type,
@@ -383,7 +393,10 @@ export class LearningMemoryDO extends DurableObject<Env> {
       now,
       r.intent ?? null,
       r.skipCount ?? 0,
-      r.problemId ?? null
+      r.problemId ?? null,
+      r.metadata != null ? JSON.stringify(r.metadata) : null,
+      r.chainId ?? null,
+      r.chainOrder ?? null
     );
     return { reel: { ...r, createdAt: now, consumedAt: null }, shouldYield: true };
   }

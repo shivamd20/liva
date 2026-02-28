@@ -52,7 +52,7 @@ export const audioPlaybackMachine = setup({
     events: {} as PlaybackEvent,
   },
   guards: {
-    hasQueuedBuffers: ({ context }) => context.queue.length > 0,
+    hasMoreBuffers: ({ context }) => context.queue.length > 1,
     isQueueFull: ({ context }) => context.queue.length >= MAX_PLAYBACK_QUEUE,
     hasAudioContext: ({ context }) => context.audioContext !== null,
   },
@@ -213,7 +213,7 @@ export const audioPlaybackMachine = setup({
           on: {
             AUDIO_ENDED: [
               {
-                guard: "hasQueuedBuffers",
+                guard: "hasMoreBuffers",
                 target: "draining",
                 reenter: true,
                 actions: assign({

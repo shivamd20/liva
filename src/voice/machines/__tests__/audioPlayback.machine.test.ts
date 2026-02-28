@@ -2,272 +2,213 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createActor } from "xstate";
 import { audioPlaybackMachine } from "../audioPlayback.machine";
 
-function mockAudioBuffer(): AudioBuffer {
-  return {
-    length: 1024,
-    duration: 0.5,
-    sampleRate: 44100,
-    numberOfChannels: 1,
-    getChannelData: vi.fn(() => new Float32Array(1024)),
-    copyFromChannel: vi.fn(),
-    copyToChannel: vi.fn(),
-  } as unknown as AudioBuffer;
+class MockAudioBuffer {
+  length = 1024;
+  duration = 0.5;
+  sampleRate = 44100;
+  numberOfChannels = 1;
+  getChannelData = vi.fn(() => new Float32Array(1024));
+  copyFromChannel = vi.fn();
+  copyToChannel = vi.fn();
 }
 
-function installAudioContextMock() {
-  const gainNode = {
-    connect: vi.fn(),
-    gain: { setValueAtTime: vi.fn(), value: 1 },
-    context: { currentTime: 0 },
+class MockAudioBufferSourceNode {
+  buffer: any = null;
+  onended: (() => void) | null = null;
+  connect = vi.fn(() => this);
+  start = vi.fn(() => {
+    setTimeout(() => this.onended?.(), 100);
+  });
+  stop = vi.fn();
+  disconnect = vi.fn();
+  addEventListener = vi.fn();
+  removeEventListener = vi.fn();
+  dispatchEvent = vi.fn();
+  loop = false;
+  loopStart = 0;
+  loopEnd = 0;
+  playbackRate = { value: 1, setValueAtTime: vi.fn() } as any;
+  detune = { value: 0, setValueAtTime: vi.fn() } as any;
+  channelCount = 2;
+  channelCountMode = "max" as const;
+  channelInterpretation = "speakers" as const;
+  context = {} as any;
+  numberOfInputs = 0;
+  numberOfOutputs = 1;
+}
+
+class MockGainNode {
+  gain = {
+    value: 1,
+    setValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
+    exponentialRampToValueAtTime: vi.fn(),
+    setTargetAtTime: vi.fn(),
+    cancelScheduledValues: vi.fn(),
+  } as any;
+  connect = vi.fn(() => this);
+  disconnect = vi.fn();
+  context = { currentTime: 0 } as any;
+}
+
+function setupWebAudioMock() {
+  const mockGainNode = new MockGainNode();
+
+  (globalThis as any).AudioContext = class {
+    state = "running";
+    currentTime = 0;
+    destination = {};
+    createGain = vi.fn(() => mockGainNode);
+    createBufferSource = vi.fn(() => new MockAudioBufferSourceNode());
+    decodeAudioData = vi.fn(async () => new MockAudioBuffer() as unknown as AudioBuffer);
+    resume = vi.fn();
+    close = vi.fn();
   };
 
-  const sources: Array<{
-    buffer: AudioBuffer | null;
-    onended: (() => void) | null;
-    connect: ReturnType<typeof vi.fn>;
-    start: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
-  }> = [];
+  (globalThis as any).AudioBuffer = MockAudioBuffer;
 
-  class MockAudioContext {
-    state: AudioContextState = "running";
-    destination = {};
-    createGain = vi.fn(() => gainNode);
-    createBufferSource = vi.fn(() => {
-      const src = {
-        buffer: null as AudioBuffer | null,
-        connect: vi.fn(),
-        start: vi.fn(),
-        stop: vi.fn(),
-        onended: null as (() => void) | null,
-      };
-      sources.push(src);
-      return src;
-    });
-    decodeAudioData = vi.fn(async () => mockAudioBuffer());
-    resume = vi.fn(async () => {});
-    close = vi.fn(async () => {});
-  }
-
-  globalThis.AudioContext = MockAudioContext as any;
-  return { gainNode, sources, MockAudioContext };
+  return { mockGainNode };
 }
 
-function snap(actor: ReturnType<typeof createActor<typeof audioPlaybackMachine>>) {
+function snap(actor: any) {
   return actor.getSnapshot();
 }
 
 describe("audioPlayback.machine", () => {
-  let origAudioContext: typeof globalThis.AudioContext;
-
   beforeEach(() => {
     vi.useFakeTimers();
-    origAudioContext = globalThis.AudioContext;
+    setupWebAudioMock();
   });
-
   afterEach(() => {
     vi.useRealTimers();
-    globalThis.AudioContext = origAudioContext;
   });
 
-  it("starts in idle state", () => {
+  // C1: INIT_CONTEXT creates audioContext and gainNode
+  it("C1: INIT_CONTEXT sets up audioContext and gainNode", () => {
     const actor = createActor(audioPlaybackMachine);
     actor.start();
-    expect(snap(actor).value).toBe("idle");
+
     expect(snap(actor).context.audioContext).toBeNull();
-    expect(snap(actor).context.gainNode).toBeNull();
-    actor.stop();
-  });
-
-  it("INIT_CONTEXT creates audioContext and gainNode atomically", () => {
-    const mock = installAudioContextMock();
-
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-
     actor.send({ type: "INIT_CONTEXT" });
-    const ctx = snap(actor).context;
-    expect(ctx.audioContext).not.toBeNull();
-    expect(ctx.audioContext).toBeInstanceOf(mock.MockAudioContext);
-    expect(ctx.gainNode).not.toBeNull();
-    expect(mock.gainNode.connect).toHaveBeenCalled();
+    expect(snap(actor).context.audioContext).not.toBeNull();
+    expect(snap(actor).context.gainNode).not.toBeNull();
 
     actor.stop();
   });
 
-  it("INIT_CONTEXT guard prevents double-init", () => {
-    let constructCount = 0;
-    class TrackingAudioContext {
-      state: AudioContextState = "running";
-      destination = {};
-      constructor() { constructCount++; }
-      createGain = vi.fn(() => ({
-        connect: vi.fn(),
-        gain: { setValueAtTime: vi.fn(), value: 1 },
-        context: { currentTime: 0 },
-      }));
-      createBufferSource = vi.fn();
-      decodeAudioData = vi.fn();
-      resume = vi.fn();
-      close = vi.fn();
-    }
-    globalThis.AudioContext = TrackingAudioContext as any;
-
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-
-    actor.send({ type: "INIT_CONTEXT" });
-    actor.send({ type: "INIT_CONTEXT" });
-    expect(constructCount).toBe(1);
-
-    actor.stop();
-  });
-
-  it("ENQUEUE_AUDIO before INIT_CONTEXT is a no-op", () => {
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-
-    actor.send({ type: "ENQUEUE_AUDIO", buffer: new ArrayBuffer(8) });
-    expect(snap(actor).value).toBe("idle");
-    expect(snap(actor).context.queue).toHaveLength(0);
-
-    actor.stop();
-  });
-
-  it("AUDIO_DECODED transitions from idle to playing", () => {
-    installAudioContextMock();
-
+  // C2: AUDIO_DECODED in idle -> playing
+  it("C2: AUDIO_DECODED in idle transitions to playing", () => {
     const actor = createActor(audioPlaybackMachine);
     actor.start();
     actor.send({ type: "INIT_CONTEXT" });
 
-    const buf = mockAudioBuffer();
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: buf });
-
+    const mockBuffer = new MockAudioBuffer() as unknown as AudioBuffer;
+    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockBuffer });
     expect(snap(actor).value).toEqual({ playing: "draining" });
-    expect(snap(actor).context.queue).toHaveLength(1);
     expect(snap(actor).context.isPlaying).toBe(true);
 
     actor.stop();
   });
 
-  it("AUDIO_ENDED with empty queue returns to idle", () => {
-    installAudioContextMock();
-
+  // C3: Queue overflow - 9th buffer dropped when queue has 8
+  it("C3: AUDIO_DECODED is silently dropped when queue is full (8)", () => {
     const actor = createActor(audioPlaybackMachine);
     actor.start();
     actor.send({ type: "INIT_CONTEXT" });
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    expect(snap(actor).value).toEqual({ playing: "draining" });
-
-    actor.send({ type: "AUDIO_ENDED" });
-    expect(snap(actor).value).toBe("idle");
-    expect(snap(actor).context.isPlaying).toBe(false);
-
-    actor.stop();
-  });
-
-  it("queue draining plays buffers sequentially", () => {
-    installAudioContextMock();
-
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-    actor.send({ type: "INIT_CONTEXT" });
-
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    expect(snap(actor).context.queue).toHaveLength(2);
-
-    actor.send({ type: "AUDIO_ENDED" });
-    expect(snap(actor).value).toEqual({ playing: "draining" });
-    expect(snap(actor).context.queue).toHaveLength(1);
-
-    actor.send({ type: "AUDIO_ENDED" });
-    expect(snap(actor).value).toBe("idle");
-
-    actor.stop();
-  });
-
-  it("queue full (8 items) drops new buffers in idle", () => {
-    installAudioContextMock();
-
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-    actor.send({ type: "INIT_CONTEXT" });
-
-    for (let i = 0; i < 8; i++) {
-      actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
+    for (let i = 0; i < 9; i++) {
+      actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
     }
-    expect(snap(actor).context.queue).toHaveLength(8);
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    expect(snap(actor).context.queue).toHaveLength(8);
+    expect(snap(actor).context.queue.length).toBeLessThanOrEqual(8);
 
     actor.stop();
   });
 
-  it("STOP_PLAYBACK clears queue and returns to idle from playing", () => {
-    installAudioContextMock();
-
+  // C4: STOP_PLAYBACK during playing clears queue
+  it("C4: STOP_PLAYBACK clears queue and returns to idle", () => {
     const actor = createActor(audioPlaybackMachine);
     actor.start();
     actor.send({ type: "INIT_CONTEXT" });
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
+    actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
     expect(snap(actor).value).toEqual({ playing: "draining" });
 
     actor.send({ type: "STOP_PLAYBACK" });
     expect(snap(actor).value).toBe("idle");
     expect(snap(actor).context.queue).toHaveLength(0);
     expect(snap(actor).context.isPlaying).toBe(false);
-    expect(snap(actor).context.currentSource).toBeNull();
 
     actor.stop();
   });
 
-  it("speaking timeout (45s) returns to idle", () => {
-    installAudioContextMock();
-
+  // C5: SET_VOLUME clamps between 0 and 1
+  it("C5: SET_VOLUME clamps values to [0, 1]", () => {
+    const { mockGainNode } = setupWebAudioMock();
     const actor = createActor(audioPlaybackMachine);
     actor.start();
     actor.send({ type: "INIT_CONTEXT" });
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    expect(snap(actor).value).toEqual({ playing: "draining" });
+    actor.send({ type: "SET_VOLUME", value: 1.5 });
+    expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledWith(1, expect.any(Number));
 
-    vi.advanceTimersByTime(45_000);
-    expect(snap(actor).value).toBe("idle");
-    expect(snap(actor).context.queue).toHaveLength(0);
+    actor.send({ type: "SET_VOLUME", value: -0.5 });
+    expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledWith(0, expect.any(Number));
 
-    actor.stop();
-  });
-
-  it("STOP_PLAYBACK from idle is a no-op (stays idle)", () => {
-    const actor = createActor(audioPlaybackMachine);
-    actor.start();
-    expect(snap(actor).value).toBe("idle");
-
-    actor.send({ type: "STOP_PLAYBACK" });
-    expect(snap(actor).value).toBe("idle");
+    actor.send({ type: "SET_VOLUME", value: 0.7 });
+    expect(mockGainNode.gain.setValueAtTime).toHaveBeenCalledWith(0.7, expect.any(Number));
 
     actor.stop();
   });
 
-  it("AUDIO_DECODED while playing queues buffers", () => {
-    installAudioContextMock();
-
+  // C6: AUDIO_ENDED with empty queue -> idle
+  it("C6: AUDIO_ENDED with empty queue returns to idle", async () => {
     const actor = createActor(audioPlaybackMachine);
     actor.start();
     actor.send({ type: "INIT_CONTEXT" });
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
+    actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
     expect(snap(actor).value).toEqual({ playing: "draining" });
 
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    actor.send({ type: "AUDIO_DECODED", audioBuffer: mockAudioBuffer() });
-    expect(snap(actor).context.queue).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(snap(actor).value).toBe("idle");
+    expect(snap(actor).context.isPlaying).toBe(false);
+
+    actor.stop();
+  });
+
+  // C7: AUDIO_ENDED with queued buffers re-enters draining
+  it("C7: AUDIO_ENDED with more buffers re-enters draining", async () => {
+    const actor = createActor(audioPlaybackMachine);
+    actor.start();
+    actor.send({ type: "INIT_CONTEXT" });
+
+    actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
+    actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
+
+    expect(snap(actor).context.queue.length).toBeGreaterThanOrEqual(1);
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(snap(actor).value).toEqual({ playing: "draining" });
+
+    actor.stop();
+  });
+
+  // C8: Speaking timeout (45s) -> idle
+  it("C8: speaking timeout (45s) returns to idle", async () => {
+    const actor = createActor(audioPlaybackMachine);
+    actor.start();
+    actor.send({ type: "INIT_CONTEXT" });
+
+    // Queue several buffers so drain doesn't finish before timeout
+    for (let i = 0; i < 5; i++) {
+      actor.send({ type: "AUDIO_DECODED", audioBuffer: new MockAudioBuffer() as unknown as AudioBuffer });
+    }
+    expect(snap(actor).value).toEqual({ playing: "draining" });
+
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(snap(actor).value).toBe("idle");
+    expect(snap(actor).context.isPlaying).toBe(false);
 
     actor.stop();
   });

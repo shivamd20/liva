@@ -110,6 +110,12 @@
 				"ProblemRegistryDO"
 			],
 			"tag": "v16"
+		},
+		{
+			"new_sqlite_classes": [
+				"MediaProcessorContainer"
+			],
+			"tag": "v17"
 		}
 	],
 	"assets": {

@@ -145,15 +145,25 @@ export function VideoDetailPage() {
 
     const handleCopyShareLink = async () => {
         if (!video) return;
-        const shareUrl = `${window.location.origin}/share/${video.id}`;
-        await navigator.clipboard.writeText(shareUrl);
-        toast.success("Share link copied to clipboard!");
+        try {
+            await trpcClient.processing.createShare.mutate({ videoId: video.id });
+            const shareUrl = `${window.location.origin}/share/${video.id}`;
+            await navigator.clipboard.writeText(shareUrl);
+            toast.success("Share link copied to clipboard!");
+        } catch (error: any) {
+            console.error('[Share] Failed:', error);
+            toast.error("Failed to create share link");
+        }
     };
 
     const handleProcessingComplete = () => {
         setIsProcessing(false);
         refetch();
         queryClient.invalidateQueries({ queryKey: ['video', videoId] });
+    };
+
+    const handleProcessingFailed = () => {
+        setIsProcessing(false);
     };
 
     if (isLoading) {
@@ -227,6 +237,8 @@ export function VideoDetailPage() {
                             <ProcessingProgress
                                 videoId={video.id}
                                 onComplete={handleProcessingComplete}
+                                onFailed={handleProcessingFailed}
+                                onRetry={handleStartProcessing}
                             />
                         )}
 

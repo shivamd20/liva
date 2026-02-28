@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { trpcClient } from '@/trpcClient';
-import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -25,32 +25,53 @@ const STEPS: { key: ProcessingStatus; label: string }[] = [
   { key: 'complete', label: 'Processing complete!' },
 ];
 
+const CLIENT_STALE_TIMEOUT_MS = 3 * 60 * 1000;
+
 export interface ProcessingProgressProps {
   videoId: string;
   onComplete?: () => void;
+  onFailed?: () => void;
+  onRetry?: () => void;
 }
 
-export function ProcessingProgress({ videoId, onComplete }: ProcessingProgressProps) {
-  const { data, isError, error } = useQuery({
+export function ProcessingProgress({ videoId, onComplete, onFailed, onRetry }: ProcessingProgressProps) {
+  const lastChangeRef = useRef(Date.now());
+  const lastStatusRef = useRef<string | null>(null);
+
+  const { data, error } = useQuery({
     queryKey: ['processing-status', videoId],
     queryFn: () => trpcClient.processing.getStatusByVideoId.query({ videoId }),
     refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === 'complete' || status === 'failed' ? false : 2000;
+      const st = query.state.data?.status;
+      if (st === 'complete' || st === 'failed') return false;
+      if (!query.state.data) return 3000;
+      return 3000;
     },
-    refetchIntervalInBackground: true,
+    refetchIntervalInBackground: false,
   });
 
-  const status = (data?.status ?? 'queued') as ProcessingStatus;
+  const rawStatus = data?.status as ProcessingStatus | undefined;
   const progress = data?.progress ?? 0;
   const errorMessage = data?.error ?? (error as Error)?.message;
 
-  // Stop polling and call onComplete when complete
   useEffect(() => {
-    if (status === 'complete' && onComplete) {
-      onComplete();
+    if (rawStatus && rawStatus !== lastStatusRef.current) {
+      lastStatusRef.current = rawStatus;
+      lastChangeRef.current = Date.now();
     }
+  }, [rawStatus]);
+
+  const isClientStale = rawStatus && rawStatus !== 'complete' && rawStatus !== 'failed' && (Date.now() - lastChangeRef.current > CLIENT_STALE_TIMEOUT_MS);
+  const status: ProcessingStatus = isClientStale ? 'failed' : (rawStatus ?? 'queued');
+  const staleError = isClientStale ? 'Processing appears stuck. You can retry.' : null;
+
+  useEffect(() => {
+    if (status === 'complete') onComplete?.();
   }, [status, onComplete]);
+
+  useEffect(() => {
+    if (status === 'failed') onFailed?.();
+  }, [status, onFailed]);
 
   const currentStepIndex = STEPS.findIndex((s) => s.key === status);
   const isComplete = status === 'complete';
@@ -63,7 +84,6 @@ export function ProcessingProgress({ videoId, onComplete }: ProcessingProgressPr
         'dark:border-zinc-800 dark:bg-zinc-900/50'
       )}
     >
-      {/* Step indicator */}
       <div className="mb-6 flex items-center justify-between gap-2">
         {STEPS.slice(0, -1).map((step, i) => {
           const isActive = i === currentStepIndex && !isComplete && !isFailed;
@@ -104,7 +124,6 @@ export function ProcessingProgress({ videoId, onComplete }: ProcessingProgressPr
         })}
       </div>
 
-      {/* Status message and progress */}
       {isFailed ? (
         <div className="space-y-4">
           <div className="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/30">
@@ -112,13 +131,16 @@ export function ProcessingProgress({ videoId, onComplete }: ProcessingProgressPr
             <div>
               <p className="font-medium text-red-800 dark:text-red-200">Processing failed</p>
               <p className="mt-1 text-sm text-red-700 dark:text-red-300">
-                {errorMessage || 'An unexpected error occurred.'}
+                {staleError || errorMessage || 'An unexpected error occurred.'}
               </p>
             </div>
           </div>
-          <Button variant="outline" size="sm" disabled className="gap-2">
-            Retry
-          </Button>
+          {onRetry && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={onRetry}>
+              <RotateCcw className="h-4 w-4" />
+              Retry Processing
+            </Button>
+          )}
         </div>
       ) : isComplete ? (
         <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/30">

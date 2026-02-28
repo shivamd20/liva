@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Loader2, RefreshCcw } from "lucide-react"
 import { ModeToggle } from "@/components/ui/mode-toggle"
 import { toast } from "sonner"
-import { REEL_THEMES, type ReelTheme, type ApiReel, type ConceptInfo } from "./types"
+import { REEL_THEMES, type ReelTheme, type ApiReel, type ConceptInfo, type DisplayReel } from "./types"
 import { ProgressView } from "./ProgressView"
 import { ReelSkeleton } from "./ReelSkeleton"
 import { useReelsFeed } from "./useReelsFeed"
@@ -18,6 +18,82 @@ import { addDone, getDoneSet, addAnswered, removeAnswered, removeDone, getAnswer
 import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 
 export type { ReelTheme } from "./types"
+
+/** Convert ApiReel → DisplayReel based on type. */
+function buildDisplayReel(reel: ApiReel): DisplayReel {
+  const base = {
+    id: reel.id,
+    conceptId: reel.conceptId,
+    prompt: reel.prompt,
+    explanation: reel.explanation,
+    difficulty: reel.difficulty,
+    intent: reel.intent,
+    microSignal: reel.microSignal,
+    metadata: reel.metadata,
+    chainId: reel.chainId,
+    chainOrder: reel.chainOrder,
+  }
+
+  switch (reel.type) {
+    case "flash":
+      return { ...base, type: "flash" as const, options: null, correctIndex: null }
+
+    case "binary":
+    case "this_or_that":
+      return {
+        ...base,
+        type: reel.type,
+        options: (reel.options ?? ["True", "False"]) as [string, string],
+        correctIndex: reel.correctIndex ?? (reel.type === "this_or_that" ? null : 0),
+      } as DisplayReel
+
+    case "hot_take":
+      return {
+        ...base,
+        type: "hot_take" as const,
+        options: (reel.options ?? ["Agree", "Disagree", "It depends"]) as [string, string, string],
+        correctIndex: reel.correctIndex ?? 2,
+      }
+
+    case "ordering":
+      return {
+        ...base,
+        type: "ordering" as const,
+        options: reel.options,
+        correctIndex: reel.correctIndex,
+        metadata: reel.metadata?.kind === "ordering"
+          ? reel.metadata
+          : { kind: "ordering" as const, items: reel.options ?? [] },
+      } as DisplayReel
+
+    case "free_text":
+    case "voice":
+      return { ...base, type: reel.type, options: null, correctIndex: null } as DisplayReel
+
+    case "fill_blank":
+    case "spot_error":
+    case "component_picker":
+    case "estimation":
+    case "interview_moment":
+    case "what_breaks":
+    case "incident":
+      return {
+        ...base,
+        type: reel.type,
+        options: reel.options ?? [],
+        correctIndex: reel.correctIndex ?? 0,
+      } as DisplayReel
+
+    case "mcq":
+    default:
+      return {
+        ...base,
+        type: "mcq" as const,
+        options: reel.options ?? [],
+        correctIndex: reel.correctIndex ?? 0,
+      }
+  }
+}
 
 export interface SystemShotsPageProps {
   onBack: () => void
@@ -114,13 +190,16 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const handleSelectOption = useCallback(
     (reel: ApiReel, index: number) => {
       if (answeredByReelId[reel.id] !== undefined) return
-      const correct = reel.correctIndex !== null && index === reel.correctIndex
+      const isThisOrThat = reel.type === "this_or_that"
+      const correct = isThisOrThat
+        ? true
+        : reel.correctIndex !== null && reel.correctIndex >= 0 && index === reel.correctIndex
       mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_ANSWER, {
         reelId: reel.id,
         conceptId: reel.conceptId,
         selectedIndex: index,
         correct,
-        reelType: "mcq",
+        reelType: reel.type,
       })
       addAnswered(reel.id, index)
       setAnsweredByReelId((prev) => ({ ...prev, [reel.id]: index }))
@@ -147,7 +226,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         correct: reel.type === "mcq" && reel.correctIndex !== null && selectedIndex === reel.correctIndex,
       })
       markReelDone(reel.id)
-      if (reel.type === "flash" && !doneReelIds.has(reel.id)) {
+      const noOptionTypes = ["flash", "free_text", "voice"]
+      if (noOptionTypes.includes(reel.type) && !doneReelIds.has(reel.id) && answeredByReelId[reel.id] === undefined) {
         submitAnswerMutation.mutate({ reelId: reel.id, selectedIndex: null, correct: false, skipped: true })
       }
       const nextIndex = index + 1
@@ -418,22 +498,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                   `,
                     backgroundSize: "200% 200%, 200% 200%, 100% 100%",
                   }
-                  const displayReel =
-                    reel.type === "mcq"
-                      ? {
-                        id: reel.id,
-                        type: "mcq" as const,
-                        prompt: reel.prompt,
-                        explanation: reel.explanation,
-                        options: reel.options ?? [],
-                        correctIndex: reel.correctIndex ?? 0,
-                      }
-                      : {
-                        id: reel.id,
-                        type: "flash" as const,
-                        prompt: reel.prompt,
-                        explanation: reel.explanation,
-                      }
+                  const displayReel = buildDisplayReel(reel)
                   return (
                     <div
                       key={reel.id}
@@ -445,8 +510,8 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                         reel={displayReel}
                         theme={theme}
                         reelIndex={i}
-                        selectedIndex={reel.type === "mcq" ? answeredByReelId[reel.id] : undefined}
-                        onSelectOption={reel.type === "mcq" ? (index) => handleSelectOption(reel, index) : undefined}
+                        selectedIndex={answeredByReelId[reel.id]}
+                        onSelectOption={(index) => handleSelectOption(reel, index)}
                         onContinue={() => handleContinue(reel, answeredByReelId[reel.id], i, totalRenderedReels)}
                         microSignal={reel.microSignal}
                       />

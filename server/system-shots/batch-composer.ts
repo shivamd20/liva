@@ -13,6 +13,7 @@ import type { FeedIntent, TopicStateRow, ConceptV2, PracticeProblem } from "./ty
 import {
   buildConceptIntentInput,
   assignIntentAndScore,
+  pickReelType,
   type ConceptWithIntent,
 } from "./intent-engine";
 import { PRACTICE_PROBLEMS_V1 } from "./concepts";
@@ -226,6 +227,7 @@ export function composeBatch(
       if (filled >= target) break;
       if (usedConceptIds.has(item.conceptId)) continue;
 
+      item.reelType = pickReelType(item.intent);
       result.push(item);
       usedConceptIds.add(item.conceptId);
       filled++;
@@ -380,6 +382,7 @@ function composePracticeItems(
       intent: "practice",
       score,
       reason: `practice problem: ${problem.name}`,
+      reelType: pickReelType("practice"),
       problemId: problem.id,
       problemName: problem.name,
     };

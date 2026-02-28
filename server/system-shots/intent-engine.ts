@@ -145,6 +145,8 @@ export interface ConceptWithIntent {
   score: number;
   /** Why this intent was assigned (for debugging). */
   reason: string;
+  /** Reel type to generate for this slot. */
+  reelType?: import("./types").ReelType;
 }
 
 /**
@@ -298,6 +300,25 @@ export function getMicroSignal(
   if (intent === "recall") return "Quick check.";
   if (intent === "practice") return problemName ? `Interview: ${problemName}` : "Real interview problem.";
   return null;
+}
+
+/** Reel type pools by intent – each slot randomly picks from the pool. */
+const REEL_TYPE_POOLS: Record<FeedIntent, import("./types").ReelType[]> = {
+  reinforce: ["binary", "fill_blank", "mcq"],
+  recall: ["mcq", "estimation", "fill_blank", "spot_error", "ordering"],
+  build: ["this_or_that", "what_breaks", "hot_take", "component_picker", "mcq", "ordering", "free_text"],
+  mix: ["mcq", "hot_take", "this_or_that"],
+  practice: ["interview_moment", "mcq", "what_breaks", "incident", "component_picker"],
+};
+
+/**
+ * Pick a reel type for a given intent, using weighted randomness.
+ * First item in pool is most common; last is least common.
+ */
+export function pickReelType(intent: FeedIntent): import("./types").ReelType {
+  const pool = REEL_TYPE_POOLS[intent];
+  if (!pool || pool.length === 0) return "mcq";
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 /**

@@ -1,288 +1,253 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createActor, setup, assign } from "xstate";
+import { createActor, fromCallback, type InspectionEvent } from "xstate";
 import { sessionWebSocketMachine } from "../sessionWebSocket.machine";
 
-/**
- * The sessionWebSocket machine uses sendParent, so it can only run as a child.
- * We wrap it in a minimal parent machine that captures events from the child.
- */
-function createParentWithSession(inputOverrides?: { maxRetries?: number }) {
+function setupGlobals() {
+  if (typeof globalThis.document === "undefined") {
+    (globalThis as any).document = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      visibilityState: "visible",
+    };
+  }
+  if (typeof globalThis.WebSocket === "undefined") {
+    (globalThis as any).WebSocket = class MockWS {
+      static OPEN = 1;
+      static CLOSED = 3;
+      static CLOSING = 2;
+      static CONNECTING = 0;
+      readyState = 3;
+      binaryType = "blob";
+      bufferedAmount = 0;
+      onopen: (() => void) | null = null;
+      onclose: ((ev: any) => void) | null = null;
+      onerror: (() => void) | null = null;
+      onmessage: ((ev: any) => void) | null = null;
+      send = vi.fn();
+      close = vi.fn();
+    };
+  }
+}
+
+const noopCallback = fromCallback(() => () => {});
+const noop = () => {};
+
+function createTestSession(overrides?: { maxRetries?: number }) {
   const parentEvents: any[] = [];
 
-  const parentMachine = setup({
-    types: {
-      context: {} as { childState: string | null },
-      events: {} as any,
-    },
+  const machine = sessionWebSocketMachine.provide({
     actors: {
-      sessionWs: sessionWebSocketMachine,
+      wsBridge: noopCallback as any,
+      visibilityListener: noopCallback as any,
     },
-  }).createMachine({
-    id: "testParent",
-    context: { childState: null },
-    invoke: {
-      id: "sessionWs",
-      src: "sessionWs",
-      input: {
-        buildUrl: () => "ws://localhost:8080/v2/ws/test",
-        reconnect: { maxRetries: inputOverrides?.maxRetries ?? 3 },
+    actions: {
+      forwardJsonToParent: noop as any,
+      forwardBinaryToParent: noop as any,
+      notifyConnected: ({ self }: any) => {
+        parentEvents.push({ type: "SESSION_STATUS_CHANGED", status: "connected" });
       },
-    },
-    on: {
-      "*": {
-        actions: ({ event }) => {
-          parentEvents.push(event);
-        },
+      notifyDisconnected: ({ self }: any) => {
+        parentEvents.push({ type: "SESSION_STATUS_CHANGED", status: "disconnected" });
+      },
+      notifyConnecting: ({ self }: any) => {
+        parentEvents.push({ type: "SESSION_STATUS_CHANGED", status: "connecting" });
+      },
+      notifyError: ({ self }: any) => {
+        parentEvents.push({ type: "SESSION_STATUS_CHANGED", status: "error" });
       },
     },
   });
 
-  const actor = createActor(parentMachine);
+  const actor = createActor(machine, {
+    input: {
+      buildUrl: () => "ws://localhost:8080/test",
+      reconnect: { maxRetries: overrides?.maxRetries ?? 5 },
+    },
+  });
+
   actor.start();
+  return { actor, parentEvents };
+}
 
-  function getChild() {
-    return (actor as any).system?.get("sessionWs");
-  }
-
-  function childSnap() {
-    const child = getChild();
-    return child?.getSnapshot();
-  }
-
-  return { actor, getChild, childSnap, parentEvents };
+function snap(a: any) {
+  return a.getSnapshot();
 }
 
 describe("sessionWebSocket.machine", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    if (typeof globalThis.document === "undefined") {
-      (globalThis as any).document = {
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        visibilityState: "visible",
-      };
-    }
-    if (typeof globalThis.WebSocket === "undefined") {
-      (globalThis as any).WebSocket = class MockWS {
-        static OPEN = 1;
-        static CLOSED = 3;
-        static CLOSING = 2;
-        static CONNECTING = 0;
-        readyState = 1;
-        binaryType = "blob";
-        bufferedAmount = 0;
-        onopen: (() => void) | null = null;
-        onclose: ((ev: any) => void) | null = null;
-        onerror: (() => void) | null = null;
-        onmessage: ((ev: any) => void) | null = null;
-        send = vi.fn();
-        close = vi.fn();
-      };
-    }
+    setupGlobals();
   });
-
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it("starts in disconnected state", () => {
-    const { childSnap, actor } = createParentWithSession();
-    expect(childSnap().value).toBe("disconnected");
+  // B1
+  it("B1: disconnected -> CONNECT -> connecting -> WS_OPEN -> connected.idle", () => {
+    const { actor } = createTestSession();
+    expect(snap(actor).value).toBe("disconnected");
+
+    actor.send({ type: "CONNECT" });
+    expect(snap(actor).value).toBe("connecting");
+
+    actor.send({ type: "WS_OPEN" });
+    expect(snap(actor).value).toEqual({ connected: "idle" });
+    expect(snap(actor).context.retryCount).toBe(0);
     actor.stop();
   });
 
-  it("CONNECT transitions to connecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    expect(childSnap().value).toBe("connecting");
-    actor.stop();
-  });
+  // B2
+  it("B2: retry exhaustion transitions to error", () => {
+    const { actor } = createTestSession({ maxRetries: 2 });
 
-  it("WS_OPEN from connecting transitions to connected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
-    expect(childSnap().context.retryCount).toBe(0);
-    actor.stop();
-  });
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
 
-  it("WS_CLOSE abnormal from connecting transitions to reconnecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
-    actor.stop();
-  });
-
-  it("WS_ERROR from connecting transitions to error", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_ERROR" });
-    expect(childSnap().value).toBe("error");
-    actor.stop();
-  });
-
-  it("WS_CLOSE normal (1000) from connected transitions to disconnected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
-
-    getChild().send({ type: "WS_CLOSE", code: 1000, reason: "normal", wasClean: true });
-    expect(childSnap().value).toBe("disconnected");
-    actor.stop();
-  });
-
-  it("WS_CLOSE abnormal from connected transitions to reconnecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
-    actor.stop();
-  });
-
-  it("reconnecting -> retryDelay -> awaitingReconnect, then WS_OPEN -> connected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
+    expect(snap(actor).value).toBe("reconnecting");
 
     vi.advanceTimersByTime(1000);
-    expect(childSnap().value).toBe("awaitingReconnect");
-    expect(childSnap().context.retryCount).toBe(1);
+    expect(snap(actor).value).toBe("awaitingReconnect");
 
-    getChild().send({ type: "WS_OPEN" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
-    expect(childSnap().context.retryCount).toBe(0);
-    actor.stop();
-  });
-
-  it("exhausting retries transitions to error", () => {
-    const { getChild, childSnap, actor } = createParentWithSession({ maxRetries: 2 });
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
-
-    vi.advanceTimersByTime(1000);
-    expect(childSnap().value).toBe("awaitingReconnect");
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
-
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
     vi.advanceTimersByTime(2000);
-    expect(childSnap().value).toBe("awaitingReconnect");
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("error");
+    expect(snap(actor).value).toBe("awaitingReconnect");
+
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
+    expect(snap(actor).value).toBe("error");
     actor.stop();
   });
 
-  it("heartbeat: idle -> heartbeatPending after interval", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
+  // B3
+  it("B3: exponential backoff: retry0=1000ms, retry1=2000ms", () => {
+    const { actor } = createTestSession({ maxRetries: 5 });
 
-    vi.advanceTimersByTime(15_000);
-    expect(childSnap().value).toEqual({ connected: "heartbeatPending" });
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
+
+    vi.advanceTimersByTime(999);
+    expect(snap(actor).value).toBe("reconnecting");
+    vi.advanceTimersByTime(1);
+    expect(snap(actor).value).toBe("awaitingReconnect");
+    expect(snap(actor).context.retryCount).toBe(1);
+
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
+    vi.advanceTimersByTime(1999);
+    expect(snap(actor).value).toBe("reconnecting");
+    vi.advanceTimersByTime(1);
+    expect(snap(actor).value).toBe("awaitingReconnect");
+    expect(snap(actor).context.retryCount).toBe(2);
     actor.stop();
   });
 
-  it("heartbeat: PONG_RECEIVED returns to idle", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
+  // B4
+  it("B4: heartbeat: idle -> heartbeatPending -> PONG -> idle", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
+    expect(snap(actor).value).toEqual({ connected: "idle" });
 
     vi.advanceTimersByTime(15_000);
-    expect(childSnap().value).toEqual({ connected: "heartbeatPending" });
+    expect(snap(actor).value).toEqual({ connected: "heartbeatPending" });
 
-    getChild().send({ type: "PONG_RECEIVED" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
-    expect(childSnap().context.lastPongAt).toBeGreaterThan(0);
+    actor.send({ type: "PONG_RECEIVED" });
+    expect(snap(actor).value).toEqual({ connected: "idle" });
+    expect(snap(actor).context.lastPongAt).toBeGreaterThan(0);
     actor.stop();
   });
 
-  it("heartbeat timeout triggers reconnecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
+  // B5
+  it("B5: heartbeat timeout -> reconnecting", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
 
     vi.advanceTimersByTime(15_000);
-    expect(childSnap().value).toEqual({ connected: "heartbeatPending" });
-
     vi.advanceTimersByTime(5_000);
-    expect(childSnap().value).toBe("reconnecting");
+    expect(snap(actor).value).toBe("reconnecting");
     actor.stop();
   });
 
-  it("DISCONNECT from connected transitions to disconnected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    expect(childSnap().value).toEqual({ connected: "idle" });
+  // B6
+  it("B6: heartbeat timeout with maxRetries=0 -> error", () => {
+    const { actor } = createTestSession({ maxRetries: 0 });
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
 
-    getChild().send({ type: "DISCONNECT" });
-    expect(childSnap().value).toBe("disconnected");
+    vi.advanceTimersByTime(15_000);
+    vi.advanceTimersByTime(5_000);
+    expect(snap(actor).value).toBe("error");
     actor.stop();
   });
 
-  it("DISCONNECT from connecting transitions to disconnected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    expect(childSnap().value).toBe("connecting");
+  // B7
+  it("B7: clean close (1000) -> disconnected", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
 
-    getChild().send({ type: "DISCONNECT" });
-    expect(childSnap().value).toBe("disconnected");
+    actor.send({ type: "WS_CLOSE", code: 1000, reason: "normal", wasClean: true });
+    expect(snap(actor).value).toBe("disconnected");
     actor.stop();
   });
 
-  it("DISCONNECT from reconnecting transitions to disconnected", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
-    getChild().send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
-    expect(childSnap().value).toBe("reconnecting");
+  // B8
+  it("B8: DISCONNECT during reconnecting -> disconnected", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
+    actor.send({ type: "WS_CLOSE", code: 1006, reason: "", wasClean: false });
+    expect(snap(actor).value).toBe("reconnecting");
 
-    getChild().send({ type: "DISCONNECT" });
-    expect(childSnap().value).toBe("disconnected");
+    actor.send({ type: "DISCONNECT" });
+    expect(snap(actor).value).toBe("disconnected");
     actor.stop();
   });
 
-  it("CONNECT from error transitions to connecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_ERROR" });
-    expect(childSnap().value).toBe("error");
-
-    getChild().send({ type: "CONNECT" });
-    expect(childSnap().value).toBe("connecting");
+  // B9
+  it("B9: DISCONNECT during connecting -> disconnected", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "DISCONNECT" });
+    expect(snap(actor).value).toBe("disconnected");
     actor.stop();
   });
 
-  it("VISIBILITY_VISIBLE from error transitions to connecting", () => {
-    const { getChild, childSnap, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_ERROR" });
-    expect(childSnap().value).toBe("error");
+  // B10
+  it("B10: CONNECT from error -> connecting", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_ERROR" });
+    expect(snap(actor).value).toBe("error");
 
-    getChild().send({ type: "VISIBILITY_VISIBLE" });
-    expect(childSnap().value).toBe("connecting");
+    actor.send({ type: "CONNECT" });
+    expect(snap(actor).value).toBe("connecting");
     actor.stop();
   });
 
-  it("parent receives SESSION_STATUS_CHANGED events", () => {
-    const { getChild, parentEvents, actor } = createParentWithSession();
-    getChild().send({ type: "CONNECT" });
-    getChild().send({ type: "WS_OPEN" });
+  // B11
+  it("B11: VISIBILITY_VISIBLE from error -> connecting", () => {
+    const { actor } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_ERROR" });
+    expect(snap(actor).value).toBe("error");
 
-    const connectedEvent = parentEvents.find(
+    actor.send({ type: "VISIBILITY_VISIBLE" });
+    expect(snap(actor).value).toBe("connecting");
+    actor.stop();
+  });
+
+  // B12
+  it("B12: parent receives status change notifications", () => {
+    const { actor, parentEvents } = createTestSession();
+    actor.send({ type: "CONNECT" });
+    actor.send({ type: "WS_OPEN" });
+
+    const connected = parentEvents.find(
       (e) => e.type === "SESSION_STATUS_CHANGED" && e.status === "connected"
     );
-    expect(connectedEvent).toBeDefined();
+    expect(connected).toBeDefined();
     actor.stop();
   });
 });

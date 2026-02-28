@@ -9,12 +9,24 @@ export type ReelType =
   | "binary"
   | "ordering"
   | "free_text"
-  | "voice";
+  | "voice"
+  | "fill_blank"
+  | "spot_error"
+  | "this_or_that"
+  | "component_picker"
+  | "hot_take"
+  | "estimation"
+  | "interview_moment"
+  | "what_breaks"
+  | "incident"
+  | "label_diagram"
+  | "spot_spof"
+  | "progressive";
 
 /** Feed intent for spaced repetition system. */
 export type FeedIntent = "reinforce" | "recall" | "build" | "mix" | "practice";
 
-/** API/DB reel shape. V1: only MCQ generated and scored. */
+/** API/DB reel shape. V2: supports all reel types. */
 export interface Reel {
   id: string;
   conceptId: string;
@@ -34,6 +46,40 @@ export interface Reel {
   microSignal?: string | null;
   /** Practice problem ID (only for practice intent reels). */
   problemId?: string | null;
+  /** Type-specific metadata (ordering items, diagram data, etc.). */
+  metadata?: ReelMetadata | null;
+  /** Chain ID for progressive/multi-reel sequences. */
+  chainId?: string | null;
+  /** Position in chain (0-indexed). */
+  chainOrder?: number | null;
+}
+
+/** Type-specific metadata for reels. */
+export type ReelMetadata =
+  | OrderingMetadata
+  | DiagramMetadata
+  | FreeTextMetadata;
+
+export interface OrderingMetadata {
+  kind: "ordering";
+  /** Items in correct order. Client shuffles for display. */
+  items: string[];
+}
+
+export interface DiagramMetadata {
+  kind: "diagram";
+  /** Mermaid diagram source. */
+  mermaid: string;
+  /** For label_diagram: indices of blanked-out labels. */
+  blankIndices?: number[];
+  /** For spot_spof: ID of the correct component to tap. */
+  correctComponentId?: string;
+}
+
+export interface FreeTextMetadata {
+  kind: "free_text";
+  /** Rubric criteria for AI grading. */
+  rubric?: string[];
 }
 
 /** v2 locked concept type. */

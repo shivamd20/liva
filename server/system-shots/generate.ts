@@ -51,19 +51,43 @@ async function buildCacheKey(prompt: string): Promise<string> {
   return `llm:reels:${hashHex}`;
 }
 
-const mcqReelSchema = z.object({
+const reelSchema = z.object({
   conceptId: z.string(),
+  type: z.string().optional(),
   prompt: z.string(),
-  options: z.array(z.string()).length(4),
-  correctIndex: z.number().min(0).max(3),
+  options: z.array(z.string()).min(1).max(6),
+  correctIndex: z.number().min(-1).max(5),
   explanation: z.string(),
   difficulty: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  intent: z.enum(["reinforce", "recall", "build", "mix", "practice"]).optional(),
+  intent: z.string().optional(),
   problemId: z.string().optional(),
+  orderingItems: z.array(z.string()).optional(),
 });
 
+const VALID_INTENTS = new Set(["reinforce", "recall", "build", "mix", "practice"]);
+const VALID_TYPES = new Set([
+  "mcq", "flash", "binary", "ordering", "free_text", "voice",
+  "fill_blank", "spot_error", "this_or_that", "component_picker",
+  "hot_take", "estimation", "interview_moment", "what_breaks",
+  "incident", "label_diagram", "spot_spof", "progressive",
+]);
+
+/** Normalize LLM-provided intent (case-insensitive, fallback to undefined). */
+function normalizeIntent(raw?: string): FeedIntent | undefined {
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  return VALID_INTENTS.has(lower) ? (lower as FeedIntent) : undefined;
+}
+
+/** Normalize LLM-provided type (case-insensitive, fallback to undefined). */
+function normalizeType(raw?: string): Reel["type"] | undefined {
+  if (!raw) return undefined;
+  const lower = raw.toLowerCase();
+  return VALID_TYPES.has(lower) ? (lower as Reel["type"]) : undefined;
+}
+
 const batchSchema = z.object({
-  reels: z.array(mcqReelSchema),
+  reels: z.array(reelSchema),
 });
 
 /** Reel shape for persisting (id set by generator). */
@@ -119,6 +143,141 @@ interface ConceptWithIntentForPrompt {
   problemName?: string;
   /** User's current mastery level for targeted generation. */
   masteryLevel?: MasteryLevel;
+  /** Reel type to generate for this slot. */
+  reelType?: Reel["type"];
+}
+
+/** Prompt instructions per reel type. */
+function getReelTypeInstructions(reelType: Reel["type"]): string {
+  switch (reelType) {
+    case "binary":
+      return `FORMAT: BINARY (True/False)
+- Generate a statement that is either true or false.
+- options: exactly 2 items ["True", "False"]
+- correctIndex: 0 if True, 1 if False
+- The statement must be non-obvious (not trivially answerable from definition).`;
+
+    case "fill_blank":
+      return `FORMAT: FILL-IN-THE-BLANK
+- Write a sentence with one critical term replaced by "___".
+- options: 3-4 plausible terms (word bank), one correct.
+- correctIndex: index of the correct fill.
+- The blank should test recall of a key concept, not a random word.`;
+
+    case "spot_error":
+      return `FORMAT: SPOT THE ERROR
+- Write a 2-3 sentence system design statement with ONE subtle technical error.
+- options: 3-4 descriptions of what could be wrong, one correct.
+- correctIndex: index of the actual error.
+- The error should be a common misconception, not a typo.`;
+
+    case "this_or_that":
+      return `FORMAT: THIS-OR-THAT (Tradeoff)
+- Present a design scenario requiring a tradeoff between two approaches.
+- options: exactly 2 items (the two approaches).
+- correctIndex: -1 (no single correct answer — both are valid depending on context).
+- explanation: discuss BOTH sides of the tradeoff, when each is preferred.`;
+
+    case "component_picker":
+      return `FORMAT: COMPONENT PICKER
+- Describe specific requirements (throughput, consistency, latency, etc.).
+- options: 4 real technologies or components.
+- correctIndex: the best fit for the stated requirements.
+- Wrong options must be plausible but suboptimal for the specific requirements.`;
+
+    case "hot_take":
+      return `FORMAT: HOT TAKE
+- Present a provocative engineering opinion (e.g., "Microservices are always overkill for startups").
+- options: exactly 3 items ["Agree", "Disagree", "It depends"]
+- correctIndex: typically 2 ("It depends"), but can be 0 or 1 if the statement is clearly true/false.
+- explanation: give the nuanced take regardless of correct answer.`;
+
+    case "estimation":
+      return `FORMAT: BACK-OF-ENVELOPE ESTIMATION
+- Present a concrete scenario with numbers (DAU, payload size, etc.).
+- Ask to estimate QPS, storage, bandwidth, or similar.
+- options: 3-4 order-of-magnitude choices (e.g., "~100", "~10K", "~1M").
+- correctIndex: the reasonable estimate.
+- explanation: show the math.`;
+
+    case "interview_moment":
+      return `FORMAT: INTERVIEW MOMENT
+- Frame as: "The interviewer asks: '...'"
+- Present a situation that could arise in a real system design interview.
+- options: 4 different approaches or responses.
+- correctIndex: the best approach.
+- Wrong options represent common interview mistakes.`;
+
+    case "what_breaks":
+      return `FORMAT: WHAT BREAKS? (Failure Injection)
+- Describe a simple architecture (3-4 components).
+- Specify a failure: "The [component] goes down."
+- options: 4 possible consequences.
+- correctIndex: the most accurate consequence.
+- Tests failure-mode awareness.`;
+
+    case "incident":
+      return `FORMAT: INCIDENT RESPONSE
+- Present a production alert with metrics (latency spike, error rate, etc.).
+- Include relevant dashboard data.
+- options: 4 possible root causes or next debugging steps.
+- correctIndex: the most likely cause given the data.
+- Tests operational thinking.`;
+
+    case "ordering":
+      return `FORMAT: ORDERING
+- Instead of "options" + "correctIndex", provide an "orderingItems" array.
+- The items should be steps of a process/protocol IN THE CORRECT ORDER.
+- options: set to the same items in correct order.
+- correctIndex: 0 (unused, client shuffles).
+- The client will shuffle these and ask the user to reorder them.`;
+
+    case "label_diagram":
+      return `FORMAT: LABEL THE ARCHITECTURE
+- In the prompt, describe a system architecture with 3-5 components. Name each component clearly.
+- Blank out ONE component name in the description (replace with "???").
+- options: 4 possible names for the blanked component.
+- correctIndex: index of the correct component name.
+- Tests whether user knows what each component does in context.`;
+
+    case "spot_spof":
+      return `FORMAT: SPOT THE SINGLE POINT OF FAILURE
+- In the prompt, describe a system architecture with 4-5 components and their connections.
+- One component is a single point of failure (not replicated, no failover).
+- options: the 4-5 component names.
+- correctIndex: index of the SPOF component.
+- Tests failure-mode awareness.`;
+
+    case "progressive":
+      return `FORMAT: PROGRESSIVE DESIGN
+- Frame as building a system step-by-step.
+- The question should be one step in a larger design process.
+- options: 4 design choices for this step.
+- correctIndex: 0-3.
+- Make the question work standalone even without prior steps.`;
+
+    case "free_text":
+      return `FORMAT: FREE TEXT EXPLANATION
+- Ask an open-ended question requiring a 2-3 sentence explanation.
+- Do NOT provide options or correctIndex.
+- options: ["placeholder"] (single item array)
+- correctIndex: -1
+- The explanation field should contain the model answer.`;
+
+    case "voice":
+      return `FORMAT: VOICE EXPLANATION
+- Ask a question that requires verbal explanation (like in a real interview).
+- Frame it conversationally: "Explain...", "Walk me through...", "How would you describe..."
+- options: ["placeholder"] (single item array)
+- correctIndex: -1
+- The explanation field should contain the model answer.`;
+
+    default:
+      return `FORMAT: MCQ (4 options, one correct)
+- Standard multiple-choice question.
+- options: exactly 4 items.
+- correctIndex: 0-3.`;
+  }
 }
 
 /** NDJSON-only prompt: one JSON object per line, no markdown, no outer array. */
@@ -135,8 +294,8 @@ function buildNDJSONPrompt(
         ? { problemId: c.problemId, problemName: c.problemName }
         : undefined;
       const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
+      const typeInstructions = getReelTypeInstructions(c.reelType ?? "mcq");
 
-      // Add level context if mastery level is known (cost-efficient: only target level)
       const levelContext = c.masteryLevel !== undefined
         ? buildLevelContext(c.conceptId, c.masteryLevel)
         : "";
@@ -144,11 +303,15 @@ function buildNDJSONPrompt(
       if (c.intent === "practice" && c.problemName) {
         return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
    Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
-${intentInstructions}${levelContext}`;
+   Type: ${c.reelType ?? "mcq"}
+${intentInstructions}
+${typeInstructions}${levelContext}`;
       }
 
       return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
-${intentInstructions}${levelContext}`;
+   Type: ${c.reelType ?? "mcq"}
+${intentInstructions}
+${typeInstructions}${levelContext}`;
     })
     .join("\n\n");
 
@@ -156,34 +319,55 @@ ${intentInstructions}${levelContext}`;
   const practiceNote = hasPractice
     ? "\n- For PRACTICE problems, also include 'problemId' with the exact problem ID specified"
     : "";
+  const hasOrdering = conceptsWithIntents.some(c => c.reelType === "ordering");
+  const orderingNote = hasOrdering
+    ? '\n- For ORDERING type, include "orderingItems" (array of steps in correct order) and set options to the same array, correctIndex to 0'
+    : "";
 
-  // Build detailed diversity context if recent prompts are provided
   let diversityContext = "";
   if (recentPrompts && recentPrompts.length > 0) {
-    // Truncate to last 10 to save context window
     const recent = recentPrompts.slice(-10).map((p) => `- "${p.slice(0, 100)}..."`).join("\n");
     diversityContext = `
 ––––––––––––––––
 DIVERSITY CONSTRAINTS – CRITICAL
 The user has recently seen the following questions.
 You MUST NOT generate similar questions.
-You MUST choose a DIFFERENT sub-topic or angle (e.g. if recent query was Storage Calc, choose API or Failure Mode).
+You MUST choose a DIFFERENT sub-topic or angle.
 RECENTLY SEEN:
 ${recent}`;
   }
 
   return `You are a senior system design interviewer at a top-tier tech company.
 
-Your task is to generate interview-grade MCQ questions, not trivia. You must obey all constraints strictly.
+Your task is to generate interview-grade questions in VARIED formats. Each question specifies its TYPE — follow the format instructions exactly. You must obey all constraints strictly.
 
 OUTPUT FORMAT – CRITICAL: You MUST output only NDJSON (newline-delimited JSON).
 - Exactly one valid JSON object per line.
 - No markdown, no code fences, no outer array, no extra text before or after.
-- Each line must be a complete, valid JSON object with these exact keys: conceptId, prompt, options, correctIndex, explanation, difficulty, intent${hasPractice ? ", problemId (for practice)" : ""}.
+- Each line must be a complete, valid JSON object with these keys: conceptId, type, prompt, options, correctIndex, explanation, difficulty, intent${hasPractice ? ", problemId (for practice)" : ""}${hasOrdering ? ", orderingItems (for ordering)" : ""}.
 
-Example of exactly two lines (you will output ${count} lines):
-{"conceptId":"cap-theorem","prompt":"In a CP system during a partition, why is unavailable preferrable to stale data?","options":["A","B","C","D"],"correctIndex":0,"explanation":"...","difficulty":1,"intent":"reinforce"}
-{"conceptId":"sharding","prompt":"Twitter: Which shard key minimizes hot partitions?","options":["A","B","C","D"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"practice","problemId":"twitter"}
+TYPE-SPECIFIC RULES:
+- MCQ: options has exactly 4 items, correctIndex 0-3
+- BINARY: options has exactly 2 items, correctIndex 0 or 1
+- FILL_BLANK: prompt contains "___", options has 3-4 word-bank items
+- SPOT_ERROR: prompt is a statement with an error, options describe possible errors
+- THIS_OR_THAT: options has exactly 2 items, correctIndex is -1 (no correct answer)
+- COMPONENT_PICKER: options has 4 real technologies, correctIndex 0-3
+- HOT_TAKE: options is ["Agree","Disagree","It depends"], correctIndex 0-2
+- ESTIMATION: options has 3-4 magnitude choices, correctIndex points to reasonable one
+- INTERVIEW_MOMENT: prompt starts with "The interviewer asks:", options has 4 approaches
+- WHAT_BREAKS: prompt describes architecture + failure, options has 4 consequences
+- INCIDENT: prompt describes production alert with metrics, options has 4 diagnoses
+- ORDERING: include orderingItems (steps in correct order), options same as orderingItems
+- LABEL_DIAGRAM: prompt describes architecture with "???" for blanked component, options has 4 names
+- SPOT_SPOF: prompt describes architecture, options has component names, correctIndex points to SPOF
+- PROGRESSIVE: progressive design step, options has 4 design choices
+- FREE_TEXT: open-ended explanation, options is ["placeholder"], correctIndex is -1
+- VOICE: verbal explanation prompt, options is ["placeholder"], correctIndex is -1
+
+Example (you will output ${count} lines):
+{"conceptId":"cap-theorem","type":"binary","prompt":"In a distributed system, partition tolerance is optional if all nodes are in the same data center.","options":["True","False"],"correctIndex":1,"explanation":"Partition tolerance is never optional in distributed systems...","difficulty":1,"intent":"reinforce"}
+{"conceptId":"sharding","type":"interview_moment","prompt":"The interviewer asks: 'Your database is hitting 50K writes/sec and latency is climbing. What's your first move?'","options":["Add read replicas","Shard by user ID","Add a write-through cache","Vertical scale the DB"],"correctIndex":1,"explanation":"...","difficulty":2,"intent":"practice","problemId":"twitter"}
 
 –––––––––––––––––
 INPUT CONTEXT
@@ -192,9 +376,9 @@ User topic mastery state:
 ${stateSummary}
 
 –––––––––––––––––
-CONCEPTS TO GENERATE (with intents)
+CONCEPTS TO GENERATE (with types and intents)
 
-Generate exactly one question for each concept below, following the specified intent:
+Generate exactly one question for each concept below, following the specified type and intent:
 
 ${conceptInstructions}
 ${diversityContext}
@@ -202,14 +386,16 @@ ${diversityContext}
 –––––––––––––––––
 RULES
 
-Generate exactly ${count} MCQ questions. One JSON object per line. No other output.
-- conceptId: use EXACTLY the concept ID specified for each question
-- prompt: question text (follow the intent instructions above)
-- options: exactly 4 strings
-- correctIndex: 0-3
+Generate exactly ${count} questions. One JSON object per line. No other output.
+- conceptId: use EXACTLY the concept ID specified
+- type: use EXACTLY the type specified for each question
+- prompt: question text (follow both the type format and intent instructions)
+- options: array of strings (length depends on type — see TYPE-SPECIFIC RULES above)
+- correctIndex: index of correct option (or -1 for this_or_that)
 - explanation: brief explanation
 - difficulty: 1, 2, or 3 (1=foundational, 2=applied tradeoff, 3=deep/failure)
-- intent: the intent specified for this concept (reinforce, recall, build, mix, or practice)${practiceNote}
+- intent: the intent specified, ALWAYS lowercase (reinforce, recall, build, mix, or practice)
+- type: ALWAYS lowercase with underscores (e.g. mcq, binary, what_breaks, interview_moment)${practiceNote}${orderingNote}
 ${focusExtension ? `\n${focusExtension}` : ""}
 Output ${count} lines now, one JSON object per line, in the same order as the concepts above:`;
 }
@@ -250,13 +436,14 @@ export async function* generateReelsStream(
   // Build concept map for name lookup
   const conceptMap = new Map(filteredConcepts.map((c) => [c.id, c]));
 
-  // Build concepts with intents for prompt (including practice items and mastery levels)
+  // Build concepts with intents for prompt (including practice items, mastery levels, and reel types)
   const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
     ...batch.items.map((item) => ({
       conceptId: item.conceptId,
       conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
       intent: item.intent,
       masteryLevel: masteryLevels.get(item.conceptId),
+      reelType: item.reelType,
     })),
     ...batch.practiceItems.map((item) => ({
       conceptId: item.conceptId,
@@ -265,19 +452,23 @@ export async function* generateReelsStream(
       problemId: item.problemId,
       problemName: item.problemName,
       masteryLevel: masteryLevels.get(item.conceptId),
+      reelType: item.reelType,
     })),
   ];
 
-  // Build intent map and problem map for later lookup
+  // Build intent map, type map, and problem map for later lookup
   const intentMap = new Map<string, FeedIntent>();
+  const typeMap = new Map<string, Reel["type"]>();
   const problemMap = new Map<string, { problemId: string; problemName: string }>();
 
   for (const item of batch.items) {
     intentMap.set(item.conceptId, item.intent);
+    if (item.reelType) typeMap.set(item.conceptId, item.reelType);
   }
   for (const item of batch.practiceItems) {
     intentMap.set(`${item.conceptId}:${item.problemId}`, item.intent);
     problemMap.set(item.conceptId, { problemId: item.problemId, problemName: item.problemName });
+    if (item.reelType) typeMap.set(`${item.conceptId}:${item.problemId}`, item.reelType);
   }
 
   const stateSummary =
@@ -373,16 +564,17 @@ export async function* generateReelsStream(
           }
           continue;
         }
-        const parsedReel = mcqReelSchema.safeParse(parsed);
+        const parsedReel = reelSchema.safeParse(parsed);
         if (!parsedReel.success) {
           console.warn(`${LOG_PREFIX} stream schema validation failed for line`, parsedReel.error.flatten());
           continue;
         }
         const r = parsedReel.data;
-        console.log(`${LOG_PREFIX} valid reel parsed: ${r.conceptId} [${r.intent}]`);
-        // Use intent from batch composer (fallback to LLM-provided or reinforce)
         const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
-        const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+        const resolvedType = normalizeType(r.type) ?? typeMap.get(lookupKey) ?? typeMap.get(r.conceptId) ?? "mcq";
+        const normalizedIntent = normalizeIntent(r.intent);
+        console.log(`${LOG_PREFIX} valid reel parsed: ${r.conceptId} [${normalizedIntent ?? r.intent}] type=${resolvedType}`);
+        const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? normalizedIntent ?? "reinforce";
         const state = topicState.find((t) => t.conceptId === r.conceptId);
         const skipCount = skipCounts[r.conceptId] ?? 0;
         const problem = problemMap.get(r.conceptId);
@@ -391,7 +583,7 @@ export async function* generateReelsStream(
         const reel: GenerateReelInput = {
           id: crypto.randomUUID(),
           conceptId: r.conceptId,
-          type: "mcq",
+          type: resolvedType,
           prompt: r.prompt,
           options: r.options,
           correctIndex: r.correctIndex,
@@ -401,6 +593,7 @@ export async function* generateReelsStream(
           skipCount: 0,
           microSignal,
           problemId: r.problemId ?? problem?.problemId ?? null,
+          metadata: r.orderingItems ? { kind: "ordering" as const, items: r.orderingItems } : null,
         };
         accumulatedReels.push(reel);
         yielded++;
@@ -416,11 +609,12 @@ export async function* generateReelsStream(
     if (buffer.trim()) {
       try {
         const parsed = JSON.parse(extractJsonString(buffer.trim()));
-        const parsedReel = mcqReelSchema.safeParse(parsed);
+        const parsedReel = reelSchema.safeParse(parsed);
         if (parsedReel.success && yielded < totalCount) {
           const r = parsedReel.data;
           const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
-          const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+          const resolvedType = normalizeType(r.type) ?? typeMap.get(lookupKey) ?? typeMap.get(r.conceptId) ?? "mcq";
+          const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? normalizeIntent(r.intent) ?? "reinforce";
           const state = topicState.find((t) => t.conceptId === r.conceptId);
           const skipCount = skipCounts[r.conceptId] ?? 0;
           const problem = problemMap.get(r.conceptId);
@@ -429,7 +623,7 @@ export async function* generateReelsStream(
           const lastReel: GenerateReelInput = {
             id: crypto.randomUUID(),
             conceptId: r.conceptId,
-            type: "mcq",
+            type: resolvedType,
             prompt: r.prompt,
             options: r.options,
             correctIndex: r.correctIndex,
@@ -439,6 +633,7 @@ export async function* generateReelsStream(
             skipCount: 0,
             microSignal,
             problemId: r.problemId ?? problem?.problemId ?? null,
+            metadata: r.orderingItems ? { kind: "ordering" as const, items: r.orderingItems } : null,
           };
           accumulatedReels.push(lastReel);
           yield lastReel;
@@ -498,13 +693,14 @@ export async function generateReelsBatch(
   // Build concept map for name lookup
   const conceptMap = new Map(filteredConcepts.map((c) => [c.id, c]));
 
-  // Build concepts with intents for prompt (including practice items and mastery levels)
+  // Build concepts with intents for prompt (including practice items, mastery levels, and reel types)
   const conceptsWithIntents: ConceptWithIntentForPrompt[] = [
     ...batch.items.map((item) => ({
       conceptId: item.conceptId,
       conceptName: conceptMap.get(item.conceptId)?.name ?? item.conceptId,
       intent: item.intent,
       masteryLevel: masteryLevels.get(item.conceptId),
+      reelType: item.reelType,
     })),
     ...batch.practiceItems.map((item) => ({
       conceptId: item.conceptId,
@@ -513,19 +709,23 @@ export async function generateReelsBatch(
       problemId: item.problemId,
       problemName: item.problemName,
       masteryLevel: masteryLevels.get(item.conceptId),
+      reelType: item.reelType,
     })),
   ];
 
-  // Build intent map and problem map for later lookup
+  // Build intent map, type map, and problem map for later lookup
   const intentMap = new Map<string, FeedIntent>();
+  const typeMap = new Map<string, Reel["type"]>();
   const problemMap = new Map<string, { problemId: string; problemName: string }>();
 
   for (const item of batch.items) {
     intentMap.set(item.conceptId, item.intent);
+    if (item.reelType) typeMap.set(item.conceptId, item.reelType);
   }
   for (const item of batch.practiceItems) {
     intentMap.set(`${item.conceptId}:${item.problemId}`, item.intent);
     problemMap.set(item.conceptId, { problemId: item.problemId, problemName: item.problemName });
+    if (item.reelType) typeMap.set(`${item.conceptId}:${item.problemId}`, item.reelType);
   }
 
   const stateSummary =
@@ -539,94 +739,8 @@ export async function generateReelsBatch(
       : "No prior activity.";
 
   const totalCount = batch.items.length + batch.practiceItems.length;
-
-  // Build prompt with intent instructions (including practice problems and level context)
-  const conceptInstructions = conceptsWithIntents
-    .map((c, i) => {
-      const problemContext = c.intent === "practice" && c.problemId && c.problemName
-        ? { problemId: c.problemId, problemName: c.problemName }
-        : undefined;
-      const intentInstructions = getIntentPromptInstructions(c.intent, problemContext);
-
-      // Add level context if mastery level is known (cost-efficient: only target level)
-      const levelContext = c.masteryLevel !== undefined
-        ? buildLevelContext(c.conceptId, c.masteryLevel)
-        : "";
-
-      if (c.intent === "practice" && c.problemName) {
-        return `${i + 1}. Practice Problem: ${c.problemName} (Problem ID: ${c.problemId})
-   Focus Concept: ${c.conceptName} (ID: ${c.conceptId})
-${intentInstructions}${levelContext}`;
-      }
-
-      return `${i + 1}. Concept: ${c.conceptName} (ID: ${c.conceptId})
-${intentInstructions}${levelContext}`;
-    })
-    .join("\n\n");
-
-  const hasPractice = conceptsWithIntents.some(c => c.intent === "practice");
-  const practiceNote = hasPractice
-    ? ',\n      "problemId": "<problem ID for practice questions>"'
-    : "";
-
-  const userPrompt = `You are a senior system design interviewer at a top-tier tech company.
-
-Your task is to generate interview-grade MCQ questions, not trivia.
-
-You must obey all constraints strictly.
-
-–––––––––––––––––
-INPUT CONTEXT
-
-User topic mastery state:
-${stateSummary}
-
-–––––––––––––––––
-CONCEPTS TO GENERATE (with intents)
-
-Generate exactly one question for each concept below, following the specified intent:
-
-${conceptInstructions}
-
-–––––––––––––––––
-QUESTION QUALITY BAR
-
-Every question must:
-- Reflect a real system design interview decision point
-- Follow the intent instructions for each concept
-- Avoid definition-based or memorization questions
-- Be answerable without external facts
-- Have exactly ONE clearly correct answer
-
-Wrong options must be plausible and represent common interview mistakes.
-
-Difficulty meanings:
-1 = foundational reasoning
-2 = applied design tradeoff
-3 = deep system behavior or failure analysis
-
-–––––––––––––––––
-OUTPUT FORMAT
-
-Respond with ONLY valid JSON, no markdown and no other text. Exact shape:
-
-{
-  "reels": [
-    {
-      "conceptId": "<one of the concept IDs above>",
-      "prompt": "question text",
-      "options": ["A", "B", "C", "D"],
-      "correctIndex": 0,
-      "explanation": "brief explanation",
-      "difficulty": 1,
-      "intent": "reinforce"${practiceNote}
-    }
-  ]
-}
-${recentPrompts && recentPrompts.length > 0
-      ? `\nREMINDER: Do NOT generate questions similar to:\n${recentPrompts.slice(-10).map(p => `- ${p.slice(0, 50)}...`).join("\n")}`
-      : ""
-    }`;
+  const focusExtension = focusConceptId ? buildFocusModePromptExtension(focusConceptId) : undefined;
+  const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount, focusExtension, recentPrompts);
 
   let rawText: string;
   try {
@@ -635,7 +749,6 @@ ${recentPrompts && recentPrompts.length > 0
     rawText = (await chat({
       adapter,
       messages: [{ role: "user", content: userPrompt }],
-      // Higher temperature for variety
       temperature: 0.7,
       stream: false,
     })) as string;
@@ -649,51 +762,41 @@ ${recentPrompts && recentPrompts.length > 0
     return [];
   }
 
-  const jsonStr = extractJsonString(rawText);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch (parseErr) {
-    console.error(
-      `${LOG_PREFIX} JSON parse failed`,
-      parseErr instanceof Error ? parseErr.message : parseErr,
-      "sample:",
-      jsonStr.slice(0, 300)
-    );
-    return [];
-  }
-
-  const parsedBatch = batchSchema.safeParse(parsed);
-  if (!parsedBatch.success) {
-    console.error(
-      `${LOG_PREFIX} schema validation failed`,
-      parsedBatch.error.flatten(),
-      "raw keys:",
-      typeof parsed === "object" && parsed !== null ? Object.keys(parsed as object) : []
-    );
-    return [];
-  }
-
-  const reels = parsedBatch.data.reels;
-  if (!reels || reels.length === 0) {
-    console.warn(`${LOG_PREFIX} reels array empty after parse`);
-    return [];
-  }
-
-  console.log(`${LOG_PREFIX} success reels=${reels.length}`);
-  return reels.map((r) => {
-    // Use intent from batch composer (fallback to LLM-provided or reinforce)
+  // The batch prompt now uses NDJSON format (same as streaming). Parse each line.
+  const results: GenerateReelInput[] = [];
+  const lines = rawText.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const jsonStr = extractJsonString(trimmed);
+    if (!jsonStr) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch {
+      if (jsonStr.startsWith("{")) {
+        console.warn(`${LOG_PREFIX} batch skip invalid JSON line: ${trimmed.slice(0, 80)}...`);
+      }
+      continue;
+    }
+    const parsedReel = reelSchema.safeParse(parsed);
+    if (!parsedReel.success) {
+      console.warn(`${LOG_PREFIX} batch schema validation failed`, parsedReel.error.flatten());
+      continue;
+    }
+    const r = parsedReel.data;
     const lookupKey = r.problemId ? `${r.conceptId}:${r.problemId}` : r.conceptId;
-    const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? r.intent ?? "reinforce";
+    const resolvedType = normalizeType(r.type) ?? typeMap.get(lookupKey) ?? typeMap.get(r.conceptId) ?? "mcq";
+    const intent = intentMap.get(lookupKey) ?? intentMap.get(r.conceptId) ?? normalizeIntent(r.intent) ?? "reinforce";
     const state = topicState.find((t) => t.conceptId === r.conceptId);
     const skipCount = skipCounts[r.conceptId] ?? 0;
     const problem = problemMap.get(r.conceptId);
     const microSignal = getMicroSignal(intent, skipCount, state?.exposureCount ?? 0, problem?.problemName);
 
-    return {
+    results.push({
       id: crypto.randomUUID(),
       conceptId: r.conceptId,
-      type: "mcq" as const,
+      type: resolvedType,
       prompt: r.prompt,
       options: r.options,
       correctIndex: r.correctIndex,
@@ -703,6 +806,14 @@ ${recentPrompts && recentPrompts.length > 0
       skipCount: 0,
       microSignal,
       problemId: r.problemId ?? problem?.problemId ?? null,
-    };
-  });
+      metadata: r.orderingItems ? { kind: "ordering" as const, items: r.orderingItems } : null,
+    });
+  }
+
+  if (results.length === 0) {
+    console.warn(`${LOG_PREFIX} no reels parsed from batch response`);
+  } else {
+    console.log(`${LOG_PREFIX} success reels=${results.length}`);
+  }
+  return results;
 }

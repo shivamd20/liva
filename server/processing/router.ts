@@ -117,4 +117,31 @@ export const processingRouter = router({
                 status: video.status,
             };
         }),
+
+    createShare: publicProcedure
+        .input(z.object({ videoId: z.string() }))
+        .mutation(async ({ ctx, input }) => {
+            if (!ctx.userId) throw new Error("Unauthorized");
+
+            const videosDoId = ctx.env.VIDEOS_DO.idFromName(ctx.userId);
+            const videosStub = ctx.env.VIDEOS_DO.get(videosDoId) as unknown as VideosDO;
+            const video = await videosStub.getVideo(input.videoId);
+            if (!video) throw new Error("Video not found");
+
+            await ctx.env.liva_db.exec(
+                "CREATE TABLE IF NOT EXISTS video_shares (video_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, session_id TEXT NOT NULL, title TEXT, description TEXT, created_at INTEGER)"
+            );
+            await ctx.env.liva_db.prepare(
+                "INSERT OR REPLACE INTO video_shares (video_id, user_id, session_id, title, description, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+            ).bind(
+                video.id,
+                ctx.userId,
+                video.sessionId,
+                video.title || "Untitled Video",
+                video.description || null,
+                video.createdAt
+            ).run();
+
+            return { shareUrl: `/share/${video.id}` };
+        }),
 });
