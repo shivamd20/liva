@@ -145,7 +145,6 @@ describe("protocol", () => {
       expect("voice" in (result as any)).toBe(false);
       expect("eagerness" in (result as any)).toBe(false);
     });
-  });
 
     // Phase 1D: Edge cases
     it("ignores extra unknown fields", () => {

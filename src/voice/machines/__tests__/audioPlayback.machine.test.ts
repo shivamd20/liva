@@ -14,39 +14,43 @@ function mockAudioBuffer(): AudioBuffer {
   } as unknown as AudioBuffer;
 }
 
-function mockAudioContext() {
+function installAudioContextMock() {
   const gainNode = {
     connect: vi.fn(),
-    gain: {
-      setValueAtTime: vi.fn(),
-      value: 1,
-    },
+    gain: { setValueAtTime: vi.fn(), value: 1 },
     context: { currentTime: 0 },
   };
 
-  const sources: Array<{ onended: (() => void) | null; stop: ReturnType<typeof vi.fn>; start: ReturnType<typeof vi.fn> }> = [];
+  const sources: Array<{
+    buffer: AudioBuffer | null;
+    onended: (() => void) | null;
+    connect: ReturnType<typeof vi.fn>;
+    start: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+  }> = [];
 
-  const ctx = {
-    state: "running" as AudioContextState,
-    destination: {},
-    createGain: vi.fn(() => gainNode),
-    createBufferSource: vi.fn(() => {
-      const source = {
+  class MockAudioContext {
+    state: AudioContextState = "running";
+    destination = {};
+    createGain = vi.fn(() => gainNode);
+    createBufferSource = vi.fn(() => {
+      const src = {
         buffer: null as AudioBuffer | null,
         connect: vi.fn(),
         start: vi.fn(),
         stop: vi.fn(),
         onended: null as (() => void) | null,
       };
-      sources.push(source);
-      return source;
-    }),
-    decodeAudioData: vi.fn(async () => mockAudioBuffer()),
-    resume: vi.fn(async () => {}),
-    close: vi.fn(async () => {}),
-  };
+      sources.push(src);
+      return src;
+    });
+    decodeAudioData = vi.fn(async () => mockAudioBuffer());
+    resume = vi.fn(async () => {});
+    close = vi.fn(async () => {});
+  }
 
-  return { ctx, gainNode, sources };
+  globalThis.AudioContext = MockAudioContext as any;
+  return { gainNode, sources, MockAudioContext };
 }
 
 function snap(actor: ReturnType<typeof createActor<typeof audioPlaybackMachine>>) {
@@ -76,35 +80,45 @@ describe("audioPlayback.machine", () => {
   });
 
   it("INIT_CONTEXT creates audioContext and gainNode atomically", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    const mock = installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
 
     actor.send({ type: "INIT_CONTEXT" });
-    expect(snap(actor).context.audioContext).toBe(mock.ctx);
-    expect(snap(actor).context.gainNode).not.toBeNull();
-    expect(mock.ctx.createGain).toHaveBeenCalledOnce();
-    expect(mock.gainNode.connect).toHaveBeenCalledWith(mock.ctx.destination);
+    const ctx = snap(actor).context;
+    expect(ctx.audioContext).not.toBeNull();
+    expect(ctx.audioContext).toBeInstanceOf(mock.MockAudioContext);
+    expect(ctx.gainNode).not.toBeNull();
+    expect(mock.gainNode.connect).toHaveBeenCalled();
 
     actor.stop();
   });
 
   it("INIT_CONTEXT guard prevents double-init", () => {
-    const mock = mockAudioContext();
-    let callCount = 0;
-    globalThis.AudioContext = vi.fn(() => {
-      callCount++;
-      return mock.ctx;
-    }) as any;
+    let constructCount = 0;
+    class TrackingAudioContext {
+      state: AudioContextState = "running";
+      destination = {};
+      constructor() { constructCount++; }
+      createGain = vi.fn(() => ({
+        connect: vi.fn(),
+        gain: { setValueAtTime: vi.fn(), value: 1 },
+        context: { currentTime: 0 },
+      }));
+      createBufferSource = vi.fn();
+      decodeAudioData = vi.fn();
+      resume = vi.fn();
+      close = vi.fn();
+    }
+    globalThis.AudioContext = TrackingAudioContext as any;
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
 
     actor.send({ type: "INIT_CONTEXT" });
     actor.send({ type: "INIT_CONTEXT" });
-    expect(callCount).toBe(1);
+    expect(constructCount).toBe(1);
 
     actor.stop();
   });
@@ -121,8 +135,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("AUDIO_DECODED transitions from idle to playing", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -139,8 +152,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("AUDIO_ENDED with empty queue returns to idle", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -157,8 +169,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("queue draining plays buffers sequentially", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -179,8 +190,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("queue full (8 items) drops new buffers in idle", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -198,8 +208,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("STOP_PLAYBACK clears queue and returns to idle from playing", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -219,8 +228,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("speaking timeout (45s) returns to idle", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();
@@ -248,8 +256,7 @@ describe("audioPlayback.machine", () => {
   });
 
   it("AUDIO_DECODED while playing queues buffers", () => {
-    const mock = mockAudioContext();
-    globalThis.AudioContext = vi.fn(() => mock.ctx) as any;
+    installAudioContextMock();
 
     const actor = createActor(audioPlaybackMachine);
     actor.start();

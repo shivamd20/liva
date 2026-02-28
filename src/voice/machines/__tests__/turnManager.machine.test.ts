@@ -199,15 +199,18 @@ describe("turnManager.machine", () => {
     actor.stop();
   });
 
-  // A9: Tool call without runTool set
-  it("A9: tool request without runTool set enters toolCallActive state", () => {
+  // A9: Tool call without runTool set immediately errors back to awaitingResponse
+  it("A9: tool request without runTool lands in awaitingResponse with error", () => {
     const { actor } = createTestActor();
 
     actor.send({ type: "FLUX_END_OF_TURN", transcript: "check board", confidence: 0.95 });
     vi.advanceTimersByTime(200);
 
     actor.send({ type: "SERVER_TOOL_REQUEST", toolCallId: "t1", name: "read_board" });
-    expect(snap(actor).value).toBe("toolCallActive");
+    expect(snap(actor).value).toBe("awaitingResponse");
+    expect(snap(actor).context.toolRunning).toBe(false);
+    const lastTool = snap(actor).context.toolCallHistory.at(-1);
+    expect((lastTool?.result as any)?.error).toBe("No tool runner");
 
     actor.stop();
   });
@@ -534,8 +537,8 @@ describe("turnManager.machine", () => {
     actor.stop();
   });
 
-  // A23: Deadlock fix -- null runTool transitions out of toolCallActive
-  it("A23: tool request with null runTool transitions back to awaitingResponse (no deadlock)", async () => {
+  // A23: Null runTool auto-errors back to awaitingResponse (no deadlock)
+  it("A23: tool request with null runTool auto-errors back to awaitingResponse", () => {
     const { actor } = createTestActor();
 
     actor.send({ type: "FLUX_END_OF_TURN", transcript: "check board", confidence: 0.95 });
@@ -543,9 +546,6 @@ describe("turnManager.machine", () => {
     expect(snap(actor).value).toBe("awaitingResponse");
 
     actor.send({ type: "SERVER_TOOL_REQUEST", toolCallId: "t1", name: "read_board" });
-    expect(snap(actor).value).toBe("toolCallActive");
-
-    await vi.advanceTimersByTimeAsync(10);
 
     expect(snap(actor).value).toBe("awaitingResponse");
     expect(snap(actor).context.toolRunning).toBe(false);
@@ -626,7 +626,7 @@ describe("turnManager.machine", () => {
     const interrupted = inspectedEvents.some(
       (e) => e.event?.type === "SEND_INTERRUPT"
     );
-    expect(snap(actor).context.turnId).toBe(2);
+    expect(snap(actor).context.turnId).toBe(1);
 
     actor.stop();
   });

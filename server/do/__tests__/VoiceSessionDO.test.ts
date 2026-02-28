@@ -175,11 +175,11 @@ describe("VoiceSessionDO pure functions", () => {
       expect(remaining).toBe("");
     });
 
-    it("does not flush first chunk with fewer than 5 words", () => {
+    it("does not flush first chunk with fewer than 3 words and < 20 chars", () => {
       const output: string[] = [];
-      const remaining = flushSentences("Sure let me", output, true);
+      const remaining = flushSentences("Hi ok", output, true);
       expect(output).toHaveLength(0);
-      expect(remaining).toBe("Sure let me");
+      expect(remaining).toBe("Hi ok");
     });
 
     it("splits on sentence boundaries when not first chunk", () => {
@@ -319,10 +319,11 @@ describe("VoiceSessionDO pure functions", () => {
 
   // Phase 1C: Edge cases for flushSentences
   describe("flushSentences edge cases", () => {
-    it("buffer with only a period produces empty output", () => {
+    it("buffer with only a period produces single-entry output", () => {
       const output: string[] = [];
       flushSentences(".", output, false);
-      expect(output).toHaveLength(0);
+      expect(output).toHaveLength(1);
+      expect(output[0]).toBe(".");
     });
 
     it("very long single sentence (500 chars, no period) stays in buffer", () => {

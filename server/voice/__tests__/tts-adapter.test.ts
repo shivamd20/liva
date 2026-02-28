@@ -42,7 +42,6 @@ describe("tts-adapter", () => {
       expect(formatForProsody("This is great!")).toBe("This is great!");
       expect(formatForProsody("Is it ready?")).toBe("Is it ready?");
     });
-  });
 
     // I1 edge: empty string
     it("returns empty string for empty input", () => {
