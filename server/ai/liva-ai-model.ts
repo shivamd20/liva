@@ -6,7 +6,7 @@ import { SYSTEM_PROMPT_STUDY } from './systemPrompt';
 
 export type Provider = 'gemini';
 
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3-flash-preview';
 
 export class LivaAIModel {
     private geminiApiKeyPromise: Promise<string> | null = null;
@@ -57,7 +57,7 @@ export class LivaAIModel {
         const systemPrompt = `
         ${SYSTEM_PROMPT_STUDY}
         
-        Feel free to use to provided tools whenever you feel approprivate
+        Feel free to use the provided tools whenever you feel appropriate
         `;
 
         // Prepend system prompt
@@ -92,9 +92,7 @@ export class LivaAIModel {
     ) {
         const { tools = [], systemPrompt: customSystemPrompt } = opts;
         const adapter = await this.getAdapter();
-        const systemPrompt = customSystemPrompt ?? `
-        You are a concise voice assistant for someone using a whiteboard. Be brief. Use the read_board tool when you need to see what is on the board. When you receive the board image in the conversation, describe or use what you see to help the user.
-        `;
+        const systemPrompt = customSystemPrompt ?? `You are Liva, a creative whiteboard collaborator. Keep responses to 2-3 short spoken sentences. Use contractions. Never use markdown or formatting. When you see a board image, describe specific elements you notice.`;
         const tanstackMessages = messages
             .filter((m) => m.role !== "system")
             .map((m) => {
@@ -111,7 +109,7 @@ export class LivaAIModel {
                             id: tc.id ?? tc.name ?? "",
                             type: "function" as const,
                             function: {
-                                name: tc.name ?? "read_board",
+                                name: tc.name ?? "unknown",
                                 arguments: tc.arguments ?? "{}",
                             },
                         })),

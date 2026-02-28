@@ -12,6 +12,8 @@ export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
+export { ProcessingJobDO } from "./do/ProcessingJobDO";
+export { MediaProcessorContainer } from "./do/MediaProcessorContainer";
 export { LearningMemoryDO } from "./do/LearningMemoryDO";
 export { VoiceSessionDO } from "./do/VoiceSessionDO";
 
@@ -358,6 +360,62 @@ export default {
 			return new Response(object.body, {
 				headers,
 			});
+		}
+
+		// Serve processed files: /api/processed/:sessionId/:filename
+		const processedMatch = url.pathname.match(/^\/api\/processed\/([^/]+)\/(.+)$/);
+		if (processedMatch && request.method === "GET") {
+			const sessionId = processedMatch[1];
+			const filename = processedMatch[2];
+			const allowedFiles: Record<string, string> = {
+				"video.mp4": "video/mp4",
+				"thumbnail.jpg": "image/jpeg",
+				"audio.wav": "audio/wav",
+			};
+			const contentType = allowedFiles[filename];
+			if (!contentType) {
+				return new Response("Not found", { status: 404 });
+			}
+			const r2Key = `processed/${sessionId}/${filename}`;
+			const object = await env.files.get(r2Key);
+			if (!object) {
+				return new Response("File not found", { status: 404 });
+			}
+			const headers = new Headers();
+			headers.set("Content-Type", contentType);
+			headers.set("Cache-Control", "public, max-age=31536000, immutable");
+			if (url.searchParams.get("download") === "1") {
+				headers.set("Content-Disposition", `attachment; filename="${filename}"`);
+			}
+			return new Response(object.body, { headers });
+		}
+
+		// Public share endpoint: /api/share/:videoId (no auth required)
+		const shareMatch = url.pathname.match(/^\/api\/share\/([^/]+)$/);
+		if (shareMatch && request.method === "GET") {
+			const videoId = shareMatch[1];
+			try {
+				const results = await env.liva_db.prepare(
+					"SELECT id FROM user WHERE id IN (SELECT userId FROM session LIMIT 50)"
+				).all();
+				for (const row of (results.results || [])) {
+					const userId = (row as any).id;
+					const doId = env.VIDEOS_DO.idFromName(userId);
+					const stub = env.VIDEOS_DO.get(doId) as any;
+					const video = await stub.getVideo(videoId);
+					if (video) {
+						return Response.json({
+							sessionId: video.sessionId,
+							title: video.title || "Untitled Video",
+							description: video.description,
+							createdAt: new Date(video.createdAt).toISOString(),
+						});
+					}
+				}
+			} catch (e) {
+				console.error("Share lookup error:", e);
+			}
+			return Response.json({ error: "Not found" }, { status: 404 });
 		}
 
 		if (url.pathname.startsWith("/api/v1")) {

@@ -128,17 +128,16 @@ export function TopBar({
         }
     };
 
-    // Helper to render the colored dot/indicator
     const renderConnectionIndicator = () => {
         if (!connectionStatus) return null;
         switch (connectionStatus) {
             case 'connected':
-                return <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />;
+                return <div className="w-2 h-2 rounded-full bg-green-400/70 dark:bg-green-500/50" />;
             case 'connecting':
             case 'reconnecting':
-                return <div className="w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse" />;
+                return <div className="w-2 h-2 rounded-full bg-amber-400/60 animate-pulse" />;
             case 'disconnected':
-                return <div className="w-2.5 h-2.5 rounded-full bg-neutral-300 dark:bg-neutral-600" />;
+                return <div className="w-2 h-2 rounded-full bg-neutral-300 dark:bg-neutral-600" />;
             default:
                 return null;
         }
@@ -155,14 +154,15 @@ export function TopBar({
     }
 
     return (
-        <div className="h-12 w-full relative flex items-center justify-between px-4 select-none bg-white/80 dark:bg-neutral-950/80 backdrop-blur-md border-b border-neutral-200/50 dark:border-neutral-800/50 transition-all duration-300">
+        <div className="h-12 w-full relative z-[60] flex items-center justify-between px-4 select-none bg-white/80 dark:bg-neutral-950/80 backdrop-blur-md border-b border-neutral-200/50 dark:border-neutral-800/50 transition-all duration-300 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
             {/* 1. Left: Back, Hamburger & Title */}
             <div className="flex-1 flex items-center gap-2 mr-4">
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 hover:bg-neutral-100 dark:hover:bg-neutral-800 -ml-2"
+                    className="h-8 w-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:bg-neutral-100 dark:hover:bg-neutral-800 -ml-2"
                     onClick={onBack}
+                    aria-label="Back to boards"
                     title="Back to boards"
                 >
                     <ChevronLeft className="h-5 w-5 text-neutral-600 dark:text-neutral-400" />
@@ -170,13 +170,14 @@ export function TopBar({
 
                 <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
 
-                <DropdownMenu>
+                {(menuItems.length > 0 || onStartRecording) && (
+                <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Board menu">
                             <Menu className="h-5 w-5 text-neutral-600 dark:text-neutral-400" />
                         </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuContent align="start" className="w-56 z-[100]">
                         <DropdownMenuLabel>Board Menu</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         <DropdownMenuGroup>
@@ -197,8 +198,30 @@ export function TopBar({
                                 </React.Fragment>
                             ))}
                         </DropdownMenuGroup>
+                        {onStartRecording && !isRecording && (
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    onClick={onStartRecording}
+                                    className="flex items-center gap-2 cursor-pointer"
+                                >
+                                    <Circle className="h-4 w-4 text-red-500 fill-red-500" />
+                                    <span>Start Recording</span>
+                                </DropdownMenuItem>
+                            </>
+                        )}
+                        {onViewRecordings && (
+                            <DropdownMenuItem
+                                onClick={onViewRecordings}
+                                className="flex items-center gap-2 cursor-pointer"
+                            >
+                                <span className="h-4 w-4"><Clock className="h-4 w-4" /></span>
+                                <span>View Recordings</span>
+                            </DropdownMenuItem>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
+                )}
 
                 <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
 
@@ -219,13 +242,27 @@ export function TopBar({
                         className="bg-transparent text-sm font-medium tracking-tight text-neutral-900 dark:text-neutral-200 outline-none border-b border-blue-500 w-full max-w-[200px]"
                     />
                 ) : (
-                    <h1
-                        onClick={() => setIsEditingTitle(true)}
-                        className="text-sm font-medium tracking-tight text-neutral-900 dark:text-neutral-200 truncate font-sans hover:bg-neutral-100 dark:hover:bg-neutral-800 px-2 py-1 rounded cursor-pointer transition-colors"
-                        title="Click to rename"
-                    >
-                        {board.title}
-                    </h1>
+                    <div className="flex items-center gap-2 min-w-0">
+                        <h1
+                            onClick={() => setIsEditingTitle(true)}
+                            className="text-sm font-medium tracking-tight text-neutral-900 dark:text-neutral-200 truncate font-sans hover:bg-neutral-100 dark:hover:bg-neutral-800 px-2 py-1 rounded cursor-pointer transition-colors"
+                            title="Click to rename"
+                        >
+                            {board.title}
+                        </h1>
+                        {connectionStatus && (
+                            <span className={cn(
+                                "text-[10px] shrink-0 transition-colors",
+                                connectionStatus === 'connected' ? "text-green-600/60 dark:text-green-400/60" :
+                                connectionStatus === 'disconnected' ? "text-red-500/70" :
+                                "text-amber-500/70"
+                            )}>
+                                {connectionStatus === 'connected' ? 'Saved' :
+                                 connectionStatus === 'disconnected' ? 'Offline' :
+                                 'Syncing...'}
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -243,10 +280,10 @@ export function TopBar({
                             <DropdownMenuLabel className="flex items-center justify-between">
                                 <span>Sync Status</span>
                                 <span className={cn(
-                                    "text-xs font-normal px-2 py-0.5 rounded-full capitalize",
-                                    connectionStatus === 'connected' ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" :
-                                        connectionStatus === 'disconnected' ? "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" :
-                                            "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                    "text-[11px] font-normal px-2 py-0.5 rounded-full capitalize",
+                                    connectionStatus === 'connected' ? "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" :
+                                        connectionStatus === 'disconnected' ? "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400" :
+                                            "bg-amber-50 text-amber-600/80 dark:bg-amber-950/20 dark:text-amber-400/70"
                                 )}>
                                     {getConnectionStatusLabel()}
                                 </span>
@@ -288,99 +325,77 @@ export function TopBar({
                     </div>
                 )}
 
-                {/* Recording Controls */}
-                <div className="flex items-center gap-2 mr-2">
-                    {isRecording ? (
-                        <>
-                            <div className="flex items-center gap-2 px-2 py-1 bg-red-50 dark:bg-red-950/30 rounded-md border border-red-100 dark:border-red-900/50">
-                                <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
-                                <span className="text-xs font-mono font-medium text-red-600 dark:text-red-400 tabular-nums">
-                                    {formatDuration(recordingDuration)}
-                                </span>
-                            </div>
+                {/* Recording Controls (only visible when actively recording) */}
+                {isRecording && (
+                    <div className="flex items-center gap-2 mr-2">
+                        <div className="flex items-center gap-2 px-2 py-1 bg-red-50 dark:bg-red-950/30 rounded-md border border-red-100 dark:border-red-900/50">
+                            <div className="w-2 h-2 rounded-full bg-red-600 animate-pulse" />
+                            <span className="text-xs font-mono font-medium text-red-600 dark:text-red-400 tabular-nums">
+                                {formatDuration(recordingDuration)}
+                            </span>
+                        </div>
 
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={onToggleMute}
-                                className={cn("h-8 w-8", isMuted && "text-red-500")}
-                                title={isMuted ? "Unmute" : "Mute"}
-                            >
-                                {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                            </Button>
-
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={onToggleVideo}
-                                className={cn("h-8 w-8", !isVideoEnabled && "text-red-500")}
-                                title={isVideoEnabled ? "Turn off video" : "Turn on video"}
-                            >
-                                {isVideoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                            </Button>
-
-                            <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={onStopRecording}
-                                className="h-8 px-3 gap-2"
-                            >
-                                <Square className="h-3 w-3 fill-current" />
-                                <span className="hidden sm:inline">Stop</span>
-                            </Button>
-                        </>
-                    ) : (
                         <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onStartRecording}
-                            className="h-8 gap-2 text-neutral-600 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:border-red-200 dark:hover:border-red-900/50"
+                            variant="ghost"
+                            size="icon"
+                            onClick={onToggleMute}
+                            className={cn("h-8 w-8", isMuted && "text-red-500")}
+                            title={isMuted ? "Unmute" : "Mute"}
                         >
-                            <div className="w-2 h-2 rounded-full bg-red-600" />
-                            <span className="hidden sm:inline">Record</span>
+                            {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                         </Button>
-                    )}
-                </div>
 
-                <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={onToggleVideo}
+                            className={cn("h-8 w-8", !isVideoEnabled && "text-red-500")}
+                            title={isVideoEnabled ? "Turn off video" : "Turn on video"}
+                        >
+                            {isVideoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
+                        </Button>
 
-                {/* Share Button */}
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={onStopRecording}
+                            className="h-8 px-3 gap-2"
+                        >
+                            <Square className="h-3 w-3 fill-current" />
+                            <span className="hidden sm:inline">Stop</span>
+                        </Button>
+                    </div>
+                )}
+
+                {isRecording && <div className="h-4 w-[1px] bg-neutral-200 dark:bg-neutral-800 mx-1" />}
+
                 <Button
                     variant="ghost"
                     size="icon"
                     onClick={onToggleShare}
+                    aria-label={isShareOpen ? "Close share panel" : "Open share panel"}
+                    aria-pressed={isShareOpen}
                     className={cn(
-                        "h-8 w-8 transition-colors",
+                        "h-8 w-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 transition-colors",
                         isShareOpen ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100" : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
                     )}
                 >
                     <Share2 className="h-4 w-4" />
                 </Button>
 
-                {/* Chat Button */}
                 <Button
                     variant="ghost"
                     size="icon"
                     onClick={onToggleChat}
+                    aria-label={isChatOpen ? "Close chat panel" : "Open chat panel"}
+                    aria-pressed={isChatOpen}
                     className={cn(
-                        "h-8 w-8 transition-colors",
+                        "h-8 w-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 transition-colors",
                         isChatOpen ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100" : "text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100"
                     )}
                 >
                     <MessageCircle className="h-4 w-4" />
                 </Button>
-
-                {onViewRecordings && (
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={onViewRecordings}
-                        className="h-8 w-8 text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-100 transition-colors"
-                        title="View Recordings"
-                    >
-                        <Clock className="h-4 w-4" />
-                    </Button>
-                )}
 
                 {/* Subtle expiry indicator in top-right */}
                 {board.expiresAt && timeLeft !== null && (

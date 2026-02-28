@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, memo } from 'react';
 import { File } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { getThumbnail } from '../utils/thumbnailCache';
+import { getThumbnail } from '../lib/thumbnailCache';
 import { boardsRemote } from '../boardsRemote';
 
 interface BoardThumbnailProps {

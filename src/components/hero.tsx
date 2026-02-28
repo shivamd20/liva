@@ -1,33 +1,19 @@
 import { Button } from "@/components/ui/button"
-import { ArrowRight, Play } from "lucide-react"
-import { CanvasVisualization } from "@/components/canvas-visualization"
+import { ArrowRight } from "lucide-react"
 
 export default function Hero() {
   return (
-    <section className="relative min-h-[100svh] flex items-center justify-center overflow-hidden">
-      {/* Interactive canvas background showing collaboration */}
+    <section className="relative min-h-[90svh] flex items-center justify-center overflow-hidden">
       <div className="absolute inset-0 -z-10">
-        <CanvasVisualization />
-        {/* Subtle radial gradient overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-background/20 via-transparent to-background" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,hsl(var(--accent)/0.08),transparent_50%),radial-gradient(circle_at_70%_60%,hsl(var(--accent)/0.05),transparent_50%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,hsl(var(--border)/0.3)_1px,transparent_1px),linear-gradient(to_bottom,hsl(var(--border)/0.3)_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,black_40%,transparent_100%)]" />
       </div>
 
-      {/* Content */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto px-6 py-32 text-center">
+      <div className="relative z-10 w-full max-w-3xl mx-auto px-6 py-32 text-center">
         <div className="space-y-8">
-          <div className="animate-fade-up opacity-0" style={{ animationDelay: "0.1s" }}>
-            <span className="badge-beta">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white/60"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-              </span>
-              Free while in beta
-            </span>
-          </div>
-
           <h1
-            className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-tight text-balance leading-[1.02] animate-fade-up opacity-0"
-            style={{ animationDelay: "0.2s" }}
+            className="text-5xl sm:text-6xl md:text-7xl font-bold tracking-tight text-balance leading-[1.05] animate-fade-up opacity-0"
+            style={{ animationDelay: "0.1s" }}
           >
             Think at the
             <br />
@@ -37,17 +23,16 @@ export default function Hero() {
           </h1>
 
           <p
-            className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto text-balance leading-relaxed animate-fade-up opacity-0"
-            style={{ animationDelay: "0.3s" }}
+            className="text-lg sm:text-xl text-muted-foreground max-w-xl mx-auto text-balance leading-relaxed animate-fade-up opacity-0"
+            style={{ animationDelay: "0.2s" }}
           >
-            The AI-native infinite canvas that moves as fast as your mind. Real-time collaboration with live cursors.
-            Zero friction.
-            <span className="text-foreground font-medium"> Start thinking in 2 seconds.</span>
+            An AI-native infinite canvas with real-time collaboration.
+            No signup. No friction.
           </p>
 
           <div
-            className="flex flex-col sm:flex-row gap-4 justify-center pt-4 animate-fade-up opacity-0"
-            style={{ animationDelay: "0.4s" }}
+            className="flex justify-center pt-2 animate-fade-up opacity-0"
+            style={{ animationDelay: "0.3s" }}
           >
             <Button
               size="lg"
@@ -55,64 +40,28 @@ export default function Hero() {
               asChild
             >
               <a href="/boards">
-                <Play className="w-4 h-4 mr-2 fill-current" />
-                Try it now
+                Start drawing
                 <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-1" />
-              </a>
-            </Button>
-            <Button
-              size="lg"
-              variant="outline"
-              className="h-14 px-8 text-base font-medium rounded-full border-2 border-border bg-background/80 backdrop-blur-sm hover:bg-secondary transition-all duration-300"
-              asChild
-            >
-              <a href="https://calendar.app.google/uxqDsCepVjkX6MXj6" target="_blank" rel="noopener noreferrer">
-                Book a demo
               </a>
             </Button>
           </div>
 
           <div
-            className="flex flex-wrap items-center justify-center gap-6 pt-8 animate-fade-up opacity-0"
-            style={{ animationDelay: "0.5s" }}
+            className="flex flex-wrap items-center justify-center gap-6 pt-4 animate-fade-up opacity-0"
+            style={{ animationDelay: "0.4s" }}
           >
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              No signup required
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              Instant board creation
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              100% open source
-            </div>
-          </div>
-
-          {/* Scroll indicator */}
-          <div className="pt-12 animate-fade-up opacity-0" style={{ animationDelay: "0.7s" }}>
-            <div className="w-6 h-10 rounded-full border-2 border-muted-foreground/20 mx-auto flex justify-center pt-2">
-              <div className="w-1 h-2 rounded-full bg-muted-foreground/40 animate-bounce" />
-            </div>
+            {["No signup required", "Instant boards", "100% open source"].map((text) => (
+              <div key={text} className="flex items-center gap-2 text-sm text-muted-foreground">
+                <svg className="w-4 h-4 text-emerald-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path
+                    fillRule="evenodd"
+                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+                {text}
+              </div>
+            ))}
           </div>
         </div>
       </div>

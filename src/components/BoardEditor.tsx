@@ -10,7 +10,7 @@
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
-import { Share2, MessageCircle, Globe } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 import { AssistantPanel } from './AssistantPanel';
 import { VoiceOrb, deriveOrbState } from '@/voice/VoiceOrb';
 import { useVani2Transcription } from '@/voice/useVani2Transcription';
@@ -29,7 +29,7 @@ import { useResponsive } from '../hooks/useResponsive';
 import { boardsAPI as defaultBoardsAPI } from '../boardsConfig';
 import { BoardsAPI } from '../boards';
 import { useQueryClient } from '@tanstack/react-query';
-import { getUserProfile } from '../utils/userIdentity';
+import { getUserProfile } from '../lib/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
 import { useTheme } from 'next-themes';
@@ -42,6 +42,31 @@ import { useMutation } from '@tanstack/react-query';
 import { useRemoteFileHandler } from '../hooks/useRemoteFileHandler';
 import { useNavigate } from 'react-router-dom';
 import { useTrackBoardAccess } from '../hooks/useBoards';
+
+const VOICE_SYSTEM_PROMPT = `You are Liva, a creative collaborator who helps people think visually on their whiteboard. You talk like a smart coworker — casual, direct, and genuinely interested in what they're building.
+
+HOW TO SPEAK:
+- Short sentences. Plain words. No filler.
+- Use contractions naturally: "I'll", "let's", "that's", "here's".
+- Never output markdown, bullet points, asterisks, or numbered lists. This is spoken audio.
+- Acknowledge briefly before answering: "Sure", "Got it", "Okay so".
+- 2-3 sentences per response. If the topic is complex, give a one-line summary and ask if they want the full version.
+- When you see board content, describe what you actually see — specific shapes, text, arrows, clusters. Use spatial language: "that group on the left", "the arrow going from X to Y".
+
+WHEN THE USER IS THINKING:
+If they trail off, say "hmm", "let me think", or seem to be working through an idea — just give a short acknowledgment or stay quiet. Don't jump in with answers.
+
+USING TOOLS:
+You have three tools. Always say what you're doing before calling one.
+
+read_board — Takes a screenshot of the board. Call this when they ask you to look at, describe, or review the board, or when you need context about what's on it.
+
+add_sticky_note — Places a colored sticky note. Call when they want something written down on the board. Keep text concise. Pick a meaningful color: yellow=general, blue=ideas, green=decisions, pink=urgent, orange=blockers.
+
+highlight_area — Highlights the board to draw attention to a region.
+
+PERSONALITY:
+Match the user's energy. Be opinionated when asked. You're a collaborator, not an assistant.`;
 
 interface BoardEditorProps {
   board: Board;
@@ -86,28 +111,177 @@ export function BoardEditor({
   const { theme } = useTheme();
 
   // Voice orb state
-  const VOICE_SYSTEM_PROMPT = `You are a concise voice assistant for someone using a whiteboard. Be brief. Use the read_board tool when you need to see what is on the board.`;
   const voiceTranscription = useVani2Transcription(undefined, board.id);
   const runBoardTool = useCallback(async (name: string, _args?: unknown): Promise<unknown> => {
     const api = excalidrawAPIRef.current;
-    if (name !== "read_board" || !api) return { error: "Board not available" };
-    try {
-      const blob = await exportToBlob({
-        elements: api.getSceneElements(),
-        appState: { ...api.getAppState(), exportWithDarkMode: false, exportScale: 2 },
-        files: api.getFiles(),
-        mimeType: "image/png",
-        quality: 0.8,
-      });
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve({ image: reader.result as string });
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-      });
-    } catch (e: any) {
-      return { error: e?.message ?? "Export failed" };
+    if (!api) return { error: "Board not available" };
+
+    if (name === "read_board") {
+      try {
+        const blob = await exportToBlob({
+          elements: api.getSceneElements(),
+          appState: { ...api.getAppState(), exportWithDarkMode: false, exportScale: 2 },
+          files: api.getFiles(),
+          mimeType: "image/png",
+          quality: 0.8,
+        });
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve({ image: reader.result as string });
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        });
+      } catch (e: any) {
+        return { error: e?.message ?? "Export failed" };
+      }
     }
+
+    if (name === "add_sticky_note") {
+      try {
+        const args = (_args && typeof _args === "object") ? _args as Record<string, unknown> : {};
+        const text = typeof args.text === "string" ? args.text : "Note";
+        const colorName = typeof args.color === "string" ? args.color : "yellow";
+        const colorMap: Record<string, string> = {
+          yellow: "#FFF3B0", blue: "#a5d8ff", green: "#b2f2bb",
+          pink: "#fcc2d7", orange: "#ffd8a8",
+        };
+        const strokeMap: Record<string, string> = {
+          yellow: "#e8a838", blue: "#1971c2", green: "#2f9e44",
+          pink: "#c2255c", orange: "#e8590c",
+        };
+        const bgColor = colorMap[colorName] || colorMap.yellow;
+        const strokeColor = strokeMap[colorName] || strokeMap.yellow;
+        const appState = api.getAppState();
+        const zoom = appState.zoom?.value || 1;
+        const viewportCenterX = (-appState.scrollX + (appState.width || 800) / 2) / zoom;
+        const viewportCenterY = (-appState.scrollY + (appState.height || 600) / 2) / zoom;
+        const jitterX = (Math.random() - 0.5) * 120;
+        const jitterY = (Math.random() - 0.5) * 80;
+        const NOTE_W = 220;
+        const NOTE_H = 120;
+        const rectId = crypto.randomUUID();
+        const textId = crypto.randomUUID();
+        const sharedProps = {
+          angle: 0,
+          opacity: 100,
+          isDeleted: false,
+          groupIds: [],
+          link: null,
+          locked: false,
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 1000000),
+          updated: Date.now(),
+          seed: Math.floor(Math.random() * 1000000),
+        };
+        const rect = {
+          ...sharedProps,
+          id: rectId,
+          type: "rectangle" as const,
+          x: viewportCenterX - NOTE_W / 2 + jitterX,
+          y: viewportCenterY - NOTE_H / 2 + jitterY,
+          width: NOTE_W,
+          height: NOTE_H,
+          backgroundColor: bgColor,
+          strokeColor,
+          fillStyle: "solid" as const,
+          strokeWidth: 2,
+          roughness: 1,
+          roundness: { type: 3 },
+          boundElements: [{ type: "text" as const, id: textId }],
+        };
+        const textEl = {
+          ...sharedProps,
+          id: textId,
+          type: "text" as const,
+          x: rect.x + NOTE_W / 2,
+          y: rect.y + NOTE_H / 2,
+          width: NOTE_W - 20,
+          height: NOTE_H - 20,
+          text,
+          fontSize: 16,
+          fontFamily: 1,
+          textAlign: "center" as const,
+          verticalAlign: "middle" as const,
+          backgroundColor: "transparent",
+          strokeColor: "#1e1e1e",
+          fillStyle: "solid" as const,
+          strokeWidth: 0,
+          roughness: 0,
+          roundness: null,
+          containerId: rectId,
+          boundElements: null,
+          originalText: text,
+          autoResize: true,
+        };
+        const elements = [...api.getSceneElements(), rect, textEl];
+        api.updateScene({ elements });
+        return { id: rectId };
+      } catch (e: any) {
+        return { error: e?.message ?? "Failed to add sticky note" };
+      }
+    }
+
+    if (name === "highlight_area") {
+      try {
+        const allElements = api.getSceneElements();
+        if (allElements.length === 0) return { success: false };
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const el of allElements) {
+          if (el.isDeleted) continue;
+          minX = Math.min(minX, el.x);
+          minY = Math.min(minY, el.y);
+          maxX = Math.max(maxX, el.x + el.width);
+          maxY = Math.max(maxY, el.y + el.height);
+        }
+        if (!isFinite(minX)) return { success: false };
+        const padding = 40;
+        api.scrollToContent(allElements as any, { fitToViewport: true, animate: true, duration: 300 });
+        const highlightId = crypto.randomUUID();
+        const highlight = {
+          id: highlightId,
+          type: "rectangle" as const,
+          x: minX - padding,
+          y: minY - padding,
+          width: maxX - minX + padding * 2,
+          height: maxY - minY + padding * 2,
+          backgroundColor: "transparent",
+          strokeColor: "#6366f1",
+          fillStyle: "solid" as const,
+          strokeWidth: 3,
+          roughness: 0,
+          roundness: { type: 3 },
+          opacity: 60,
+          angle: 0,
+          isDeleted: false,
+          groupIds: [],
+          boundElements: null,
+          link: null,
+          locked: true,
+          version: 1,
+          versionNonce: Math.floor(Math.random() * 1000000),
+          updated: Date.now(),
+          seed: Math.floor(Math.random() * 1000000),
+        };
+        const elements = [...api.getSceneElements(), highlight];
+        api.updateScene({ elements });
+        setTimeout(() => {
+          try {
+            const current = excalidrawAPIRef.current;
+            if (current) {
+              const updated = current.getSceneElements().map((el: any) =>
+                el.id === highlightId ? { ...el, isDeleted: true } : el
+              );
+              current.updateScene({ elements: updated });
+            }
+          } catch {}
+        }, 3000);
+        return { success: true };
+      } catch (e: any) {
+        return { success: false };
+      }
+    }
+
+    return { error: `Unknown tool: ${name}` };
   }, []);
   const voiceSession = useVani2Session({ sessionId: board.id, systemPrompt: VOICE_SYSTEM_PROMPT, runTool: runBoardTool });
 
@@ -123,51 +297,189 @@ export function BoardEditor({
   });
 
   const handleOrbTap = useCallback(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:handleOrbTap',message:'Orb tapped',data:{},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     setActivePanelTab((cur) => cur === "conversation" ? null : "conversation");
   }, []);
 
-  // EndOfTurn debounce: wait 500ms before sending transcript_final in case user resumes
+  const handleOrbStop = useCallback(() => {
+    voiceSession.sendInterrupt();
+  }, [voiceSession]);
+
+  // Turn-taking: semantic end-of-turn detection, intelligent audio ducking,
+  // barge-in threshold, false-start merging, and configurable eagerness
+  const BACKCHANNEL_WORDS = new Set(["yeah", "yes", "okay", "ok", "mm-hmm", "mmhmm", "mhm", "uh-huh", "right", "sure", "yep", "yup", "no", "nope", "hm", "hmm"]);
+  const TRAILING_HESITATIONS = /\b(um|uh|uh+|hmm+|like|so|and|but|or|because|well)\s*$/i;
+  const BARGE_IN_WORD_THRESHOLD = 3;
+  const FALSE_START_MERGE_WINDOW_MS = 1500;
+
+  type EagernessLevel = "high" | "medium" | "low";
+  const [eagerness] = useState<EagernessLevel>("medium");
+
+  const eagernessMultiplier = useMemo(() => {
+    switch (eagerness) {
+      case "high": return 0.6;
+      case "low": return 1.5;
+      default: return 1.0;
+    }
+  }, [eagerness]);
+
   const eotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingTranscriptRef = useRef<string | null>(null);
   const orbTurnIdRef = useRef(0);
+  const noiseCancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDuckedRef = useRef(false);
+  const interruptSentRef = useRef(false);
+  const lastStartOfTurnRef = useRef<number>(0);
+
+  const clearEotTimer = useCallback(() => {
+    if (eotTimerRef.current) { clearTimeout(eotTimerRef.current); eotTimerRef.current = null; }
+  }, []);
+
+  const clearNoiseTimer = useCallback(() => {
+    if (noiseCancelTimerRef.current) { clearTimeout(noiseCancelTimerRef.current); noiseCancelTimerRef.current = null; }
+  }, []);
+
+  const duckAudio = useCallback(() => {
+    if (!isDuckedRef.current) {
+      voiceSession.setVolume(0.3);
+      isDuckedRef.current = true;
+    }
+  }, [voiceSession]);
+
+  const restoreAudio = useCallback(() => {
+    if (isDuckedRef.current) {
+      voiceSession.setVolume(1.0);
+      isDuckedRef.current = false;
+    }
+  }, [voiceSession]);
+
+  const isBackchannel = useCallback((text: string): boolean => {
+    const words = text.toLowerCase().trim().replace(/[.,!?]+$/, "").split(/\s+/);
+    if (words.length > BARGE_IN_WORD_THRESHOLD) return false;
+    return words.every(w => BACKCHANNEL_WORDS.has(w));
+  }, []);
+
+  const computeSemanticDebounce = useCallback((text: string, confidence: number): number => {
+    const trimmed = text.trim();
+
+    if (trimmed.endsWith("?")) return Math.round(150 * eagernessMultiplier);
+
+    const words = trimmed.split(/\s+/);
+    if (words.length === 1 && BACKCHANNEL_WORDS.has(words[0].toLowerCase().replace(/[.,!?]+$/, ""))) {
+      return Math.round(100 * eagernessMultiplier);
+    }
+
+    if (TRAILING_HESITATIONS.test(trimmed)) {
+      return Math.round(800 * eagernessMultiplier);
+    }
+
+    if (confidence > 0.9) return Math.round(200 * eagernessMultiplier);
+    if (confidence > 0.75) return Math.round(350 * eagernessMultiplier);
+    return Math.round(500 * eagernessMultiplier);
+  }, [eagernessMultiplier]);
+
+  const commitTranscript = useCallback(() => {
+    eotTimerRef.current = null;
+    const text = pendingTranscriptRef.current;
+    pendingTranscriptRef.current = null;
+    if (text) {
+      restoreAudio();
+      clearNoiseTimer();
+      if (!interruptSentRef.current && (voiceSession.llmText || voiceSession.isPlaying)) {
+        voiceSession.sendInterrupt();
+      }
+      interruptSentRef.current = false;
+      voiceSession.sendTranscriptFinal(text, String(orbTurnIdRef.current));
+    }
+  }, [voiceSession, restoreAudio, clearNoiseTimer]);
 
   useEffect(() => {
     const ev = voiceTranscription.lastEvent;
     if (!ev) return;
-    // #region agent log
-    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:eotEffect',message:'Flux event received',data:{type:ev.type,hasPayload:!!ev.payload,transcript:ev.payload?.transcript?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
-    if (ev.type === "StartOfTurn" || ev.type === "TurnResumed") {
-      orbTurnIdRef.current += 1;
-      if (eotTimerRef.current) { clearTimeout(eotTimerRef.current); eotTimerRef.current = null; }
-      if (voiceSession.llmText || voiceSession.isPlaying) voiceSession.sendInterrupt();
+
+    if (ev.type === "StartOfTurn") {
+      const now = Date.now();
+      const timeSinceLast = now - lastStartOfTurnRef.current;
+      lastStartOfTurnRef.current = now;
+
+      if (timeSinceLast < FALSE_START_MERGE_WINDOW_MS && pendingTranscriptRef.current) {
+        clearEotTimer();
+      } else {
+        orbTurnIdRef.current += 1;
+        clearEotTimer();
+        pendingTranscriptRef.current = null;
+        interruptSentRef.current = false;
+      }
+
+      if (voiceSession.isPlaying || voiceSession.llmText) {
+        duckAudio();
+      }
+      clearNoiseTimer();
+      noiseCancelTimerRef.current = setTimeout(() => {
+        restoreAudio();
+        noiseCancelTimerRef.current = null;
+      }, 3000);
     }
+
+    if (ev.type === "TurnResumed") {
+      clearEotTimer();
+      clearNoiseTimer();
+      noiseCancelTimerRef.current = setTimeout(() => {
+        restoreAudio();
+        noiseCancelTimerRef.current = null;
+      }, 3000);
+    }
+
+    if (ev.type === "EagerEndOfTurn") {
+      const confidence = ev.payload.end_of_turn_confidence ?? 0;
+      if (confidence > 0.7 && ev.payload.transcript?.trim()) {
+        const t = ev.payload.transcript.trim();
+        pendingTranscriptRef.current = pendingTranscriptRef.current ? `${pendingTranscriptRef.current} ${t}` : t;
+
+        const currentText = pendingTranscriptRef.current;
+        if (isDuckedRef.current && !interruptSentRef.current && !isBackchannel(currentText)) {
+          voiceSession.sendInterrupt();
+          interruptSentRef.current = true;
+        }
+
+        clearEotTimer();
+        if (confidence > 0.85) {
+          const debounceMs = computeSemanticDebounce(currentText, confidence);
+          eotTimerRef.current = setTimeout(commitTranscript, debounceMs);
+        }
+      }
+    }
+
     if (ev.type === "EndOfTurn" && ev.payload.transcript) {
       const t = ev.payload.transcript.trim();
       if (!t) return;
+      clearNoiseTimer();
       const merged = pendingTranscriptRef.current ? `${pendingTranscriptRef.current} ${t}` : t;
       pendingTranscriptRef.current = merged;
-      if (eotTimerRef.current) clearTimeout(eotTimerRef.current);
-      eotTimerRef.current = setTimeout(() => {
-        eotTimerRef.current = null;
-        const text = pendingTranscriptRef.current;
+
+      if (isDuckedRef.current && !interruptSentRef.current && !isBackchannel(merged)) {
+        voiceSession.sendInterrupt();
+        interruptSentRef.current = true;
+      }
+
+      if (isBackchannel(merged) && isDuckedRef.current) {
         pendingTranscriptRef.current = null;
-        if (text) {
-          // #region agent log
-          fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:sendTranscript',message:'Sending transcript to session',data:{text:text.slice(0,100),turnId:orbTurnIdRef.current},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-          if (voiceSession.llmText || voiceSession.isPlaying) voiceSession.sendInterrupt();
-          voiceSession.sendTranscriptFinal(text, String(orbTurnIdRef.current));
-        }
-      }, 500);
+        restoreAudio();
+        interruptSentRef.current = false;
+        return;
+      }
+
+      clearEotTimer();
+      const confidence = ev.payload.end_of_turn_confidence ?? 0.5;
+      const debounceMs = computeSemanticDebounce(merged, confidence);
+      eotTimerRef.current = setTimeout(commitTranscript, debounceMs);
     }
-  }, [voiceTranscription.lastEvent, voiceSession]);
+  }, [voiceTranscription.lastEvent, voiceSession, clearEotTimer, clearNoiseTimer, duckAudio, restoreAudio, commitTranscript, isBackchannel, computeSemanticDebounce]);
 
   useEffect(() => {
-    return () => { if (eotTimerRef.current) clearTimeout(eotTimerRef.current); };
+    return () => {
+      if (eotTimerRef.current) clearTimeout(eotTimerRef.current);
+      if (noiseCancelTimerRef.current) clearTimeout(noiseCancelTimerRef.current);
+    };
   }, []);
 
   // Track board access for the user's personal index
@@ -520,13 +832,33 @@ export function BoardEditor({
 
   const [activePanelTab, setActivePanelTab] = useState<'share' | 'conversation' | null>(null);
   const [isPanelPinned, setIsPanelPinned] = useState(true);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const goOffline = () => setIsOffline(true);
+    const goOnline = () => setIsOffline(false);
+    window.addEventListener('offline', goOffline);
+    window.addEventListener('online', goOnline);
+    return () => {
+      window.removeEventListener('offline', goOffline);
+      window.removeEventListener('online', goOnline);
+    };
+  }, []);
 
   const togglePanel = (tab: 'share' | 'conversation') => {
     setActivePanelTab(current => current === tab ? null : tab);
   };
 
   return (
-    <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
+    <div className="flex h-full w-full overflow-hidden relative bg-background flex-col pb-[env(safe-area-inset-bottom)]">
+        {/* Offline Banner */}
+        {isOffline && (
+          <div className="shrink-0 flex items-center justify-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-sm" role="alert">
+            <WifiOff className="w-4 h-4" />
+            <span>You're offline. Changes will sync when you reconnect.</span>
+          </div>
+        )}
+
         <TopBar
           board={board}
           menuItems={menuItems || []}
@@ -600,6 +932,7 @@ export function BoardEditor({
                 <VoiceOrb
                   state={orbState}
                   onTap={handleOrbTap}
+                  onStop={handleOrbStop}
                   error={voiceTranscription.error || voiceSession.error}
                 />
               </div>

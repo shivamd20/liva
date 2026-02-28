@@ -438,21 +438,21 @@ export default function BoardsPage() {
       <Dialog.Root open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-border">
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-4">
-                <AlertTriangle className="w-8 h-8 text-red-600" />
+              <div className="w-16 h-16 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
+                <AlertTriangle className="w-8 h-8 text-red-600 dark:text-red-400" />
               </div>
-              <Dialog.Title className="text-xl font-bold text-gray-900 mb-2">
+              <Dialog.Title className="text-xl font-bold text-foreground mb-2">
                 Delete Board?
               </Dialog.Title>
-              <Dialog.Description className="text-sm text-gray-600 mb-6">
-                Are you sure you want to delete <span className="font-semibold text-gray-900">"{boardToDelete?.title}"</span>? This action cannot be undone.
+              <Dialog.Description className="text-sm text-muted-foreground mb-6">
+                Are you sure you want to delete <span className="font-semibold text-foreground">"{boardToDelete?.title}"</span>? This action cannot be undone.
               </Dialog.Description>
               <div className="flex gap-3 w-full">
                 <button
                   onClick={() => setIsDeleteModalOpen(false)}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
@@ -473,21 +473,21 @@ export default function BoardsPage() {
       <Dialog.Root open={isRemoveSharedModalOpen} onOpenChange={setIsRemoveSharedModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-border">
             <div className="flex flex-col items-center text-center">
-              <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center mb-4">
-                <X className="w-8 h-8 text-amber-600" />
+              <div className="w-16 h-16 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-4">
+                <X className="w-8 h-8 text-amber-600 dark:text-amber-400" />
               </div>
-              <Dialog.Title className="text-xl font-bold text-gray-900 mb-2">
+              <Dialog.Title className="text-xl font-bold text-foreground mb-2">
                 Remove from Your List?
               </Dialog.Title>
-              <Dialog.Description className="text-sm text-gray-600 mb-6">
-                Remove <span className="font-semibold text-gray-900">"{boardToRemove?.title || 'Untitled'}"</span> from your boards? You can access it again via the share link.
+              <Dialog.Description className="text-sm text-muted-foreground mb-6">
+                Remove <span className="font-semibold text-foreground">"{boardToRemove?.title || 'Untitled'}"</span> from your boards? You can access it again via the share link.
               </Dialog.Description>
               <div className="flex gap-3 w-full">
                 <button
                   onClick={() => setIsRemoveSharedModalOpen(false)}
-                  className="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="flex-1 px-4 py-2.5 text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
@@ -508,19 +508,19 @@ export default function BoardsPage() {
       <Dialog.Root open={isRenameModalOpen} onOpenChange={setIsRenameModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-border">
             <div className="flex justify-between items-center mb-4">
-              <Dialog.Title className="text-xl font-bold text-gray-900">Rename Board</Dialog.Title>
+              <Dialog.Title className="text-xl font-bold text-foreground">Rename Board</Dialog.Title>
               <button
                 onClick={() => setIsRenameModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-muted transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleRenameSubmit} className="space-y-4">
               <div>
-                <label htmlFor="renameTitle" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="renameTitle" className="block text-sm font-medium text-muted-foreground mb-1">
                   Board Title
                 </label>
                 <input
@@ -529,7 +529,7 @@ export default function BoardsPage() {
                   value={renameTitle}
                   onChange={(e) => setRenameTitle(e.target.value)}
                   placeholder="Enter board name"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
+                  className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all bg-background text-foreground"
                   autoFocus
                 />
               </div>
@@ -537,14 +537,14 @@ export default function BoardsPage() {
                 <button
                   type="button"
                   onClick={() => setIsRenameModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!renameTitle.trim() || updateBoard.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
+                  className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
                   {updateBoard.isPending ? 'Renaming...' : 'Rename Board'}
                 </button>
@@ -558,22 +558,22 @@ export default function BoardsPage() {
       <Dialog.Root open={isDuplicateModalOpen} onOpenChange={setIsDuplicateModalOpen}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 animate-in fade-in duration-200" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-gray-100">
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-background rounded-2xl shadow-xl p-6 w-full max-w-md z-50 animate-in zoom-in-95 duration-200 border border-border">
             <div className="flex justify-between items-center mb-4">
-              <Dialog.Title className="text-xl font-bold text-gray-900">Duplicate Board</Dialog.Title>
+              <Dialog.Title className="text-xl font-bold text-foreground">Duplicate Board</Dialog.Title>
               <button
                 onClick={() => setIsDuplicateModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-muted transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <Dialog.Description className="text-sm text-gray-600 mb-4">
-              Creating a copy of <span className="font-semibold text-gray-900">"{boardToDuplicate?.title || 'Untitled'}"</span>
+            <Dialog.Description className="text-sm text-muted-foreground mb-4">
+              Creating a copy of <span className="font-semibold text-foreground">"{boardToDuplicate?.title || 'Untitled'}"</span>
             </Dialog.Description>
             <form onSubmit={handleDuplicateSubmit} className="space-y-4">
               <div>
-                <label htmlFor="duplicateTitle" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="duplicateTitle" className="block text-sm font-medium text-muted-foreground mb-1">
                   New Board Title
                 </label>
                 <input
@@ -582,7 +582,7 @@ export default function BoardsPage() {
                   value={duplicateTitle}
                   onChange={(e) => setDuplicateTitle(e.target.value)}
                   placeholder="Enter name for duplicated board"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-gray-900"
+                  className="w-full px-4 py-2 border border-border rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all bg-background text-foreground"
                   autoFocus
                 />
               </div>
@@ -590,14 +590,14 @@ export default function BoardsPage() {
                 <button
                   type="button"
                   onClick={() => setIsDuplicateModalOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!duplicateTitle.trim() || duplicateBoard.isPending}
-                  className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-[#3B82F6] to-[#06B6D4] hover:from-[#2563EB] hover:to-[#0891B2] rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 shadow-md hover:shadow-lg"
+                  className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary hover:bg-primary/90 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
                 >
                   {duplicateBoard.isPending ? (
                     <>Duplicating...</>

@@ -3,13 +3,14 @@
  */
 
 export type ClientToServerJson =
-  | { type: "session.init"; systemPrompt: string }
+  | { type: "session.init"; systemPrompt: string; voice?: string; eagerness?: "high" | "medium" | "low" }
   | { type: "control.mute"; value: boolean }
   | { type: "control.interrupt" }
   | { type: "transcript_final"; text: string; turnId?: string }
-  | { type: "tool_result"; toolCallId: string; result: unknown };
+  | { type: "tool_result"; toolCallId: string; result: unknown }
+  | { type: "ping" };
 
-export type ServerStatusValue = "thinking" | "synthesizing";
+export type ServerStatusValue = "thinking" | "synthesizing" | "interrupted";
 
 export type ServerToClientJson =
   | { type: "state"; value: SessionState }
@@ -18,7 +19,10 @@ export type ServerToClientJson =
   | { type: "llm_partial"; text: string; turnId?: string }
   | { type: "llm_complete"; text: string; turnId?: string }
   | { type: "llm_error"; reason: string; turnId?: string }
-  | { type: "tool_request"; toolCallId: string; name: string; args?: unknown };
+  | { type: "tool_request"; toolCallId: string; name: string; args?: unknown }
+  | { type: "tts_error"; text: string; turnId?: string }
+  | { type: "audio_end"; turnId?: string }
+  | { type: "pong" };
 
 export type SessionState = "connected" | "streaming" | "closed";
 
@@ -34,7 +38,12 @@ export function parseClientJson(data: string): ClientToServerJson | null {
       result?: unknown;
     };
     if (obj.type === "session.init" && typeof obj.systemPrompt === "string" && obj.systemPrompt.trim().length > 0) {
-      return { type: "session.init", systemPrompt: obj.systemPrompt.trim() };
+      return {
+        type: "session.init",
+        systemPrompt: obj.systemPrompt.trim(),
+        ...(typeof (obj as any).voice === "string" ? { voice: (obj as any).voice } : {}),
+        ...(typeof (obj as any).eagerness === "string" ? { eagerness: (obj as any).eagerness } : {}),
+      };
     }
     if (obj.type === "control.mute" && typeof obj.value === "boolean") {
       return { type: "control.mute", value: obj.value };
@@ -48,6 +57,9 @@ export function parseClientJson(data: string): ClientToServerJson | null {
     }
     if (obj.type === "control.interrupt") {
       return { type: "control.interrupt" };
+    }
+    if (obj.type === "ping") {
+      return { type: "ping" };
     }
     if (obj.type === "tool_result" && typeof obj.toolCallId === "string") {
       return { type: "tool_result", toolCallId: obj.toolCallId, result: obj.result };

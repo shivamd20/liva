@@ -8,7 +8,7 @@ export interface Video {
     description?: string;
     sessionId: string; // The Monorail Session ID
     boardId?: string; // Optional link to a board
-    status: 'RECORDED' | 'PROCESSING' | 'PUBLISHED' | 'FAILED';
+    status: 'RECORDED' | 'PROCESSING' | 'PUBLISHED' | 'READY' | 'FAILED';
     thumbnailUrl?: string; // Optional R2 URL or similar
     youtubeId?: string;
     videoUrl?: string; // YouTube URL
@@ -54,6 +54,18 @@ export class VideosDO extends DurableObject<Env> {
             this.sql.exec("CREATE INDEX IF NOT EXISTS idx_videos_board_id ON videos(board_id)");
         } catch (e) {
             // Index already exists
+        }
+
+        // Add processed_video_url and transcript for post-processing pipeline
+        try {
+            this.sql.exec("ALTER TABLE videos ADD COLUMN processed_video_url TEXT");
+        } catch (e) {
+            // Column already exists
+        }
+        try {
+            this.sql.exec("ALTER TABLE videos ADD COLUMN transcript TEXT");
+        } catch (e) {
+            // Column already exists
         }
     }
 
@@ -103,6 +115,22 @@ export class VideosDO extends DurableObject<Env> {
             SET title = ?, description = ?, updated_at = ?
             WHERE id = ?
         `, title, description || null, now, id);
+    }
+
+    async updateProcessingResult(
+        videoId: string,
+        result: { processedUrl: string; thumbnailUrl: string; transcript?: string; status: 'READY' }
+    ): Promise<void> {
+        const now = Date.now();
+        this.sql.exec(
+            `UPDATE videos SET status = ?, thumbnail_url = ?, processed_video_url = ?, transcript = ?, updated_at = ? WHERE id = ?`,
+            result.status,
+            result.thumbnailUrl,
+            result.processedUrl,
+            result.transcript ?? null,
+            now,
+            videoId
+        );
     }
 
     async updateStatus(id: string, status: Video['status'], youtubeId?: string, videoUrl?: string): Promise<void> {

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { trpcClient } from "@/trpcClient"
-import { ArrowLeft, Loader2, ChevronDown } from "lucide-react"
+import { ArrowLeft, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 import type { Track } from "./tracks"
@@ -382,8 +382,31 @@ export function ProgressView({ onBack }: ProgressViewProps) {
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         {isLoading && (
-          <div className="flex min-h-[50vh] items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <div className="animate-pulse">
+            <div className="px-5 py-6 space-y-3">
+              <div className="h-1.5 rounded-full bg-muted/60" />
+              <div className="flex justify-center gap-6">
+                <div className="h-3 w-12 rounded bg-muted/40" />
+                <div className="h-3 w-12 rounded bg-muted/40" />
+                <div className="h-3 w-12 rounded bg-muted/40" />
+              </div>
+            </div>
+            {[...Array(3)].map((_, g) => (
+              <div key={g}>
+                <div className="px-5 py-3 border-b border-border/30">
+                  <div className="h-3 w-24 rounded bg-muted/40" />
+                </div>
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="flex items-center gap-3 px-5 py-4">
+                    <div className="h-2.5 w-2.5 rounded-full bg-muted/40 shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-3/5 rounded bg-muted/40" />
+                      <div className="h-3 w-2/5 rounded bg-muted/30" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         )}
 

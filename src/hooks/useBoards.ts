@@ -115,7 +115,23 @@ export function useDeleteBoard() {
 
   return useMutation({
     mutationFn: (id: string) => boards.delete(id),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: BOARDS_QUERY_KEY });
+      await queryClient.cancelQueries({ queryKey: BOARDS_LIST_KEY });
+
+      const previousBoards = queryClient.getQueryData<Board[]>(BOARDS_QUERY_KEY);
+      if (previousBoards) {
+        queryClient.setQueryData(BOARDS_QUERY_KEY, previousBoards.filter(b => b.id !== id));
+      }
+
+      return { previousBoards };
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previousBoards) {
+        queryClient.setQueryData(BOARDS_QUERY_KEY, context.previousBoards);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
@@ -131,26 +147,25 @@ export function useDuplicateBoard() {
       const { board, title } = params;
       const newTitle = title || `${board.title} (Copy)`;
 
-      // Create a new board with the same content
       const newBoard = await boards.create(newTitle);
 
-      // Update the new board with the content from the original board
       await boards.update({
         ...newBoard,
         content: board.content,
         excalidrawElements: board.excalidrawElements,
       });
 
-      // Fetch the updated board to get the latest state
       const updatedBoard = await boards.getById(newBoard.id);
       return updatedBoard;
     },
     onSuccess: (newBoard) => {
       if (newBoard) {
         queryClient.setQueryData(['board', newBoard.id], newBoard);
-        queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
-        queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
       }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: BOARDS_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: BOARDS_LIST_KEY });
     }
   });
 }

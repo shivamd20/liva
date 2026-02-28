@@ -1,4 +1,4 @@
-import { Mic, MicOff, Circle, MessageSquare, Loader2, Wrench } from "lucide-react";
+import { Mic, MicOff, Circle, MessageSquare, Loader2, Wrench, Wifi, WifiOff, Download, RotateCcw } from "lucide-react";
 
 const FLUX_EVENT_LABELS: Record<string, { label: string; color: string }> = {
   StartOfTurn: { label: "Turn started", color: "bg-emerald-500/20 text-emerald-400 border-emerald-600/50" },
@@ -34,6 +34,9 @@ export interface VoicePanelProps {
     toolCallHistory: Array<{ id: string; name: string; result?: unknown; imageDataUrl?: string }>;
     connect: () => void;
     disconnect: () => void;
+    connectionQuality?: "good" | "degraded" | "poor";
+    sessionRestored?: boolean;
+    ttsErrors?: string[];
   };
 }
 
@@ -55,6 +58,9 @@ export function VoicePanel({ className = "", transcription, session }: VoicePane
   const toolRunning = session?.toolRunning ?? false;
   const toolCallHistory = session?.toolCallHistory ?? [];
 
+  const connectionQuality = session?.connectionQuality ?? "good";
+  const sessionRestored = session?.sessionRestored ?? false;
+
   const isTranscribing = status === "connected";
   const isFluxConnecting = status === "connecting";
   const isSessionConnecting = sessionStatus === "connecting";
@@ -63,25 +69,57 @@ export function VoicePanel({ className = "", transcription, session }: VoicePane
   const isActive = isTranscribing || isConnecting;
 
   const start = () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'VoicePanel.tsx:start',message:'Start voice clicked',data:{hasSession:!!session,hasTranscription:!!transcription,sessionConnect:typeof session?.connect,transcriptionConnect:typeof transcription?.connect},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     session?.connect();
     transcription?.connect();
   };
 
   const stop = () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'VoicePanel.tsx:stop',message:'Stop voice clicked',data:{},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
     transcription?.disconnect();
     session?.disconnect();
+  };
+
+  const exportConversation = () => {
+    const lines: string[] = [];
+    lines.push(`Voice Conversation Export — ${new Date().toLocaleString()}\n`);
+    for (const text of [...assistantHistory].reverse()) {
+      lines.push(`Assistant: ${text}\n`);
+    }
+    for (const text of [...transcriptHistory].reverse()) {
+      lines.push(`You: ${text}\n`);
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `conversation-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
     <div className={`flex flex-col h-full bg-background ${className}`}>
       <div className="px-4 py-3 border-b bg-muted/20">
-        <h2 className="text-sm font-semibold tracking-tight">Voice Assistant</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold tracking-tight">Voice Assistant</h2>
+          <div className="flex items-center gap-2">
+            {isActive && connectionQuality !== "good" && (
+              <div className={`flex items-center gap-1 text-xs ${connectionQuality === "poor" ? "text-destructive" : "text-amber-500"}`}>
+                {connectionQuality === "poor" ? <WifiOff className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
+                <span>{connectionQuality === "poor" ? "Poor" : "Weak"}</span>
+              </div>
+            )}
+            {(assistantHistory.length > 0 || transcriptHistory.length > 0) && (
+              <button
+                type="button"
+                onClick={exportConversation}
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
+                title="Export conversation"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -172,6 +210,13 @@ export function VoicePanel({ className = "", transcription, session }: VoicePane
               </div>
             )}
           </>
+        )}
+
+        {sessionRestored && isSessionConnected && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-500/10 border border-sky-500/30">
+            <RotateCcw className="w-3.5 h-3.5 text-sky-500" />
+            <span className="text-xs text-sky-600 dark:text-sky-400">Session restored — previous context is loaded.</span>
+          </div>
         )}
 
         {(error || sessionError) && (

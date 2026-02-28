@@ -16,7 +16,7 @@ export const videosRouter = t.router({
             limit: z.number().min(1).max(50).default(12),
             cursor: z.string().optional(),
             boardId: z.string().optional(),
-            status: z.enum(['RECORDED', 'PROCESSING', 'PUBLISHED', 'FAILED']).optional(),
+            status: z.enum(['RECORDED', 'PROCESSING', 'PUBLISHED', 'READY', 'FAILED']).optional(),
             search: z.string().optional()
         }))
         .query(async ({ ctx, input }) => {
@@ -38,7 +38,7 @@ export const videosRouter = t.router({
             description: z.string().optional(),
             sessionId: z.string(),
             boardId: z.string().optional(),
-            status: z.enum(['RECORDED', 'PROCESSING', 'PUBLISHED', 'FAILED']),
+            status: z.enum(['RECORDED', 'PROCESSING', 'PUBLISHED', 'READY', 'FAILED']),
             thumbnailUrl: z.string().optional()
         }))
         .mutation(async ({ ctx, input }) => {

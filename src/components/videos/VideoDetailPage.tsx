@@ -2,8 +2,9 @@ import { useNavigate, useParams, Link } from 'react-router-dom';
 import { trpcClient } from '../../trpcClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Youtube, Loader2, ExternalLink, CheckCircle, AlertCircle, Layout } from 'lucide-react';
+import { ArrowLeft, Youtube, Loader2, ExternalLink, CheckCircle, AlertCircle, Layout, Download, Share2, Copy, Sparkles } from 'lucide-react';
 import { MonorailPlayer } from '@/components/MonorailPlayer';
+import { ProcessingProgress } from './ProcessingProgress';
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -18,6 +19,9 @@ export function VideoDetailPage() {
     const [publishId, setPublishId] = useState<string | null>(null);
     const [publishStatus, setPublishStatus] = useState<'INIT' | 'UPLOADING_TO_YT' | 'DONE' | 'FAILED' | null>(null);
     const [uploadProgress, setUploadProgress] = useState(0);
+
+    // Processing state
+    const [isProcessing, setIsProcessing] = useState(false);
 
     // Fetch Video
     const { data: video, isLoading, refetch } = useQuery({
@@ -122,6 +126,36 @@ export function VideoDetailPage() {
         }
     };
 
+    const handleStartProcessing = async () => {
+        if (!video) return;
+        try {
+            setIsProcessing(true);
+            await trpcClient.processing.startProcessing.mutate({
+                videoId: video.id,
+                sessionId: video.sessionId,
+            });
+            toast.info("Processing started! This may take a few minutes.");
+            refetch();
+        } catch (error: any) {
+            console.error('[Processing] Failed:', error);
+            toast.error("Failed to start processing: " + (error.message || "Unknown error"));
+            setIsProcessing(false);
+        }
+    };
+
+    const handleCopyShareLink = async () => {
+        if (!video) return;
+        const shareUrl = `${window.location.origin}/share/${video.id}`;
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success("Share link copied to clipboard!");
+    };
+
+    const handleProcessingComplete = () => {
+        setIsProcessing(false);
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ['video', videoId] });
+    };
+
     if (isLoading) {
         return (
             <div className="flex items-center justify-center h-full bg-white dark:bg-zinc-950">
@@ -143,7 +177,10 @@ export function VideoDetailPage() {
 
     const hasChanges = video.title !== title || (video.description || "") !== description;
     const isUploading = publishStatus === 'INIT' || publishStatus === 'UPLOADING_TO_YT';
-    const canExport = video.status === 'RECORDED' && ytStatus?.connected && !isUploading && !video.youtubeId;
+    const canExport = (video.status === 'RECORDED' || video.status === 'READY') && ytStatus?.connected && !isUploading && !video.youtubeId;
+    const isReady = video.status === 'READY';
+    const showProcessing = video.status === 'PROCESSING' || isProcessing;
+    const canStartProcessing = video.status === 'RECORDED' && !isProcessing;
 
     return (
         <div className="flex flex-col h-full bg-white dark:bg-zinc-950">
@@ -185,6 +222,14 @@ export function VideoDetailPage() {
                     {/* Content */}
                     <div className="p-4 md:p-8 space-y-8 max-w-3xl mx-auto">
 
+                        {/* Processing Progress */}
+                        {showProcessing && (
+                            <ProcessingProgress
+                                videoId={video.id}
+                                onComplete={handleProcessingComplete}
+                            />
+                        )}
+
                         {/* Status & Actions Bar */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-100 dark:border-zinc-800">
                             <div className="flex items-center gap-3 flex-wrap">
@@ -209,7 +254,44 @@ export function VideoDetailPage() {
                                 )}
                             </div>
 
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {/* Process with AI button */}
+                                {canStartProcessing && (
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className="gap-2"
+                                        onClick={handleStartProcessing}
+                                        disabled={isProcessing}
+                                    >
+                                        {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                                        Process with AI
+                                    </Button>
+                                )}
+
+                                {/* Download button (when processed) */}
+                                {isReady && (
+                                    <a href={`/api/processed/${video.sessionId}/video.mp4?download=1`} download>
+                                        <Button variant="outline" size="sm" className="gap-2">
+                                            <Download className="w-4 h-4" />
+                                            Download MP4
+                                        </Button>
+                                    </a>
+                                )}
+
+                                {/* Share link button */}
+                                {(isReady || video.status === 'RECORDED') && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="gap-2"
+                                        onClick={handleCopyShareLink}
+                                    >
+                                        <Share2 className="w-4 h-4" />
+                                        Share
+                                    </Button>
+                                )}
+
                                 {/* YouTube Link if uploaded */}
                                 {video.videoUrl && (
                                     <a

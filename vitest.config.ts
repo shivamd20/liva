@@ -1,26 +1,23 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
   test: {
-    // Run tests in Node environment (for integration tests)
     environment: 'node',
-
-    // Pass when no test files exist (e.g. before tests are added)
     passWithNoTests: true,
-
-    // Test file patterns
-    include: ['tests/**/*.test.ts'],
-    
-    // Timeout for async tests
+    include: [
+      'tests/**/*.test.ts',
+      'src/**/__tests__/**/*.test.ts',
+      'server/**/__tests__/**/*.test.ts',
+    ],
     testTimeout: 60000,
-    
-    // Hook timeout
     hookTimeout: 30000,
-    
-    // Reporter
     reporters: ['verbose'],
-    
-    // Global test utilities
     globals: true,
+  },
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+    },
   },
 });

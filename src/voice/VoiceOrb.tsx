@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Mic, AlertCircle, Loader2, Eye, AudioLines, Brain, Wrench } from "lucide-react";
+import { Mic, AlertCircle, Loader2, Eye, AudioLines, Brain, Wrench, Square } from "lucide-react";
 
 export type OrbState =
   | "idle"
@@ -15,6 +15,7 @@ export type OrbState =
 interface VoiceOrbProps {
   state: OrbState;
   onTap: () => void;
+  onStop?: () => void;
   error?: string | null;
   className?: string;
 }
@@ -43,7 +44,7 @@ const ICON_COLORS: Record<OrbState, string> = {
   error:        "text-destructive",
 };
 
-function OrbIcon({ state }: { state: OrbState }) {
+function OrbIcon({ state, showStop }: { state: OrbState; showStop?: boolean }) {
   const color = ICON_COLORS[state];
   const cls = `w-5 h-5 ${color}`;
   switch (state) {
@@ -51,9 +52,10 @@ function OrbIcon({ state }: { state: OrbState }) {
     case "connecting": return <Loader2 className={`${cls} animate-spin`} />;
     case "thinking": return <Brain className={cls} />;
     case "readingBoard": return <Eye className={cls} />;
-    case "speaking": return <AudioLines className={cls} />;
+    case "speaking": return showStop ? <Square className={`w-4 h-4 ${color} fill-current`} /> : <AudioLines className={cls} />;
     case "toolRunning": return <Wrench className={cls} />;
     case "listening": return <Mic className={`${cls} animate-pulse`} />;
+    case "interrupted": return <Mic className={cls} />;
     default: return <Mic className={cls} />;
   }
 }
@@ -70,6 +72,7 @@ export function deriveOrbState(opts: {
 }): OrbState {
   const { transcriptionStatus, sessionStatus, serverStatus, isPlaying, toolRunning, activeToolName, error, sessionError } = opts;
   if (error || sessionError) return "error";
+  if (serverStatus === "interrupted") return "interrupted";
   if (transcriptionStatus === "connecting" || sessionStatus === "connecting") return "connecting";
   if (toolRunning && activeToolName === "read_board") return "readingBoard";
   if (toolRunning) return "toolRunning";
@@ -79,8 +82,9 @@ export function deriveOrbState(opts: {
   return "idle";
 }
 
-export function VoiceOrb({ state, onTap, error, className = "" }: VoiceOrbProps) {
+export function VoiceOrb({ state, onTap, onStop, error, className = "" }: VoiceOrbProps) {
   const config = STATE_CONFIG[state];
+  const canStop = state === "speaking" && !!onStop;
 
   const ringAnimation = useMemo(() => {
     if (config.spin) return "animate-[voice-orb-spin_2s_linear_infinite]";
@@ -89,11 +93,19 @@ export function VoiceOrb({ state, onTap, error, className = "" }: VoiceOrbProps)
     return "";
   }, [config.spin, config.pulse, state]);
 
+  const handleClick = () => {
+    if (canStop) {
+      onStop!();
+    } else {
+      onTap();
+    }
+  };
+
   return (
     <div className={`flex flex-col items-center gap-1.5 ${className}`}>
       <button
         type="button"
-        onClick={onTap}
+        onClick={handleClick}
         className={`
           relative w-12 h-12 rounded-full flex items-center justify-center
           transition-all duration-300 ease-out cursor-pointer
@@ -103,10 +115,10 @@ export function VoiceOrb({ state, onTap, error, className = "" }: VoiceOrbProps)
           shadow-lg backdrop-blur-sm
           ${ringAnimation}
         `}
-        aria-label="Voice assistant"
-        title={error ?? config.label ?? "Voice assistant"}
+        aria-label={canStop ? "Stop speaking" : "Voice assistant"}
+        title={canStop ? "Tap to stop" : (error ?? config.label ?? "Voice assistant")}
       >
-        <OrbIcon state={state} />
+        <OrbIcon state={state} showStop={canStop} />
 
         {(state === "speaking" || state === "listening") && (
           <>
