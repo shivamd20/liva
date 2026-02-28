@@ -4,7 +4,7 @@
 declare namespace Cloudflare {
     interface GlobalProps {
         mainModule: typeof import("./server/index");
-        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO" | "ConversationV2DurableObject" | "LearningMemoryDO" | "CodePracticeSandbox" | "CodePracticeDO" | "ProblemRegistryDO";
+        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO" | "ConversationV2DurableObject" | "LearningMemoryDO";
     }
     interface Env {
         LLM_CACHE: KVNamespace;
@@ -29,9 +29,6 @@ declare namespace Cloudflare {
         VIDEOS_DO: DurableObjectNamespace<import("./server/index").VideosDO>;
         CONVERSATION_V2_DO: DurableObjectNamespace<import("./server/index").ConversationV2DurableObject>;
         SYSTEM_SHOTS_DO: DurableObjectNamespace<import("./server/index").LearningMemoryDO>;
-        CODE_PRACTICE_SANDBOX: DurableObjectNamespace<import("./server/index").CodePracticeSandbox>;
-        CODE_PRACTICE_DO: DurableObjectNamespace<import("./server/index").CodePracticeDO>;
-        PROBLEM_REGISTRY_DO: DurableObjectNamespace<import("./server/index").ProblemRegistryDO>;
         files: R2Bucket;
         liva_db: D1Database;
         AI: Ai;

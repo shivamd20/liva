@@ -14,9 +14,7 @@
 		"build:ui": "vite build --config ./vite.config.ts",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:ui": "vitest --ui",
-		"test:code-practice": "vitest run tests/code-practice",
-		"executor": "npx tsx server/code-practice/executor-service.ts"
+		"test:ui": "vitest --ui"
 	},
 	"devDependencies": {
 		"@types/mixpanel-browser": "^2.66.0",
@@ -36,7 +34,6 @@
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.971.0",
 		"@aws-sdk/s3-request-presigner": "^3.971.0",
-		"@cloudflare/sandbox": "^0.7.0",
 		"@excalidraw/excalidraw": "^0.18.0",
 		"@excalidraw/mermaid-to-excalidraw": "^2.0.0",
 		"@google/genai": "^1.31.0",

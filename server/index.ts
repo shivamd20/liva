@@ -14,14 +14,6 @@ export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
 export { LearningMemoryDO } from "./do/LearningMemoryDO";
-export { CodePracticeDO } from "./do/CodePracticeDO";
-export { ProblemRegistryDO } from "./do/ProblemRegistryDO";
-
-// Export Cloudflare Sandbox for Code Practice
-export { Sandbox as CodePracticeSandbox } from "@cloudflare/sandbox";
-
-import { CodePracticeAI } from "./code-practice/ai";
-
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
@@ -193,41 +185,6 @@ export default {
 			const newRequest = new Request(streamUrl.toString(), {
 				method: request.method,
 				headers: request.headers,
-			});
-			newRequest.headers.set("X-Liva-User-Id", userId);
-
-			return stub.fetch(newRequest);
-		}
-
-		// Code Practice Streaming API
-		if (url.pathname.startsWith("/api/code-practice/stream")) {
-			let userId: string | undefined;
-			try {
-				const auth = createAuth(env);
-				const session = await auth.api.getSession({ headers: request.headers });
-				userId = session?.user?.id;
-			} catch (e) {
-				console.error("Auth check failed for code-practice stream", e);
-			}
-
-			// Allow anonymous for now if strict auth not required, or fallback to IP-based/tmp ID?
-			// For now, let's require auth or use a temporary ID for anonymous users if allowed.
-			// Re-using the logic from TRPC section: public endpoints use 'anonymous'.
-			if (!userId) {
-				userId = 'anonymous'; // Or derive from IP / usage limit
-			}
-
-			const doId = env.CODE_PRACTICE_DO.idFromName(userId);
-			const stub = env.CODE_PRACTICE_DO.get(doId);
-
-			const streamUrl = new URL(request.url);
-			// Rewrite /api/code-practice/stream/foo -> /stream/foo
-			streamUrl.pathname = url.pathname.replace("/api/code-practice", "");
-
-			const newRequest = new Request(streamUrl.toString(), {
-				method: request.method,
-				headers: request.headers,
-				body: request.body
 			});
 			newRequest.headers.set("X-Liva-User-Id", userId);
 
@@ -426,18 +383,6 @@ export default {
 						return { env, userId, executionCtx: ctx };
 					}
 
-					// Check if this is a code practice or engine endpoint (public, no auth required)
-					const isPublicEndpoint = url.search.includes('codePractice.') ||
-						url.pathname.includes('codePractice') ||
-						url.search.includes('engine.') ||
-						url.pathname.includes('engine');
-
-					if (isPublicEndpoint) {
-						// Public endpoints don't require authentication, but we mark as anonymous
-						// authedProcedure will reject this, publicProcedure will accept it
-						return { env, userId: 'anonymous', executionCtx: ctx };
-					}
-
 					throw new Error('User authentication required');
 				},
 			});
@@ -447,7 +392,6 @@ export default {
 			newResponse.headers.set("Access-Control-Allow-Origin", request.headers.get("Origin") || "*");
 			newResponse.headers.set("Access-Control-Allow-Credentials", "true");
 
-			return newResponse;
 			return newResponse;
 		}
 
