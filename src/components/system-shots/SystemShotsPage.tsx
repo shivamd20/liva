@@ -1,5 +1,5 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useSearchParams } from "react-router-dom"
 import { useSession } from "@/lib/auth-client"
 import { trpcClient } from "@/trpcClient"
@@ -10,24 +10,14 @@ import { ModeToggle } from "@/components/ui/mode-toggle"
 import { toast } from "sonner"
 import { REEL_THEMES, type ReelTheme, type ApiReel, type ConceptInfo } from "./types"
 import { ProgressView } from "./ProgressView"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useReelsFeed, type FeedSegment } from "./useReelsFeed"
+import { ReelSkeleton } from "./ReelSkeleton"
+import { useReelsFeed } from "./useReelsFeed"
+import { SentinelSection } from "./SentinelSection"
 import { FocusSidebar, SidebarTrigger } from "./FocusSidebar"
-import { addSeen, getSeenSet } from "./seenReelsCache"
+import { addDone, getDoneSet, addAnswered, removeAnswered, removeDone, getAnswers } from "./seenReelsCache"
 import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 
 export type { ReelTheme } from "./types"
-
-const SKELETON_COUNT = 3
-
-/** Persisted local answer state (serializable for query cache). */
-const LOCAL_ANSWER_STATE_KEY = ["system-shots", "local-answer-state"] as const
-const EMPTY_ANSWER_STATE = {
-  submittedReelIds: [] as string[],
-  submittedAnswerReelIds: [] as string[],
-  answeredByReelId: {} as Record<string, number>,
-}
-type LocalAnswerState = typeof EMPTY_ANSWER_STATE
 
 export interface SystemShotsPageProps {
   onBack: () => void
@@ -35,29 +25,40 @@ export interface SystemShotsPageProps {
 
 export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const { data: session } = useSession()
-  const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showProgressView, setShowProgressView] = useState(false)
   const [currentReelIndex, setCurrentReelIndex] = useState(0)
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [seenReelIds, setSeenReelIds] = useState<Set<string>>(() => getSeenSet())
+  const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
 
-  const addSeenReel = useCallback((reelId: string) => {
-    addSeen(reelId)
-    setSeenReelIds(getSeenSet())
+  // Unified done-reels store (localStorage-backed)
+  const [doneReelIds, setDoneReelIds] = useState<Set<string>>(() => getDoneSet())
+  const [answeredByReelId, setAnsweredByReelId] = useState<Record<string, number>>(() => getAnswers())
+
+  const refreshDoneState = useCallback(() => {
+    setDoneReelIds(getDoneSet())
+    setAnsweredByReelId(getAnswers())
+  }, [])
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false)
+    const handleOffline = () => setIsOffline(true)
+    window.addEventListener("online", handleOnline)
+    window.addEventListener("offline", handleOffline)
+    return () => {
+      window.removeEventListener("online", handleOnline)
+      window.removeEventListener("offline", handleOffline)
+    }
+  }, [])
+
+  const markReelDone = useCallback((reelId: string) => {
+    addDone(reelId)
+    setDoneReelIds((prev) => new Set(prev).add(reelId))
   }, [])
 
   // Focus Mode: sync with URL
   const focusFromUrl = searchParams.get("focus") ?? null
 
-  const { data: localAnswerState = EMPTY_ANSWER_STATE } = useQuery({
-    queryKey: LOCAL_ANSWER_STATE_KEY,
-    queryFn: () => EMPTY_ANSWER_STATE,
-    initialData: EMPTY_ANSWER_STATE,
-    staleTime: Number.POSITIVE_INFINITY,
-  })
-
-  // Handle focus change - update URL
   const handleFocusChange = useCallback((conceptId: string | null) => {
     if (conceptId) {
       setSearchParams({ focus: conceptId })
@@ -66,24 +67,21 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     }
   }, [setSearchParams])
 
-  // authFetch in reelsStream.ts handles waiting for auth and 401 retries
   const feed = useReelsFeed({
-    initialContinuedIds: localAnswerState.submittedAnswerReelIds,
-    excludedReelIds: seenReelIds,
+    excludedReelIds: doneReelIds,
     onError: (err) => toast.error(err === "Unauthorized" ? "Please sign in." : err),
     focusConceptId: focusFromUrl,
     onFocusChange: handleFocusChange,
   })
-  const { segments, reelsToShow, loadSegment, markContinued, focusedConceptId, switchFocus, clearFocus, refresh } = feed
+  const { segments, reelsToShow, loadSegment, focusedConceptId, switchFocus, clearFocus, refresh } = feed
 
-  // Fetch available topics for story bar
   const { data: availableTopics = [] } = useQuery({
     queryKey: ["system-shots", "available-topics"],
     queryFn: async () => {
       const result = await trpcClient.systemShots.getAvailableTopics.query()
       return result as ConceptInfo[]
     },
-    staleTime: 1000 * 60 * 60, // 1 hour - topics rarely change
+    staleTime: 1000 * 60 * 60,
   })
 
   const reelRefs = useRef<(HTMLElement | null)[]>([])
@@ -91,44 +89,23 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
   const loadingIndicatorRef = useRef<HTMLDivElement | null>(null)
   const skipObservedRef = useRef<Set<string>>(new Set())
 
-  // Engagement tracking: reel view time and session
   const reelViewEnterTimeRef = useRef<number | null>(null)
   const lastViewedReelIdRef = useRef<string | null>(null)
   const lastViewedReelIndexRef = useRef<number>(-1)
   const sessionStartTimeRef = useRef<number>(Date.now())
   const sessionReelsViewedRef = useRef<Set<string>>(new Set())
-
-  const submittedReelIds = useMemo(
-    () => new Set(localAnswerState.submittedReelIds),
-    [localAnswerState.submittedReelIds]
-  )
-  const submittedAnswerReelIds = useMemo(
-    () => new Set(localAnswerState.submittedAnswerReelIds),
-    [localAnswerState.submittedAnswerReelIds]
-  )
-  const answeredByReelId = localAnswerState.answeredByReelId
-
-  const updateLocalAnswerState = useCallback(
-    (updater: (prev: LocalAnswerState) => LocalAnswerState) => {
-      queryClient.setQueryData(LOCAL_ANSWER_STATE_KEY, (prev: LocalAnswerState | undefined) =>
-        updater(prev ?? EMPTY_ANSWER_STATE)
-      )
-    },
-    [queryClient]
-  )
+  const shownReelIdsRef = useRef<Set<string>>(new Set())
 
   const submitAnswerMutation = useMutation({
     mutationFn: (input: { reelId: string; selectedIndex: number | null; correct: boolean; skipped?: boolean }) =>
       trpcClient.systemShots.submitAnswer.mutate(input),
+    retry: 2,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
     onError: (_error, variables) => {
       const { reelId, skipped } = variables
-      updateLocalAnswerState((prev) => ({
-        submittedReelIds: prev.submittedReelIds.filter((id) => id !== reelId),
-        submittedAnswerReelIds: prev.submittedAnswerReelIds.filter((id) => id !== reelId),
-        answeredByReelId: Object.fromEntries(
-          Object.entries(prev.answeredByReelId).filter(([id]) => id !== reelId)
-        ),
-      }))
+      removeDone(reelId)
+      removeAnswered(reelId)
+      refreshDoneState()
       if (skipped) skipObservedRef.current.delete(reelId)
       toast.error("Failed to save. You can try again.")
     },
@@ -136,7 +113,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
 
   const handleSelectOption = useCallback(
     (reel: ApiReel, index: number) => {
-      if (submittedAnswerReelIds.has(reel.id)) return
+      if (answeredByReelId[reel.id] !== undefined) return
       const correct = reel.correctIndex !== null && index === reel.correctIndex
       mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_ANSWER, {
         reelId: reel.id,
@@ -145,16 +122,11 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         correct,
         reelType: "mcq",
       })
-      // Only update answeredByReelId and submittedReelIds - do NOT add to submittedAnswerReelIds
-      // The card should remain visible so user can see feedback and click Continue
-      updateLocalAnswerState((prev) => ({
-        submittedReelIds: [...prev.submittedReelIds, reel.id],
-        submittedAnswerReelIds: prev.submittedAnswerReelIds,
-        answeredByReelId: { ...prev.answeredByReelId, [reel.id]: index },
-      }))
+      addAnswered(reel.id, index)
+      setAnsweredByReelId((prev) => ({ ...prev, [reel.id]: index }))
       submitAnswerMutation.mutate({ reelId: reel.id, selectedIndex: index, correct, skipped: false })
     },
-    [submittedAnswerReelIds, submitAnswerMutation, updateLocalAnswerState]
+    [answeredByReelId, submitAnswerMutation]
   )
 
   const scrollToReel = useCallback((index: number) => {
@@ -174,34 +146,25 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         hadAnswer: reel.type === "mcq" && selectedIndex !== undefined,
         correct: reel.type === "mcq" && reel.correctIndex !== null && selectedIndex === reel.correctIndex,
       })
-      addSeenReel(reel.id)
-      if (reel.type === "flash") {
-        if (submittedAnswerReelIds.has(reel.id)) return
-        updateLocalAnswerState((prev) => ({
-          submittedReelIds: [...prev.submittedReelIds, reel.id],
-          submittedAnswerReelIds: [...prev.submittedAnswerReelIds, reel.id],
-          answeredByReelId: prev.answeredByReelId,
-        }))
+      markReelDone(reel.id)
+      if (reel.type === "flash" && !doneReelIds.has(reel.id)) {
         submitAnswerMutation.mutate({ reelId: reel.id, selectedIndex: null, correct: false, skipped: true })
       }
-      // For MCQ, don't add to submittedAnswerReelIds - keep the card visible with feedback
-      markContinued(reel.id)
       const nextIndex = index + 1
       if (nextIndex < totalRenderedReels) {
         scrollToReel(nextIndex)
       } else if (sentinelRef.current || loadingIndicatorRef.current) {
-        // On last reel, scroll to sentinel/loading section to trigger loading more or show progress
         setTimeout(() => {
           (sentinelRef.current || loadingIndicatorRef.current)?.scrollIntoView({ behavior: "smooth", block: "start" })
         }, 50)
       }
     },
-    [addSeenReel, submittedAnswerReelIds, submitAnswerMutation, scrollToReel, updateLocalAnswerState, markContinued]
+    [markReelDone, doneReelIds, submitAnswerMutation, scrollToReel]
   )
 
   const submitSkip = useCallback(
     (reelId: string) => {
-      if (skipObservedRef.current.has(reelId) || submittedReelIds.has(reelId)) return
+      if (skipObservedRef.current.has(reelId) || doneReelIds.has(reelId)) return
       skipObservedRef.current.add(reelId)
       const reel = reelsToShow.find((r) => r.id === reelId)
       mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_SKIP, {
@@ -210,14 +173,10 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
         reelType: reel?.type,
         reason: "scrolled_away",
       })
-      addSeenReel(reelId)
-      updateLocalAnswerState((prev) => ({
-        ...prev,
-        submittedReelIds: [...prev.submittedReelIds, reelId],
-      }))
+      markReelDone(reelId)
       submitAnswerMutation.mutate({ reelId, selectedIndex: null, correct: false, skipped: true })
     },
-    [addSeenReel, reelsToShow, submittedReelIds, submitAnswerMutation, updateLocalAnswerState]
+    [markReelDone, reelsToShow, doneReelIds, submitAnswerMutation]
   )
 
   // Track view open on mount, view close on unmount
@@ -243,7 +202,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     for (const segment of segments) {
       if (segment.type === "reels" && segment.reels) {
         for (const reel of segment.reels) {
-          if (!submittedAnswerReelIds.has(reel.id)) {
+          if (!doneReelIds.has(reel.id)) {
             ids.push(reel.id)
             map.set(reel.id, reel)
           }
@@ -255,7 +214,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
       renderedReelIds: ids,
       renderedReelMap: map,
     }
-  }, [segments, submittedAnswerReelIds])
+  }, [segments, doneReelIds])
 
   // Track current reel for progress bar + engagement (time spent, scroll)
   useEffect(() => {
@@ -298,6 +257,12 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
             lastViewedReelIndexRef.current = index
             reelViewEnterTimeRef.current = Date.now()
             sessionReelsViewedRef.current.add(reelId)
+
+            if (!shownReelIdsRef.current.has(reelId)) {
+              shownReelIdsRef.current.add(reelId)
+              trpcClient.systemShots.trackReelShown.mutate({ reelId }).catch(() => {})
+            }
+
             mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_REEL_VIEW, {
               reelId,
               reelIndex: index,
@@ -333,9 +298,9 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           if (entry.isIntersecting) {
             seenReels.add(reelId)
           } else if (seenReels.has(reelId)) {
-            const alreadySubmitted = submittedReelIds.has(reelId)
+            const alreadyDone = doneReelIds.has(reelId)
             const answered = answeredByReelId[reelId] !== undefined
-            if (!alreadySubmitted && !answered) submitSkip(reelId)
+            if (!alreadyDone && !answered) submitSkip(reelId)
           }
         }
       },
@@ -343,7 +308,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
     )
     reelElements.forEach((el) => el && observer.observe(el))
     return () => observer.disconnect()
-  }, [reelsToShow, answeredByReelId, submittedReelIds, submitSkip])
+  }, [reelsToShow, answeredByReelId, doneReelIds, submitSkip])
 
   // Check if initial loading (either old sentinel loading or new reels segment with no reels yet)
   const isInitialLoading =
@@ -424,6 +389,13 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           />
         </div>
 
+        {/* Offline banner */}
+        {isOffline && (
+          <div className="fixed top-2 left-1/2 z-40 -translate-x-1/2 rounded-md bg-destructive/90 px-3 py-1.5 text-center text-sm text-destructive-foreground shadow">
+            You're offline. Reels may not load until you're back online.
+          </div>
+        )}
+
         {/* Reel scroll container - doom scroll enabled */}
         <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden snap-y snap-mandatory overscroll-contain touch-pan-y">
           {/* Render segments in order */}
@@ -431,7 +403,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
             if (segment.type === "reels") {
               // Render reels from this segment
               const reelElements = (segment.reels ?? [])
-                .filter((reel) => !new Set(localAnswerState.submittedAnswerReelIds).has(reel.id))
+                .filter((reel) => !doneReelIds.has(reel.id))
                 .map((reel) => {
                   const i = reelIndex++
                   const theme: ReelTheme = REEL_THEMES[i % REEL_THEMES.length]
@@ -490,14 +462,7 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
                     ref={(el) => { loadingIndicatorRef.current = el }}
                     className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
                   >
-                    <div className="w-full max-w-2xl space-y-4">
-                      <Skeleton className="h-8 w-full rounded-lg" />
-                      <Skeleton className="h-32 w-full rounded-xl" />
-                      <Skeleton className="h-12 w-full rounded-xl" />
-                      <Skeleton className="h-12 w-full rounded-xl" />
-                      <Skeleton className="h-12 w-full rounded-xl" />
-                      <Skeleton className="h-12 w-full rounded-xl" />
-                    </div>
+                    <ReelSkeleton />
                   </div>
                 )
               }
@@ -551,144 +516,6 @@ export function SystemShotsPage({ onBack }: SystemShotsPageProps) {
           )}
         </div>
       </div>
-    </div>
-  )
-}
-
-/** Sentinel section - auto-loads on scroll via IntersectionObserver */
-function SentinelSection({
-  segment,
-  segmentId,
-  loadSegment,
-  onRefresh,
-  isInitial,
-  sentinelRef: externalSentinelRef,
-}: {
-  segment: FeedSegment
-  segmentId: string
-  loadSegment: (segmentId: string) => void
-  onRefresh?: () => void
-  isInitial: boolean
-  sentinelRef?: React.MutableRefObject<HTMLDivElement | null>
-}) {
-  const internalSentinelRef = useRef<HTMLDivElement | null>(null)
-  const { status } = segment
-
-  // Create stable onLoad reference using the segmentId
-  const onLoad = useCallback(() => {
-    loadSegment(segmentId)
-  }, [loadSegment, segmentId])
-
-  // Combine internal and external refs
-  const setRefs = useCallback((el: HTMLDivElement | null) => {
-    internalSentinelRef.current = el
-    if (externalSentinelRef) {
-      externalSentinelRef.current = el
-    }
-  }, [externalSentinelRef])
-
-  // Auto-load when sentinel becomes visible (infinite scroll)
-  useEffect(() => {
-    if (status !== "idle") return
-    const el = internalSentinelRef.current
-    if (!el) return
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          onLoad()
-        }
-      },
-      { rootMargin: "200px" } // Trigger slightly before visible for smoother UX
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [status, onLoad])
-
-  // Initial loading - show skeleton
-  if (isInitial && status === "loading") {
-    return (
-      <>
-        {Array.from({ length: SKELETON_COUNT }).map((_, i) => (
-          <div
-            key={`skeleton-${i}`}
-            className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6"
-          >
-            <div className="w-full max-w-2xl space-y-4">
-              <Skeleton className="h-8 w-full rounded-lg" />
-              <Skeleton className="h-32 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-              <Skeleton className="h-12 w-full rounded-xl" />
-            </div>
-          </div>
-        ))}
-      </>
-    )
-  }
-
-  // Done - no more reels
-  if (status === "done") {
-    return (
-      <div className="flex min-h-[50dvh] w-full flex-col items-center justify-center gap-4">
-        <p className="text-muted-foreground">You've reached the end!</p>
-        {onRefresh && (
-          <Button onClick={onRefresh} variant="outline" className="gap-2">
-            <RefreshCcw className="h-4 w-4" />
-            Refresh
-          </Button>
-        )}
-      </div>
-    )
-  }
-
-  // Error state - manual retry required
-  if (status === "error") {
-    return (
-      <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <p className="text-destructive">Failed to load reels</p>
-          <Button onClick={onRefresh ?? onLoad} variant="outline" className="gap-2">
-            <RefreshCcw className="h-4 w-4" />
-            Retry
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
-  // Loading state (non-initial) - show skeleton card
-  if (status === "loading") {
-    return (
-      <div className="flex min-h-[100dvh] w-full shrink-0 snap-start snap-always items-center justify-center p-6">
-        <div className="w-full max-w-2xl space-y-4">
-          <Skeleton className="h-8 w-full rounded-lg" />
-          <Skeleton className="h-32 w-full rounded-xl" />
-          <Skeleton className="h-12 w-full rounded-xl" />
-          <Skeleton className="h-12 w-full rounded-xl" />
-          <Skeleton className="h-12 w-full rounded-xl" />
-          <Skeleton className="h-12 w-full rounded-xl" />
-        </div>
-      </div>
-    )
-  }
-
-  // Idle - invisible trigger element with fallback button for accessibility
-  return (
-    <div
-      ref={setRefs}
-      className="flex min-h-[50dvh] w-full shrink-0 items-center justify-center"
-    >
-      {/* Fallback button for accessibility (hidden by default, shows if JS fails) */}
-      <Button
-        onClick={onLoad}
-        variant="ghost"
-        size="sm"
-        className="text-muted-foreground hover:text-foreground"
-      >
-        Load More
-      </Button>
     </div>
   )
 }

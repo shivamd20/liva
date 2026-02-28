@@ -2,14 +2,6 @@ import React, { useState, useEffect } from 'react';
 
 const LIVA_TIPS = [
     {
-        tip: "Press Cmd/Ctrl + K to open the command menu from anywhere",
-        category: "Shortcut"
-    },
-    {
-        tip: "Press Cmd/Ctrl + J to ask AI for help while on a board",
-        category: "Shortcut"
-    },
-    {
         tip: "Your boards sync in real-time across all devices instantly",
         category: "Sync"
     },
@@ -38,16 +30,12 @@ const LIVA_TIPS = [
         category: "Shortcut"
     },
     {
-        tip: "Duplicate boards to reuse layouts and create templates",
+        tip: "Duplicate boards to reuse layouts",
         category: "Workflow"
     },
     {
         tip: "Your changes are automatically saved as you draw",
         category: "Feature"
-    },
-    {
-        tip: "Connect your YouTube channel to import video content",
-        category: "Integration"
     },
     {
         tip: "Try System Shots to master concepts through interactive quizzes",
@@ -71,7 +59,6 @@ const CATEGORY_COLORS: Record<string, string> = {
     "Tip": "text-amber-400",
     "Navigation": "text-pink-400",
     "Workflow": "text-orange-400",
-    "Integration": "text-indigo-400",
     "Learning": "text-emerald-400",
 };
 

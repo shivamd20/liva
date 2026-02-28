@@ -2,6 +2,8 @@
 
 This document details the end-to-end flow of the System Shots feed, including streaming, generation, deduplication, and the specific logic for reel surfacing and pagination.
 
+**Entrypoint:** For tRPC (submitAnswer, getProgress, getAvailableTopics) and overall module layout, see [README.md](./README.md). This file is the canonical reference for the **SSE feed** only.
+
 ## 1. High-Level Architecture
 
 The feed is built on an **infinite streaming architecture** using Server-Sent Events (SSE). It is designed to be offline-capable (future-proof) and deterministic.

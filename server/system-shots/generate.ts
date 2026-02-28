@@ -8,7 +8,7 @@
 import { chat } from "@tanstack/ai";
 import { z } from "zod";
 import { LivaAIModel } from "../ai/liva-ai-model";
-import type { Reel, TopicStateRow, FeedIntent, MasteryLevel, LevelExpectation, FocusOptions } from "./types";
+import type { Reel, TopicStateRow, FeedIntent, MasteryLevel, LevelExpectation } from "./types";
 import type { ConceptV2 } from "./types";
 import { MASTERY_LEVELS } from "./types";
 import { composeBatch, getIntentPromptInstructions, type ConceptSkipCounts, type PracticeItem } from "./batch-composer";
@@ -23,8 +23,8 @@ export interface GenerationOptions {
   recentProblemIds?: string[];
   /** Mastery levels per concept for targeted generation (cost-efficient: only target level sent to LLM). */
   masteryLevels?: Map<string, MasteryLevel>;
-  /** Focus Mode options - when set, generates content for single topic only. */
-  focus?: FocusOptions;
+  /** When set, generates content only for this concept (Focus Mode). */
+  focusConceptId?: string;
   /** List of recently generated prompt texts to avoid repetition. */
   /** List of recently generated prompt texts to avoid repetition. */
   recentPrompts?: string[];
@@ -228,17 +228,16 @@ export async function* generateReelsStream(
   count: number,
   options: GenerationOptions = {}
 ): AsyncGenerator<GenerateReelInput> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus, recentPrompts = [], bypassCache = false } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focusConceptId, recentPrompts = [], bypassCache = false } = options;
 
-  // FOCUS MODE: Filter to single concept when focus is active
   let filteredConcepts = concepts;
-  if (focus) {
-    filteredConcepts = concepts.filter(c => c.id === focus.conceptId);
-    console.log(`${LOG_PREFIX} Focus Mode active for concept=${focus.conceptId} trend=${focus.performanceTrend} difficulty=${focus.targetDifficulty}`);
+  if (focusConceptId) {
+    filteredConcepts = concepts.filter(c => c.id === focusConceptId);
+    console.log(`${LOG_PREFIX} Focus Mode active for concept=${focusConceptId}`);
   }
 
   if (filteredConcepts.length === 0) {
-    console.warn(`${LOG_PREFIX} stream concepts.length=0${focus ? ` (focus: ${focus.conceptId} not found)` : ""}`);
+    console.warn(`${LOG_PREFIX} stream concepts.length=0${focusConceptId ? ` (focus: ${focusConceptId} not found)` : ""}`);
     return;
   }
 
@@ -291,11 +290,9 @@ export async function* generateReelsStream(
         .join("; ")
       : "No prior activity.";
 
-  // Build Focus Mode prompt extension if active
-  const focusExtension = focus ? buildFocusModePromptExtension(focus) : undefined;
+  const focusExtension = focusConceptId ? buildFocusModePromptExtension(focusConceptId) : undefined;
 
   const totalCount = batch.items.length + batch.practiceItems.length;
-  // Pass recentPrompts to builder
   const userPrompt = buildNDJSONPrompt(conceptsWithIntents, stateSummary, totalCount, focusExtension, recentPrompts);
 
   // Check KV cache first (unless bypassed)
@@ -479,17 +476,16 @@ export async function generateReelsBatch(
   count: number,
   options: GenerationOptions = {}
 ): Promise<GenerateReelInput[]> {
-  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focus, recentPrompts = [] } = options;
+  const { skipCounts = {}, recentProblemIds = [], masteryLevels = new Map(), focusConceptId, recentPrompts = [] } = options;
 
-  // FOCUS MODE: Filter to single concept when focus is active
   let filteredConcepts = concepts;
-  if (focus) {
-    filteredConcepts = concepts.filter(c => c.id === focus.conceptId);
-    console.log(`${LOG_PREFIX} Focus Mode (batch) active for concept=${focus.conceptId} trend=${focus.performanceTrend} difficulty=${focus.targetDifficulty}`);
+  if (focusConceptId) {
+    filteredConcepts = concepts.filter(c => c.id === focusConceptId);
+    console.log(`${LOG_PREFIX} Focus Mode (batch) active for concept=${focusConceptId}`);
   }
 
   if (filteredConcepts.length === 0) {
-    console.warn(`${LOG_PREFIX} concepts.length=0${focus ? ` (focus: ${focus.conceptId} not found)` : ""}, returning []`);
+    console.warn(`${LOG_PREFIX} concepts.length=0${focusConceptId ? ` (focus: ${focusConceptId} not found)` : ""}, returning []`);
     return [];
   }
 

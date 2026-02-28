@@ -10,6 +10,12 @@ import { authClient } from "./auth-client";
 /** Maximum retries for 401 errors */
 const MAX_401_RETRIES = 2;
 
+/** Maximum retries for 5xx and network errors (total attempts = 1 + this) */
+const MAX_5XX_NETWORK_RETRIES = 2;
+
+/** Backoff in ms before retrying after 5xx or network error */
+const RETRY_BACKOFF_MS = 1000;
+
 /** Timeout for waiting for auth (ms) */
 const AUTH_WAIT_TIMEOUT = 10000;
 
@@ -126,34 +132,49 @@ export async function authFetch(
 
   let lastResponse: Response | null = null;
 
-  for (let attempt = 0; attempt <= MAX_401_RETRIES; attempt++) {
-    const response = await fetch(input, fetchInit);
-    lastResponse = response;
-
-    if (response.status !== 401) {
-      return response;
+  for (let retryAttempt = 0; retryAttempt <= MAX_5XX_NETWORK_RETRIES; retryAttempt++) {
+    if (retryAttempt > 0) {
+      await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS));
     }
 
-    // Got 401 - session might have expired or not ready
-    if (attempt < MAX_401_RETRIES) {
-      console.log(`[authFetch] Got 401, waiting for auth refresh (attempt ${attempt + 1}/${MAX_401_RETRIES})`);
+    try {
+      for (let attempt = 0; attempt <= MAX_401_RETRIES; attempt++) {
+        const response = await fetch(input, fetchInit);
+        lastResponse = response;
 
-      // Reset auth ready state to trigger re-check
-      resetAuthReady();
+        if (response.status !== 401) {
+          if (response.status >= 500 && response.status < 600 && retryAttempt < MAX_5XX_NETWORK_RETRIES) {
+            break; // outer loop will retry
+          }
+          return response;
+        }
 
-      // Wait for auth to be ready again
-      const refreshed = await waitForAuth();
-      if (!refreshed) {
-        console.warn("[authFetch] Auth refresh timeout");
-        break;
+        // Got 401 - session might have expired or not ready
+        if (attempt < MAX_401_RETRIES) {
+          console.log(`[authFetch] Got 401, waiting for auth refresh (attempt ${attempt + 1}/${MAX_401_RETRIES})`);
+          resetAuthReady();
+          const refreshed = await waitForAuth();
+          if (!refreshed) {
+            console.warn("[authFetch] Auth refresh timeout");
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
       }
 
-      // Small delay to let cookies propagate
-      await new Promise((r) => setTimeout(r, 100));
+      // If we have a 5xx and retries left, outer loop will retry
+      if (lastResponse && lastResponse.status >= 500 && lastResponse.status < 600 && retryAttempt < MAX_5XX_NETWORK_RETRIES) {
+        continue;
+      }
+      return lastResponse!;
+    } catch (err) {
+      if (retryAttempt < MAX_5XX_NETWORK_RETRIES) {
+        continue;
+      }
+      throw err;
     }
   }
 
-  // Return the last response (likely 401)
   return lastResponse!;
 }
 

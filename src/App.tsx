@@ -1,33 +1,23 @@
-import { Routes, Route, useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { Routes, Route, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useCallback, useState, useEffect } from 'react';
 import { Board } from './types';
 import { useBoard, useUpdateBoard, useDeleteBoard, useDuplicateBoard } from './hooks/useBoards';
-import { useCommandMenuBoards } from './hooks/useCommandMenuBoards';
 import { useSession, signIn } from './lib/auth-client';
 import BoardsPage from './components/boards/boards-page';
 import { useTheme } from 'next-themes';
-import { CommandMenuProvider } from '@/lib/command-menu-context';
-import { CommandMenu } from '@/components/command-menu';
 import { NewBoardRedirect } from './components/NewBoardRedirect';
-import { useQuery } from '@tanstack/react-query';
 import { LoadingScreen } from './components/LoadingScreen';
 import { BoardNotFound } from './components/BoardNotFound';
 import { HistoryModal } from './components/HistoryModal';
 import { boardsAPI } from './boardsConfig';
 import { toast } from 'sonner';
-import { useCommandMenu } from '@/lib/command-menu-context';
 import { Copy, Trash, History, Share2, Globe, Edit2 } from 'lucide-react';
 import { mixpanelService, MixpanelEvents } from './lib/mixpanel';
 
 // Lazy load heavy route components to reduce initial bundle size
 const BoardEditor = lazy(() => import('./components/BoardEditor'));
-const DemoLiveBoard = lazy(() => import('./examples/DemoLiveBoard'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const PrivacyPolicy = lazy(() => import('./components/PrivacyPolicy'));
-const TestAI = lazy(() => import('./components/TestAI'));
-const SpeechDemo = lazy(() => import('./components/Speech'));
-const CanvasDrawDemo = lazy(() => import('./components/CanvasDrawDemo'));
-const LegacyConversationTest = lazy(() => import('./components/LegacyConversationTest'));
 const VideoDetailPage = lazy(() => import('./components/videos/VideoDetailPage'));
 const SystemShotsHomePage = lazy(() => import('./components/system-shots/SystemShotsHomePage'));
 
@@ -44,7 +34,6 @@ function BoardView({
   const updateBoard = useUpdateBoard();
   const duplicateBoard = useDuplicateBoard();
   const navigate = useNavigate();
-  const { registerCommand, unregisterCommand } = useCommandMenu();
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   const handleBoardChange = useCallback((updated: Board) => {
@@ -58,84 +47,6 @@ function BoardView({
   }, [board?.id]);
 
   const { theme, setTheme } = useTheme();
-
-  // Check YouTube integration status
-  const { data: ytStatus } = useQuery({
-    queryKey: ['youtube-status', session?.user?.id],
-    queryFn: async () => {
-      if (!session?.user?.id) return { connected: false };
-      try {
-        const res = await fetch('/api/integrations/youtube', {
-          headers: { 'X-Liva-User-Id': session.user.id }
-        });
-        if (!res.ok) return { connected: false };
-        return (await res.json()) as { connected: boolean; channels: any[] };
-      } catch (e) {
-        return { connected: false };
-      }
-    },
-    enabled: !!session?.user?.id,
-    staleTime: 60000
-  });
-
-  // Register Board Commands
-  useEffect(() => {
-    if (!board) return;
-
-    const commands = [
-      {
-        id: 'rename-board',
-        title: 'Rename Board',
-        icon: <Edit2 className="w-4 h-4" />,
-        action: handleRenameBoard,
-        section: 'Current Board'
-      },
-      {
-        id: 'duplicate-board',
-        title: 'Duplicate Board',
-        icon: <Copy className="w-4 h-4" />,
-        action: handleDuplicate,
-        section: 'Current Board'
-      },
-      {
-        id: 'board-history',
-        title: 'Board History',
-        icon: <History className="w-4 h-4" />,
-        action: () => {
-          mixpanelService.track(MixpanelEvents.BOARD_HISTORY_OPEN, { boardId: board.id });
-          setIsHistoryOpen(true);
-        },
-        section: 'Current Board'
-      },
-      {
-        id: 'toggle-share',
-        title: board.access === 'public' ? 'Make Private' : 'Share Publicly',
-        icon: board.access === 'public' ? <Globe className="w-4 h-4" /> : <Share2 className="w-4 h-4" />,
-        action: handleToggleShare,
-        section: 'Current Board'
-      },
-      {
-        id: 'delete-board',
-        title: 'Delete Board',
-        icon: <Trash className="w-4 h-4" />,
-        action: () => {
-          if (window.confirm('Delete this board?')) {
-            if (id) {
-              mixpanelService.track(MixpanelEvents.BOARD_DELETE, { boardId: id, source: 'Command Menu' });
-              onDeleteBoard(id);
-            }
-          }
-        },
-        section: 'Current Board'
-      }
-    ];
-
-    commands.forEach(registerCommand);
-
-    return () => {
-      commands.forEach(c => unregisterCommand(c.id));
-    };
-  }, [board, registerCommand, unregisterCommand, id]);
 
   if (!session?.user) {
     return <LoadingScreen />;
@@ -270,9 +181,6 @@ function AppContent() {
   const location = useLocation();
   const { data: session, isPending: isAuthPending } = useSession();
 
-  // Register boards in command menu using optimized hook (no N+1 waterfall)
-  useCommandMenuBoards();
-
   // Initialize Mixpanel
   useEffect(() => {
     mixpanelService.init();
@@ -312,7 +220,6 @@ function AppContent() {
 
   return (
     <div className=" h-screen  min-w-screen bg-background w-screen ">
-      <CommandMenu />
       <Suspense fallback={<LoadingScreen />}>
         <Routes>
           <Route path="/" element={<BoardsPage />} />
@@ -328,12 +235,6 @@ function AppContent() {
           <Route path="/app/system-shots" element={<BoardsPage />} />
 
           <Route path="/app/system-shots/home" element={<SystemShotsHomePage />} />
-          <Route path="/test-ai" element={<TestAI />} />
-          <Route path="/speech" element={<SpeechDemo />} />
-          <Route path="/canvas-ai" element={<CanvasDrawDemo />} />
-          <Route path="/demoLiveAPI" element={<Navigate to="/demoLiveAPI/new" replace />} />
-          <Route path="/demoLiveAPI/:boardId" element={<DemoLiveBoard />} />
-          <Route path="/convo/:id" element={<LegacyConversationTest />} />
           <Route
             path="/board/:id"
             element={
@@ -350,9 +251,5 @@ function AppContent() {
 }
 
 export function App() {
-  return (
-    <CommandMenuProvider>
-      <AppContent />
-    </CommandMenuProvider>
-  );
+  return <AppContent />;
 }

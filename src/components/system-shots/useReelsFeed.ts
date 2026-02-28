@@ -11,14 +11,114 @@ export interface FeedSegment {
   reels?: ApiReel[]
   cursor: string | null
   status: FeedStatus
+  /** When status === "error", optional message for UI (e.g. "timeout", "network", "server"). */
+  errorMessage?: string
 }
 
 const LOAD_THROTTLE_MS = 400
 const EMPTY_RETRY_MAX = 3
+/** Max automatic retries for stream errors (0 reels) before showing error sentinel. */
+const STREAM_AUTO_RETRY_MAX = 2
+/** Delay in ms before each stream auto-retry. */
+const STREAM_AUTO_RETRY_DELAY_MS = 1500
+/** Max reel IDs to send in excludeIds query param (avoids payload bloat). */
+const EXCLUDE_IDS_CAP = 20
+
+const devLog = (...args: unknown[]) => {
+  if (import.meta.env.DEV) {
+    console.log(...args)
+  }
+}
+
+/** Segment transition helpers: given current segments and load outcome, return next segments. */
+
+function finishSegmentAsSentinelError(
+  prev: FeedSegment[],
+  idx: number,
+  cursor: string | null,
+  errorMessage?: string
+): FeedSegment[] {
+  return [
+    ...prev.slice(0, idx),
+    {
+      id: createSegmentId(),
+      type: "sentinel" as const,
+      cursor,
+      status: "error" as const,
+      errorMessage: errorMessage || undefined
+    },
+    ...prev.slice(idx + 1)
+  ]
+}
+
+function finishSegmentAsPartialReelsThenError(
+  prev: FeedSegment[],
+  idx: number,
+  streamingSeg: FeedSegment,
+  errorMessage?: string
+): FeedSegment[] {
+  const loadedReels = streamingSeg.reels ?? []
+  const lastLoadedCursor = loadedReels[loadedReels.length - 1].id
+  return [
+    ...prev.slice(0, idx),
+    { ...streamingSeg, status: "idle" as const },
+    {
+      id: createSegmentId(),
+      type: "sentinel" as const,
+      cursor: lastLoadedCursor,
+      status: "error" as const,
+      errorMessage: errorMessage || undefined
+    },
+    ...prev.slice(idx + 1)
+  ]
+}
+
+function finishSegmentAsSentinelIdle(prev: FeedSegment[], idx: number, cursor: string | null): FeedSegment[] {
+  return [
+    ...prev.slice(0, idx),
+    {
+      id: createSegmentId(),
+      type: "sentinel" as const,
+      cursor,
+      status: "idle" as const
+    },
+    ...prev.slice(idx + 1)
+  ]
+}
+
+function finishSegmentAsSentinelDone(prev: FeedSegment[], idx: number, streamingSeg: FeedSegment): FeedSegment[] {
+  return [
+    ...prev.slice(0, idx),
+    {
+      id: createSegmentId(),
+      type: "sentinel" as const,
+      cursor: streamingSeg.cursor,
+      status: "done" as const
+    },
+    ...prev.slice(idx + 1)
+  ]
+}
+
+function finishSegmentAsReelsWithMore(prev: FeedSegment[], idx: number, streamingSeg: FeedSegment): FeedSegment[] {
+  const finalCursor = streamingSeg.reels?.length
+    ? streamingSeg.reels[streamingSeg.reels.length - 1].id
+    : null
+  const newSentinel: FeedSegment = {
+    id: createSegmentId(),
+    type: "sentinel",
+    cursor: finalCursor,
+    status: "idle"
+  }
+  return [
+    ...prev.slice(0, idx),
+    { ...streamingSeg, status: "idle" as const },
+    newSentinel,
+    ...prev.slice(idx + 1)
+  ]
+}
 
 export interface UseReelsFeedOptions {
-  initialContinuedIds?: string[]
-  /** Reel IDs to exclude from feed (e.g. from seen cache). */
+  /** Reel IDs to exclude from feed (done/seen reels from the unified store). */
   excludedReelIds?: Set<string> | string[]
   onError?: (err: string) => void
   /** If false, disables auto-loading. Useful for waiting for auth. Default: true */
@@ -34,7 +134,6 @@ export interface UseReelsFeedReturn {
   allReels: ApiReel[]
   reelsToShow: ApiReel[]
   loadSegment: (segmentId: string) => void
-  markContinued: (reelId: string) => void
   /** Switch to Focus Mode for a specific concept. Clears all segments and reloads. */
   switchFocus: (conceptId: string) => void
   /** Exit Focus Mode and return to mixed feed. Clears all segments and reloads. */
@@ -59,7 +158,6 @@ const createSegmentId = () => `seg-${++segmentIdCounter}`
  */
 export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedReturn {
   const {
-    initialContinuedIds = [],
     excludedReelIds,
     onError,
     enabled = true,
@@ -82,57 +180,39 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     { id: createSegmentId(), type: "sentinel", cursor: null, status: "idle" }
   ])
 
-  const [continuedReelIds, setContinuedReelIds] = useState<Set<string>>(
-    () => new Set(initialContinuedIds)
-  )
+  // ============ REFS (grouped for clarity; required for sync guards and async callbacks) ============
 
-  // ============ REFS FOR SYNCHRONOUS GUARDS ============
+  /** Load state: generation (invalidate on focus change), abort, streaming segment id, loading set, throttle and empty-retry. */
+  const loadStateRef = useRef({
+    generation: 0,
+    abortController: null as AbortController | null,
+    streamingSegmentId: null as string | null,
+    loadingSegments: new Set<string>(),
+    lastLoadComplete: 0,
+    emptyRetryCount: 0,
+  })
 
-  // Generation counter - incremented on each feed reset (focus change)
-  // Used to invalidate in-flight requests when topic changes
-  const generationRef = useRef(0)
+  /** Options/callbacks used inside async loadSegment without stale closures. */
+  const optsRef = useRef({
+    focusedConceptId: externalFocusConceptId as string | null,
+    onError: onError as ((err: string) => void) | undefined,
+    onFocusChange: onFocusChange as ((id: string | null) => void) | undefined,
+    excludeIds: [] as string[],
+  })
+  optsRef.current.onError = onError
+  optsRef.current.onFocusChange = onFocusChange
+  optsRef.current.focusedConceptId = focusedConceptId
 
-  // Current AbortController - allows cancelling in-flight stream
-  const abortControllerRef = useRef<AbortController | null>(null)
-
-  // Currently streaming segment ID
-  const streamingSegmentIdRef = useRef<string | null>(null)
-
-  // Set of segment IDs currently being loaded (synchronous guard)
-  const loadingSegmentsRef = useRef<Set<string>>(new Set())
-
-  // Has initial load been triggered? (prevents double-load on StrictMode)
+  /** Prevents double initial load (e.g. StrictMode). */
   const initialLoadTriggeredRef = useRef(false)
 
-  // Throttle: last time a segment load completed
-  const lastLoadCompleteRef = useRef(0)
-
-  // Empty retry count for initial load (cursor=null) when stream returns 0 reels
-  const emptyRetryCountRef = useRef(0)
-
-  // Track previous external focus to detect changes
+  /** Previous external focus prop; used to detect URL/focus changes. */
   const prevExternalFocusRef = useRef<string | null>(externalFocusConceptId)
 
-  // Current focus ref for use in callbacks without stale closures
-  const focusedConceptIdRef = useRef<string | null>(externalFocusConceptId)
-
-  // Exclude IDs: recently viewed + recently received reels (for server to never resend)
-  const excludeIdsRef = useRef<string[]>([])
-
-  // Stable reference to onError to avoid dependency churn
-  const onErrorRef = useRef(onError)
-  onErrorRef.current = onError
-
-  // Stable reference to onFocusChange
-  const onFocusChangeRef = useRef(onFocusChange)
-  onFocusChangeRef.current = onFocusChange
-
-  // Keep focus ref in sync with state
   useEffect(() => {
-    focusedConceptIdRef.current = focusedConceptId
+    optsRef.current.focusedConceptId = focusedConceptId
   }, [focusedConceptId])
 
-  // Update excludeIds: all reel IDs from segments + seen cache, cap at 50
   useEffect(() => {
     const ids: string[] = []
     const seen = new Set<string>()
@@ -152,8 +232,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
         ids.push(id)
       }
     }
-    // Limit to just the last 5 IDs to prevent payload bloat, trusting server logic for older history
-    excludeIdsRef.current = ids.slice(-5)
+    optsRef.current.excludeIds = ids.slice(-EXCLUDE_IDS_CAP)
   }, [segments, excludedSet])
 
   // ============ DERIVED STATE ============
@@ -170,7 +249,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
           const key = `${r.conceptId}|${r.prompt.trim()}|${sortedOptions}`
 
           if (contentKeys.has(key)) {
-            console.log(`[useReelsFeed] Optimistically hiding duplicate reel: ${r.id} (content match)`)
+            devLog(`[useReelsFeed] Optimistically hiding duplicate reel: ${r.id} (content match)`)
             continue
           }
           contentKeys.add(key)
@@ -188,13 +267,10 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     }
   }, [allReels])
 
-  // Filter out continued reels and excluded (seen) reels
+  // Filter out done/excluded reels
   const reelsToShow = useMemo(
-    () =>
-      allReels.filter(
-        (r) => !continuedReelIds.has(r.id) && !excludedSet.has(r.id)
-      ),
-    [allReels, continuedReelIds, excludedSet]
+    () => allReels.filter((r) => !excludedSet.has(r.id)),
+    [allReels, excludedSet]
   )
 
   // ============ ABORT HELPER ============
@@ -204,13 +280,14 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
    * Safe to call multiple times.
    */
   const cancelCurrentStream = useCallback(() => {
-    if (abortControllerRef.current) {
-      console.log(`[useReelsFeed] Aborting in-flight stream`)
-      abortControllerRef.current.abort()
-      abortControllerRef.current = null
+    const load = loadStateRef.current
+    if (load.abortController) {
+      devLog(`[useReelsFeed] Aborting in-flight stream`)
+      load.abortController.abort()
+      load.abortController = null
     }
-    streamingSegmentIdRef.current = null
-    loadingSegmentsRef.current.clear()
+    load.streamingSegmentId = null
+    load.loadingSegments.clear()
   }, [])
 
   // ============ LOAD SEGMENT ============
@@ -219,7 +296,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
    * Load a specific sentinel segment.
    * 
    * Guards:
-   * - Synchronous deduplication via loadingSegmentsRef
+   * - Synchronous deduplication via loadStateRef.loadingSegments
    * - Generation check to ignore stale loads
    * - Status check to avoid reloading done/loading segments
    * 
@@ -228,19 +305,18 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
   const loadSegment = useCallback(
     async (segmentId: string) => {
       // Capture generation at call time - if it changes during load, we abort
-      const loadGeneration = generationRef.current
+      const loadState = loadStateRef.current
+      const loadGeneration = loadState.generation
 
       // SYNCHRONOUS guard - prevents race condition from React StrictMode / rapid calls
-      if (loadingSegmentsRef.current.has(segmentId)) {
-        console.log(`[useReelsFeed] Skipping load for ${segmentId} - already loading (sync guard)`)
+      if (loadState.loadingSegments.has(segmentId)) {
+        devLog(`[useReelsFeed] Skipping load for ${segmentId} - already loading (sync guard)`)
         return
       }
 
-      // Add to loading set BEFORE any async work - prevents second concurrent call from proceeding
-      loadingSegmentsRef.current.add(segmentId)
+      loadState.loadingSegments.add(segmentId)
 
-      // Throttle: wait if we recently completed a load (smooth gradual fetching)
-      const elapsed = Date.now() - lastLoadCompleteRef.current
+      const elapsed = Date.now() - loadState.lastLoadComplete
       if (elapsed < LOAD_THROTTLE_MS) {
         await new Promise((r) => setTimeout(r, LOAD_THROTTLE_MS - elapsed))
       }
@@ -258,50 +334,45 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
 
       // Validate segment exists and is loadable
       if (!foundSegment) {
-        console.log(`[useReelsFeed] Segment ${segmentId} not found`)
-        loadingSegmentsRef.current.delete(segmentId)
+        devLog(`[useReelsFeed] Segment ${segmentId} not found`)
+        loadState.loadingSegments.delete(segmentId)
         return
       }
 
       const segment = foundSegment as FeedSegment
 
       if (segment.type !== "sentinel") {
-        console.log(`[useReelsFeed] Segment ${segmentId} is not a sentinel`)
-        loadingSegmentsRef.current.delete(segmentId)
+        devLog(`[useReelsFeed] Segment ${segmentId} is not a sentinel`)
+        loadState.loadingSegments.delete(segmentId)
         return
       }
 
+      // Only skip loading/done. Error sentinels are intentionally reloadable so Retry = loadSegment(segmentId) works (single recovery path).
       if (segment.status === "loading" || segment.status === "done") {
-        console.log(`[useReelsFeed] Segment ${segmentId} status is ${segment.status}, skipping`)
-        loadingSegmentsRef.current.delete(segmentId)
+        devLog(`[useReelsFeed] Segment ${segmentId} status is ${segment.status}, skipping`)
+        loadState.loadingSegments.delete(segmentId)
         return
       }
 
-      // Check generation again - might have changed during await
-      if (loadGeneration !== generationRef.current) {
-        console.log(`[useReelsFeed] Generation changed, aborting load for ${segmentId}`)
-        loadingSegmentsRef.current.delete(segmentId)
+      if (loadGeneration !== loadStateRef.current.generation) {
+        devLog(`[useReelsFeed] Generation changed, aborting load for ${segmentId}`)
+        loadState.loadingSegments.delete(segmentId)
         return
       }
 
       const segmentCursor = segment.cursor
-      console.log(`[useReelsFeed] Loading segment ${segmentId}, cursor=${segmentCursor}, focus=${focusedConceptIdRef.current}, gen=${loadGeneration}`)
+      const opts = optsRef.current
+      devLog(`[useReelsFeed] Loading segment ${segmentId}, cursor=${segmentCursor}, focus=${opts.focusedConceptId}, gen=${loadGeneration}`)
 
       mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_FEED_LOAD_START, {
         segmentId,
         isInitial: segmentCursor === null,
-        focusConceptId: focusedConceptIdRef.current,
+        focusConceptId: opts.focusedConceptId,
       })
-
-      // Create AbortController for this request
-      // Cancel any previous request first
-      cancelCurrentStream()
-      const abortController = new AbortController()
-      abortControllerRef.current = abortController
 
       // Create new reels segment to replace sentinel
       const newReelsSegmentId = createSegmentId()
-      streamingSegmentIdRef.current = newReelsSegmentId
+      loadStateRef.current.streamingSegmentId = newReelsSegmentId
 
       // Replace sentinel with empty reels segment (loading status)
       setSegments((prev) => {
@@ -321,124 +392,126 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
       })
 
       // Build URL with cursor, focus, and excludeIds (server filters these out)
-      const currentFocus = focusedConceptIdRef.current
-      const excludeIds = excludeIdsRef.current
+      const currentFocus = optsRef.current.focusedConceptId
+      const excludeIds = optsRef.current.excludeIds
       const params = new URLSearchParams()
       if (segmentCursor) params.set("cursor", segmentCursor)
       if (currentFocus) params.set("focus", currentFocus)
       if (excludeIds.length > 0) params.set("excludeIds", excludeIds.join(","))
       const url = `${STREAM_URL}${params.toString() ? `?${params.toString()}` : ""}`
 
+      const maxAttempts = 1 + STREAM_AUTO_RETRY_MAX
+      let attempt = 0
       let hasError = false
       let reelCount = 0
       let wasAborted = false
+      let lastErrorMessage = ""
+      let abortController: AbortController | null = null
 
-      try {
-        await consumeReelsStream(
-          url,
-          (reel) => {
-            // Check if aborted or generation changed
-            if (abortController.signal.aborted || loadGeneration !== generationRef.current) {
-              wasAborted = true
-              return
-            }
-
-            reelCount++
-            // Update state immediately for each reel - render as you fetch
-            setSegments((prev) => prev.map((seg) =>
-              seg.id === newReelsSegmentId
-                ? { ...seg, reels: [...(seg.reels ?? []), reel], cursor: reel.id }
-                : seg
-            ))
-          },
-          (err) => {
-            if (abortController.signal.aborted) {
-              wasAborted = true
-              return
-            }
-            hasError = true
-            onErrorRef.current?.(err)
-          },
-          abortController.signal // Pass signal to consumeReelsStream
-        )
-      } catch (err: unknown) {
-        if ((err as Error)?.name === 'AbortError' || abortController.signal.aborted) {
-          wasAborted = true
-        } else {
-          hasError = true
-          onErrorRef.current?.(`Stream error: ${err}`)
+      while (attempt < maxAttempts) {
+        if (attempt > 0) {
+          await new Promise((r) => setTimeout(r, STREAM_AUTO_RETRY_DELAY_MS))
+          setSegments((prev) =>
+            prev.map((seg) =>
+              seg.id === newReelsSegmentId ? { ...seg, reels: [], status: "loading" as const } : seg
+            )
+          )
         }
+        attempt++
+        hasError = false
+        reelCount = 0
+        wasAborted = false
+
+        cancelCurrentStream()
+        abortController = new AbortController()
+        loadStateRef.current.abortController = abortController
+
+        try {
+          await consumeReelsStream(
+            url,
+            (reel) => {
+              if (abortController!.signal.aborted || loadGeneration !== loadStateRef.current.generation) {
+                wasAborted = true
+                return
+              }
+              reelCount++
+              setSegments((prev) =>
+                prev.map((seg) =>
+                  seg.id === newReelsSegmentId
+                    ? { ...seg, reels: [...(seg.reels ?? []), reel], cursor: reel.id }
+                    : seg
+                )
+              )
+            },
+            (err) => {
+              if (abortController!.signal.aborted) {
+                wasAborted = true
+                return
+              }
+              hasError = true
+              lastErrorMessage = err
+              optsRef.current.onError?.(err)
+            },
+            abortController!.signal
+          )
+        } catch (err: unknown) {
+          if ((err as Error)?.name === "AbortError" || abortController!.signal.aborted) {
+            wasAborted = true
+          } else {
+            hasError = true
+            lastErrorMessage = `Stream error: ${err}`
+            optsRef.current.onError?.(lastErrorMessage)
+          }
+        }
+
+        loadStateRef.current.lastLoadComplete = Date.now()
+        if (loadStateRef.current.streamingSegmentId === newReelsSegmentId) {
+          loadStateRef.current.streamingSegmentId = null
+        }
+        if (loadStateRef.current.abortController === abortController) {
+          loadStateRef.current.abortController = null
+        }
+
+        if (wasAborted || loadGeneration !== loadStateRef.current.generation) {
+          devLog(`[useReelsFeed] Stream for ${segmentId} was aborted/stale, ignoring results`)
+          return
+        }
+
+        if (hasError && reelCount === 0 && attempt < maxAttempts) {
+          devLog(`[useReelsFeed] Stream error with 0 reels, auto-retry ${attempt}/${maxAttempts}`)
+          continue
+        }
+        break
       }
 
-      // Clear the loading refs and record load complete time (for throttle)
-      loadingSegmentsRef.current.delete(segmentId)
-      lastLoadCompleteRef.current = Date.now()
-      if (streamingSegmentIdRef.current === newReelsSegmentId) {
-        streamingSegmentIdRef.current = null
-      }
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null
-      }
-
-      // If aborted or generation changed, don't update state - it's stale
-      if (wasAborted || loadGeneration !== generationRef.current) {
-        console.log(`[useReelsFeed] Stream for ${segmentId} was aborted/stale, ignoring results`)
-        return
-      }
-
-      console.log(`[useReelsFeed] Stream complete for ${segmentId}, reelCount=${reelCount}, hasError=${hasError}`)
+      loadStateRef.current.loadingSegments.delete(segmentId)
+      devLog(`[useReelsFeed] Stream complete for ${segmentId}, reelCount=${reelCount}, hasError=${hasError}, attempts=${attempt}`)
 
       if (!hasError && !wasAborted) {
         mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_FEED_LOAD_SUCCESS, {
           segmentId,
           reelCount,
           isInitial: segmentCursor === null,
-          focusConceptId: focusedConceptIdRef.current,
+          focusConceptId: optsRef.current.focusedConceptId,
         })
       } else if (hasError) {
         mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_FEED_LOAD_ERROR, {
           segmentId,
           isInitial: segmentCursor === null,
-          focusConceptId: focusedConceptIdRef.current,
+          focusConceptId: optsRef.current.focusedConceptId,
         })
       }
 
       if (hasError) {
-        // On error: handle partially loaded state
         setSegments((prev) => {
           const idx = prev.findIndex((s) => s.id === newReelsSegmentId)
           if (idx === -1) return prev
-
           const streamingSeg = prev[idx]
           const loadedReels = streamingSeg.reels ?? []
-
           if (loadedReels.length === 0) {
-            // No reels loaded - convert back to sentinel with error status
-            return [
-              ...prev.slice(0, idx),
-              {
-                id: createSegmentId(),
-                type: "sentinel" as const,
-                cursor: segmentCursor,
-                status: "error" as const
-              },
-              ...prev.slice(idx + 1)
-            ]
+            return finishSegmentAsSentinelError(prev, idx, segmentCursor, lastErrorMessage || undefined)
           }
-
-          // Some reels loaded - keep them and add error sentinel for retry
-          const lastLoadedCursor = loadedReels[loadedReels.length - 1].id
-          return [
-            ...prev.slice(0, idx),
-            { ...streamingSeg, status: "idle" as const },
-            {
-              id: createSegmentId(),
-              type: "sentinel" as const,
-              cursor: lastLoadedCursor,
-              status: "error" as const
-            },
-            ...prev.slice(idx + 1)
-          ]
+          return finishSegmentAsPartialReelsThenError(prev, idx, streamingSeg, lastErrorMessage || undefined)
         })
         return
       }
@@ -447,65 +520,25 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
       setSegments((prev) => {
         const idx = prev.findIndex((s) => s.id === newReelsSegmentId)
         if (idx === -1) return prev
-
         const streamingSeg = prev[idx]
-        const finalCursor = streamingSeg.reels?.length
-          ? streamingSeg.reels[streamingSeg.reels.length - 1].id
-          : null
 
         if (reelCount === 0) {
           const wasInitial = segmentCursor === null
-          const retries = wasInitial ? emptyRetryCountRef.current + 1 : 0
-          if (wasInitial) emptyRetryCountRef.current = retries
+          const retries = wasInitial ? loadStateRef.current.emptyRetryCount + 1 : 0
+          if (wasInitial) loadStateRef.current.emptyRetryCount = retries
 
-          // Initial load with 0 reels: retry as idle sentinel up to EMPTY_RETRY_MAX times
           if (wasInitial && retries < EMPTY_RETRY_MAX) {
-            return [
-              ...prev.slice(0, idx),
-              {
-                id: createSegmentId(),
-                type: "sentinel" as const,
-                cursor: null,
-                status: "idle" as const
-              },
-              ...prev.slice(idx + 1)
-            ]
+            return finishSegmentAsSentinelIdle(prev, idx, null)
           }
-
-          // Pagination or max retries exceeded - mark as done
           mixpanelService.track(MixpanelEvents.SYSTEM_SHOTS_FEED_END, {
-            focusConceptId: focusedConceptIdRef.current,
+            focusConceptId: optsRef.current.focusedConceptId,
             wasInitialEmpty: wasInitial && retries >= EMPTY_RETRY_MAX,
           })
-          return [
-            ...prev.slice(0, idx),
-            {
-              id: createSegmentId(),
-              type: "sentinel" as const,
-              cursor: streamingSeg.cursor,
-              status: "done" as const
-            },
-            ...prev.slice(idx + 1)
-          ]
+          return finishSegmentAsSentinelDone(prev, idx, streamingSeg)
         }
 
-        // Success with reels - reset empty retry count
-        emptyRetryCountRef.current = 0
-
-        // Add new sentinel for "Load More"
-        const newSentinel: FeedSegment = {
-          id: createSegmentId(),
-          type: "sentinel",
-          cursor: finalCursor,
-          status: "idle",
-        }
-
-        return [
-          ...prev.slice(0, idx),
-          { ...streamingSeg, status: "idle" as const },
-          newSentinel,
-          ...prev.slice(idx + 1)
-        ]
+        loadStateRef.current.emptyRetryCount = 0
+        return finishSegmentAsReelsWithMore(prev, idx, streamingSeg)
       })
     },
     [cancelCurrentStream] // Stable dependencies only
@@ -522,22 +555,20 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
    * - Triggers a new load
    */
   const resetFeedForFocus = useCallback((conceptId: string | null, triggerLoad: boolean = true) => {
-    console.log(`[useReelsFeed] Resetting feed for focus: ${conceptId}, triggerLoad: ${triggerLoad}`)
+    devLog(`[useReelsFeed] Resetting feed for focus: ${conceptId}, triggerLoad: ${triggerLoad}`)
 
     // Cancel any in-flight stream
     cancelCurrentStream()
 
     // Increment generation to invalidate any pending loads
-    generationRef.current++
+    loadStateRef.current.generation++
 
     // Reset load tracking
     initialLoadTriggeredRef.current = false
-    emptyRetryCountRef.current = 0
+    loadStateRef.current.emptyRetryCount = 0
 
-    // Update state
     setFocusedConceptId(conceptId)
-    focusedConceptIdRef.current = conceptId
-    setContinuedReelIds(new Set())
+    optsRef.current.focusedConceptId = conceptId
 
     // Create fresh sentinel
     const newSegmentId = createSegmentId()
@@ -546,7 +577,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     ])
 
     // Notify external (URL sync)
-    onFocusChangeRef.current?.(conceptId)
+    optsRef.current.onFocusChange?.(conceptId)
 
     if (triggerLoad) {
       // Mark initial load as triggered
@@ -563,16 +594,16 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
   // ============ PUBLIC FOCUS METHODS ============
 
   const switchFocus = useCallback((conceptId: string) => {
-    if (conceptId === focusedConceptIdRef.current) {
-      console.log(`[useReelsFeed] switchFocus: already on ${conceptId}, skipping`)
+    if (conceptId === optsRef.current.focusedConceptId) {
+      devLog(`[useReelsFeed] switchFocus: already on ${conceptId}, skipping`)
       return
     }
     resetFeedForFocus(conceptId)
   }, [resetFeedForFocus])
 
   const clearFocus = useCallback(() => {
-    if (focusedConceptIdRef.current === null) {
-      console.log(`[useReelsFeed] clearFocus: already cleared, skipping`)
+    if (optsRef.current.focusedConceptId === null) {
+      devLog(`[useReelsFeed] clearFocus: already cleared, skipping`)
       return
     }
     resetFeedForFocus(null)
@@ -596,8 +627,8 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
 
     if (externalChanged) {
       // External focus changed - reset feed if different from internal state
-      if (externalFocusConceptId !== focusedConceptIdRef.current) {
-        console.log(`[useReelsFeed] External focus changed: ${focusedConceptIdRef.current} -> ${externalFocusConceptId}`)
+      if (externalFocusConceptId !== optsRef.current.focusedConceptId) {
+        devLog(`[useReelsFeed] External focus changed: ${optsRef.current.focusedConceptId} -> ${externalFocusConceptId}`)
         resetFeedForFocus(externalFocusConceptId)
       }
       return // Don't also do initial load
@@ -609,7 +640,7 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     // Find first idle sentinel
     const firstIdleSentinel = segments.find((s) => s.type === "sentinel" && s.status === "idle")
     if (firstIdleSentinel) {
-      console.log(`[useReelsFeed] Initial load triggered for ${firstIdleSentinel.id}`)
+      devLog(`[useReelsFeed] Initial load triggered for ${firstIdleSentinel.id}`)
       initialLoadTriggeredRef.current = true
       loadSegment(firstIdleSentinel.id)
     }
@@ -624,14 +655,8 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     }
   }, [cancelCurrentStream])
 
-  // ============ MARK CONTINUED ============
-
-  const markContinued = useCallback((reelId: string) => {
-    setContinuedReelIds((prev) => new Set(prev).add(reelId))
-  }, [])
-
   const refresh = useCallback(() => {
-    resetFeedForFocus(focusedConceptIdRef.current, true)
+    resetFeedForFocus(optsRef.current.focusedConceptId, true)
   }, [resetFeedForFocus])
 
   return {
@@ -639,7 +664,6 @@ export function useReelsFeed(options: UseReelsFeedOptions = {}): UseReelsFeedRet
     allReels,
     reelsToShow,
     loadSegment,
-    markContinued,
     switchFocus,
     clearFocus,
     focusedConceptId,

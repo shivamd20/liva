@@ -10,13 +10,16 @@
  */
 import { Board } from '../types';
 import { Excalidraw, MainMenu } from '@excalidraw/excalidraw';
-import { Sparkles } from 'lucide-react';
 import { Share2, MessageCircle, Globe } from 'lucide-react';
 import { AssistantPanel } from './AssistantPanel';
+import { VoiceOrb, deriveOrbState } from '@/voice/VoiceOrb';
+import { useVani2Transcription } from '@/voice/useVani2Transcription';
+import { useVani2Session } from '@/voice/useVani2Session';
+import { exportToBlob } from '@excalidraw/excalidraw';
 import { TopBar } from './TopBar';
 import { ExcalidrawImperativeAPI, SocketId, Collaborator } from '@excalidraw/excalidraw/types';
 import { cn } from '../lib/utils';
-import { OrderedExcalidrawElement, NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
+import { NonDeletedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import '@excalidraw/excalidraw/index.css';
 import '../styles/excalidraw-custom.css';
 // import '../styles/excalidraw-mobile.css';
@@ -30,10 +33,8 @@ import { getUserProfile } from '../utils/userIdentity';
 import { useSession } from '../lib/auth-client';
 import { toast } from 'sonner';
 import { useTheme } from 'next-themes';
-import { useCommandMenu } from '../lib/command-menu-context';
 import { trpcClient } from '../trpcClient';
 import { mixpanelService, MixpanelEvents } from '../lib/mixpanel';
-import { SpeechProvider } from '../contexts/SpeechContext';
 import { useQuery } from '@tanstack/react-query';
 import { TopBarMenuItem } from './TopBar';
 import { MonorailRecorder } from '@shvm/monorail';
@@ -84,6 +85,91 @@ export function BoardEditor({
   const { isMobile, isTablet } = useResponsive();
   const { theme } = useTheme();
 
+  // Voice orb state
+  const VOICE_SYSTEM_PROMPT = `You are a concise voice assistant for someone using a whiteboard. Be brief. Use the read_board tool when you need to see what is on the board.`;
+  const voiceTranscription = useVani2Transcription(undefined, board.id);
+  const runBoardTool = useCallback(async (name: string, _args?: unknown): Promise<unknown> => {
+    const api = excalidrawAPIRef.current;
+    if (name !== "read_board" || !api) return { error: "Board not available" };
+    try {
+      const blob = await exportToBlob({
+        elements: api.getSceneElements(),
+        appState: { ...api.getAppState(), exportWithDarkMode: false, exportScale: 2 },
+        files: api.getFiles(),
+        mimeType: "image/png",
+        quality: 0.8,
+      });
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve({ image: reader.result as string });
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (e: any) {
+      return { error: e?.message ?? "Export failed" };
+    }
+  }, []);
+  const voiceSession = useVani2Session({ sessionId: board.id, systemPrompt: VOICE_SYSTEM_PROMPT, runTool: runBoardTool });
+
+  const orbState = deriveOrbState({
+    transcriptionStatus: voiceTranscription.status,
+    sessionStatus: voiceSession.status,
+    serverStatus: voiceSession.serverStatus,
+    isPlaying: voiceSession.isPlaying,
+    toolRunning: voiceSession.toolRunning,
+    activeToolName: voiceSession.activeToolName,
+    error: voiceTranscription.error,
+    sessionError: voiceSession.error,
+  });
+
+  const handleOrbTap = useCallback(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:handleOrbTap',message:'Orb tapped',data:{},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    setActivePanelTab((cur) => cur === "conversation" ? null : "conversation");
+  }, []);
+
+  // EndOfTurn debounce: wait 500ms before sending transcript_final in case user resumes
+  const eotTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingTranscriptRef = useRef<string | null>(null);
+  const orbTurnIdRef = useRef(0);
+
+  useEffect(() => {
+    const ev = voiceTranscription.lastEvent;
+    if (!ev) return;
+    // #region agent log
+    fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:eotEffect',message:'Flux event received',data:{type:ev.type,hasPayload:!!ev.payload,transcript:ev.payload?.transcript?.slice(0,80)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    if (ev.type === "StartOfTurn" || ev.type === "TurnResumed") {
+      orbTurnIdRef.current += 1;
+      if (eotTimerRef.current) { clearTimeout(eotTimerRef.current); eotTimerRef.current = null; }
+      if (voiceSession.llmText || voiceSession.isPlaying) voiceSession.sendInterrupt();
+    }
+    if (ev.type === "EndOfTurn" && ev.payload.transcript) {
+      const t = ev.payload.transcript.trim();
+      if (!t) return;
+      const merged = pendingTranscriptRef.current ? `${pendingTranscriptRef.current} ${t}` : t;
+      pendingTranscriptRef.current = merged;
+      if (eotTimerRef.current) clearTimeout(eotTimerRef.current);
+      eotTimerRef.current = setTimeout(() => {
+        eotTimerRef.current = null;
+        const text = pendingTranscriptRef.current;
+        pendingTranscriptRef.current = null;
+        if (text) {
+          // #region agent log
+          fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'400d2f'},body:JSON.stringify({sessionId:'400d2f',location:'BoardEditor.tsx:sendTranscript',message:'Sending transcript to session',data:{text:text.slice(0,100),turnId:orbTurnIdRef.current},timestamp:Date.now()})}).catch(()=>{});
+          // #endregion
+          if (voiceSession.llmText || voiceSession.isPlaying) voiceSession.sendInterrupt();
+          voiceSession.sendTranscriptFinal(text, String(orbTurnIdRef.current));
+        }
+      }, 500);
+    }
+  }, [voiceTranscription.lastEvent, voiceSession]);
+
+  useEffect(() => {
+    return () => { if (eotTimerRef.current) clearTimeout(eotTimerRef.current); };
+  }, []);
+
   // Track board access for the user's personal index
   const trackBoardAccess = useTrackBoardAccess();
 
@@ -93,11 +179,6 @@ export function BoardEditor({
       trackBoardAccess.mutate(board.id);
     }
   }, [board.id, userId]); // Only run once when board/user is first available
-
-  // ... imports
-
-
-  const { registerCommand, unregisterCommand } = useCommandMenu();
 
   // Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -425,70 +506,6 @@ export function BoardEditor({
     } as const;
   }, [isMobile, isTablet]);
 
-  const handleAskAI = useCallback(async () => {
-    const instruction = window.prompt("What would you like to do with this board?");
-    if (!instruction) return;
-
-    const toastId = toast.loading("AI is thinking...");
-    mixpanelService.track(MixpanelEvents.AI_GENERATE_START, { boardId: board.id, queryLength: instruction.length });
-
-    try {
-      const elements = excalidrawAPIRef.current?.getSceneElements();
-      if (!elements) throw new Error("Could not get board elements");
-
-      const result = await trpcClient.ai.transformWithAI.mutate({
-        query: instruction,
-        elements: elements as any,
-        constraints: {
-          allowDelete: true,
-          allowNewElements: true,
-        }
-      });
-
-      if (result && result.updatedElements) {
-        const updatedElements = result.updatedElements as unknown as OrderedExcalidrawElement[];
-
-        // Update local scene
-        excalidrawAPIRef.current?.updateScene({
-          elements: updatedElements
-        });
-
-        // Sync changes
-        const appState = excalidrawAPIRef.current?.getAppState();
-        const files = excalidrawAPIRef.current?.getFiles();
-        if (appState && files) {
-          handleChange(updatedElements, appState, files);
-        }
-
-        toast.success("Board updated by AI", { id: toastId });
-        mixpanelService.track(MixpanelEvents.AI_GENERATE_SUCCESS, { boardId: board.id });
-      } else {
-        toast.error("AI returned no changes", { id: toastId });
-        mixpanelService.track(MixpanelEvents.AI_GENERATE_ERROR, { boardId: board.id, reason: 'No changes' });
-      }
-
-    } catch (error) {
-      console.error(error);
-      toast.error("Failed to process AI request", { id: toastId });
-      mixpanelService.track(MixpanelEvents.AI_GENERATE_ERROR, { boardId: board.id, error: String(error) });
-    }
-  }, [board, boardsAPI]);
-
-  useEffect(() => {
-    const command = {
-      id: 'ask-ai',
-      title: 'Ask AI',
-      icon: <Sparkles className="w-4 h-4" />,
-      action: handleAskAI,
-      section: 'AI Tools',
-      shortcut: ['Meta', 'J']
-    };
-
-    registerCommand(command);
-    return () => unregisterCommand(command.id);
-  }, [registerCommand, unregisterCommand, handleAskAI]);
-
-  // Handle pointer events with touch sensitivity adjustments
   // Handle pointer events with touch sensitivity adjustments
   const handlePointerDown = useCallback(
     (activeTool: any, pointerDownState: any) => {
@@ -509,8 +526,7 @@ export function BoardEditor({
   };
 
   return (
-    <SpeechProvider excalidrawAPIRef={excalidrawAPIRef}>
-      <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
+    <div className="flex h-full w-full overflow-hidden relative bg-background flex-col">
         <TopBar
           board={board}
           menuItems={menuItems || []}
@@ -577,6 +593,17 @@ export function BoardEditor({
                 playsInline
               />
             </div>
+
+            {/* Voice Orb (floating, bottom-right) */}
+            {!isRecording && (
+              <div className="absolute bottom-5 right-5 z-50">
+                <VoiceOrb
+                  state={orbState}
+                  onTap={handleOrbTap}
+                  error={voiceTranscription.error || voiceSession.error}
+                />
+              </div>
+            )}
           </div>
 
           <div className={cn(
@@ -592,12 +619,13 @@ export function BoardEditor({
               board={board}
               isOwner={isOwner}
               excalidrawAPI={excalidrawAPI}
+              voiceTranscription={voiceTranscription}
+              voiceSession={voiceSession}
             />
           </div>
         </div>
 
-      </div >
-    </SpeechProvider >
+      </div>
   );
 }
 

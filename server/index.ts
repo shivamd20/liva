@@ -7,13 +7,15 @@ import { createAuth } from "./auth";
 export { NoteDurableObject } from "./do/NoteDurableObject";
 export { NoteIndexDurableObject } from "./do/NoteIndexDurableObject";
 export { LegacyConversationDurableObject as ConversationDurableObject } from "./do/LegacyConversationDurableObject";
-export { ConversationV2DurableObject } from "./do/ConversationV2DurableObject";
 export { RecordingDurableObject } from "./do/RecordingDurableObject";
 export { MonorailSessionDO } from "./monorail/session-do";
 export { YouTubeIntegrationDO } from "./do/YouTubeIntegrationDO";
 export { YouTubePublishSessionDO } from "./monorail/publish-do";
 export { VideosDO } from "./do/VideosDO";
 export { LearningMemoryDO } from "./do/LearningMemoryDO";
+export { VoiceSessionDO } from "./do/VoiceSessionDO";
+
+import { getFluxWebSocketResponse } from "./voice/flux-adapter";
 
 /** Example Durable Object (kept for reference) */
 export class MyDurableObject extends DurableObject {
@@ -191,41 +193,41 @@ export default {
 			return stub.fetch(newRequest);
 		}
 
-		// Conversation V2 API
-		if (url.pathname.startsWith("/api/conversation-v2/")) {
-			// Security: Ensure user is authenticated
-			let userId: string | undefined;
+		// Voice: /v2/flux/:sessionId (WebSocket) and /v2/ws/:sessionId (WebSocket)
+		if (url.pathname.startsWith("/v2/")) {
+			let voiceUserId: string | undefined;
 			try {
 				const auth = createAuth(env);
 				const session = await auth.api.getSession({ headers: request.headers });
-				userId = session?.user?.id;
+				voiceUserId = session?.user?.id;
 			} catch (e) {
-				console.error("Auth check failed for conversation-v2", e);
+				console.error("Auth check failed for voice", e);
 			}
-
-			if (!userId) {
+			if (!voiceUserId && request.headers.get("Upgrade") !== "websocket") {
 				return new Response("Unauthorized", { status: 401 });
 			}
-
-			const parts = url.pathname.split("/");
-			// /api/conversation-v2/:conversationId/...
-			const conversationId = parts[3];
-			if (!conversationId) return new Response("Conversation ID missing", { status: 400 });
-
-			// Use idFromName for persistent conversations by ID
-			const idObj = env.CONVERSATION_V2_DO.idFromName(conversationId);
-			const stub = env.CONVERSATION_V2_DO.get(idObj);
-
-			// Rewrite URL to strip /api/conversation-v2/:id prefix to simplify DO routing
-			const doUrl = new URL(request.url);
-			// /api/conversation-v2/:id/chat -> /chat
-			doUrl.pathname = "/" + parts.slice(4).join("/");
-
-			const newRequest = new Request(doUrl.toString(), request);
-			newRequest.headers.set("X-Liva-User-Id", userId);
-			newRequest.headers.set("X-Conversation-Id", conversationId);
-
-			return stub.fetch(newRequest);
+			if (voiceUserId) {
+				const fluxMatch = url.pathname.match(/^\/v2\/flux\/([^/]+)$/);
+				if (fluxMatch && request.headers.get("Upgrade") === "websocket") {
+					try {
+						const resp = await getFluxWebSocketResponse(env as any);
+						return resp;
+					} catch (e) {
+						console.error("[Flux] getFluxWebSocketResponse error:", e);
+						return new Response(JSON.stringify({ error: "Flux unavailable" }), { status: 502 });
+					}
+				}
+				const ws2Match = url.pathname.match(/^\/v2\/ws\/([^/]+)$/);
+				if (ws2Match && request.headers.get("Upgrade") === "websocket") {
+					const sessionId = ws2Match[1];
+					const id = env.VOICE_SESSION_DO.idFromName(sessionId);
+					const stub = env.VOICE_SESSION_DO.get(id);
+					return stub.fetch(request);
+				}
+			}
+			if ((url.pathname.startsWith("/v2/flux/") || url.pathname.startsWith("/v2/ws/")) && !voiceUserId) {
+				return new Response("Unauthorized", { status: 401 });
+			}
 		}
 
 		// Handle WebSocket connections for real-time note updates

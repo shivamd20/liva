@@ -258,7 +258,7 @@ export const boardsRemote: BoardsAPI = {
     return note ? noteToBoard(note as NoteCurrent) : null;
   },
 
-  create: async (title?: string, id?: string, expiresInHours?: number, templateId?: string): Promise<Board> => {
+  create: async (title?: string, id?: string, expiresInHours?: number): Promise<Board> => {
     // Create new note
     const newNote = await trpcClient.createNote.mutate({
       id, // Optional: if provided, uses this ID; if undefined, server generates one
@@ -268,7 +268,6 @@ export const boardsRemote: BoardsAPI = {
         excalidrawElements: [],
       },
       expiresInHours,
-      templateId
     });
 
     return noteToBoard(newNote as NoteCurrent);

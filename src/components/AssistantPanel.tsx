@@ -9,7 +9,7 @@ import { Input } from './ui/input';
 import { useToggleShare } from '../hooks/useBoards';
 // @ts-ignore
 import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
-import { ConversationTab } from './ConversationTab';
+import { VoicePanel } from '@/voice/VoicePanel';
 import { cn } from '../lib/utils';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
@@ -21,7 +21,9 @@ interface PanelProps {
     onClose: () => void;
     board: Board;
     isOwner: boolean;
-    excalidrawAPI: any | null; // Typed loosely to avoid circular deps or complex imports, or define properly if easy
+    excalidrawAPI: any | null;
+    voiceTranscription?: any;
+    voiceSession?: any;
 }
 
 const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
@@ -155,7 +157,7 @@ const ShareTab = ({ board, isOwner }: { board: Board; isOwner: boolean }) => {
     );
 };
 
-export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClose, board, isOwner, excalidrawAPI }: PanelProps) => {
+export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClose, board, isOwner, excalidrawAPI, voiceTranscription, voiceSession }: PanelProps) => {
     // If closed, we don't render content to save resources, or we can keep it mounted but hidden.
     // Given the requirement for "slide over", usually it's better to keep it mounted and transform it off-screen,
     // but for now, we'll handle layout in the parent and just render the container here.
@@ -216,8 +218,34 @@ export const AssistantPanel = ({ isOpen, activeTab, isPinned, onTogglePin, onClo
                 {activeTab === 'share' && <ShareTab board={board} isOwner={isOwner} />}
                 {activeTab === 'conversation' && (
                     <div className="h-full flex flex-col">
-                        {/* We just need the content, wrapper styles can be minimal */}
-                        <ConversationTab conversationId={board.id} excalidrawAPI={excalidrawAPI} />
+                        <VoicePanel
+                            boardId={board.id}
+                            excalidrawAPI={excalidrawAPI}
+                            className="h-full"
+                            transcription={voiceTranscription ? {
+                                status: voiceTranscription.status,
+                                error: voiceTranscription.error,
+                                liveTranscript: voiceTranscription.liveTranscript,
+                                transcriptHistory: voiceTranscription.transcriptHistory,
+                                lastEvent: voiceTranscription.lastEvent,
+                                fluxState: voiceTranscription.fluxState,
+                                connect: voiceTranscription.connect,
+                                disconnect: voiceTranscription.disconnect,
+                            } : undefined}
+                            session={voiceSession ? {
+                                status: voiceSession.status,
+                                error: voiceSession.error,
+                                serverStatus: voiceSession.serverStatus,
+                                llmText: voiceSession.llmText,
+                                llmError: voiceSession.llmError,
+                                assistantHistory: voiceSession.assistantHistory,
+                                isPlaying: voiceSession.isPlaying,
+                                toolRunning: voiceSession.toolRunning,
+                                toolCallHistory: voiceSession.toolCallHistory,
+                                connect: voiceSession.connect,
+                                disconnect: voiceSession.disconnect,
+                            } : undefined}
+                        />
                     </div>
                 )}
             </div>

@@ -4,6 +4,8 @@ import { trpcClient } from "@/trpcClient"
 import { ArrowLeft, Loader2, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
+import type { Track } from "./tracks"
+import { TRACK_ORDER, TRACK_LABELS } from "./tracks"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -11,19 +13,6 @@ import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
 
 type Mastery = "solid" | "learning" | "weak" | "unknown"
 type MasteryLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
-type Track =
-  | "foundations"
-  | "distributed-systems"
-  | "storage"
-  | "messaging-streaming"
-  | "scalability"
-  | "reliability"
-  | "latency-performance"
-  | "data-modeling"
-  | "system-archetypes"
-  | "deployment-environments"
-  | "operability"
-  | "security"
 
 /** Per-level expectations for a concept. */
 interface LevelExpectation {
@@ -50,36 +39,6 @@ interface ProgressItem {
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
-
-const TRACK_ORDER: Track[] = [
-  "foundations",
-  "distributed-systems",
-  "storage",
-  "messaging-streaming",
-  "scalability",
-  "reliability",
-  "latency-performance",
-  "data-modeling",
-  "system-archetypes",
-  "deployment-environments",
-  "operability",
-  "security",
-]
-
-const TRACK_LABELS: Record<Track, string> = {
-  foundations: "Foundations",
-  "distributed-systems": "Distributed Systems",
-  storage: "Storage",
-  "messaging-streaming": "Messaging & Streaming",
-  scalability: "Scalability",
-  reliability: "Reliability",
-  "latency-performance": "Performance",
-  "data-modeling": "Data Modeling",
-  "system-archetypes": "System Archetypes",
-  "deployment-environments": "Deployment",
-  operability: "Operability",
-  security: "Security",
-}
 
 const DIFFICULTY_LABELS: Record<string, string> = {
   intro: "Intro",

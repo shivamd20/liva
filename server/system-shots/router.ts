@@ -43,6 +43,16 @@ export const systemShotsRouter = t.router({
     return result;
   }),
 
+  /** Track that a reel was shown to the user (for analytics). */
+  trackReelShown: protectedProcedure
+    .input(z.object({ reelId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const doId = ctx.env.SYSTEM_SHOTS_DO.idFromName(ctx.userId);
+      const stub = ctx.env.SYSTEM_SHOTS_DO.get(doId) as unknown as LearningMemoryDO;
+      stub.recordReelShown(input.reelId);
+      return { ok: true };
+    }),
+
   /** Get all available topics for Focus Mode topic switcher. */
   getAvailableTopics: protectedProcedure.query(async () => {
     // Return topics from canonical concept list
@@ -54,17 +64,5 @@ export const systemShotsRouter = t.router({
     }));
   }),
 
-  /** Get Focus Mode state for a specific concept. */
-  getFocusState: protectedProcedure
-    .input(z.object({ conceptId: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const userId = ctx.userId;
-      console.log(`${LOG_PREFIX} getFocusState userId=${userId} conceptId=${input.conceptId}`);
-
-      const doId = ctx.env.SYSTEM_SHOTS_DO.idFromName(userId);
-      const stub = ctx.env.SYSTEM_SHOTS_DO.get(doId) as unknown as LearningMemoryDO;
-      const state = stub.getFocusState(input.conceptId);
-      return state;
-    }),
 });
 

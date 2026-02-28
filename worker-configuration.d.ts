@@ -4,12 +4,11 @@
 declare namespace Cloudflare {
     interface GlobalProps {
         mainModule: typeof import("./server/index");
-        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO" | "ConversationV2DurableObject" | "LearningMemoryDO";
+        durableNamespaces: "MyDurableObject" | "NoteDurableObject" | "NoteIndexDurableObject" | "ConversationDurableObject" | "RecordingDurableObject" | "MonorailSessionDO" | "YouTubeIntegrationDO" | "YouTubePublishSessionDO" | "VideosDO" | "LearningMemoryDO" | "VoiceSessionDO";
     }
     interface Env {
         LLM_CACHE: KVNamespace;
         BETTER_AUTH_SECRET: "CHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRETCHANGE_ME_TO_A_RANDOM_SECRET";
-        USE_SYSTEM_SHOTS_MOCK: "false";
         GOOGLE_CLIENT_ID: string;
         GOOGLE_CLIENT_SECRET: string;
         AUTH_BASE_URL: string;
@@ -27,8 +26,8 @@ declare namespace Cloudflare {
         YOUTUBE_INTEGRATION_DO: DurableObjectNamespace<import("./server/index").YouTubeIntegrationDO>;
         YOUTUBE_PUBLISH_SESSION_DO: DurableObjectNamespace<import("./server/index").YouTubePublishSessionDO>;
         VIDEOS_DO: DurableObjectNamespace<import("./server/index").VideosDO>;
-        CONVERSATION_V2_DO: DurableObjectNamespace<import("./server/index").ConversationV2DurableObject>;
         SYSTEM_SHOTS_DO: DurableObjectNamespace<import("./server/index").LearningMemoryDO>;
+        VOICE_SESSION_DO: DurableObjectNamespace<import("./server/index").VoiceSessionDO>;
         files: R2Bucket;
         liva_db: D1Database;
         AI: Ai;
@@ -39,7 +38,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
     [Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-    interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_SECRET" | "USE_SYSTEM_SHOTS_MOCK" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "AUTH_BASE_URL" | "GEMINI_API_KEY" | "VITE_MIXPANEL_TOKEN" | "VITE_CLARITY_PROJECT_ID" | "VITE_GEMINI_API_KEY" | "CLEAN_VOICE_API_KEY">> { }
+    interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "BETTER_AUTH_SECRET" | "GOOGLE_CLIENT_ID" | "GOOGLE_CLIENT_SECRET" | "AUTH_BASE_URL" | "GEMINI_API_KEY" | "VITE_MIXPANEL_TOKEN" | "VITE_CLARITY_PROJECT_ID" | "VITE_GEMINI_API_KEY" | "CLEAN_VOICE_API_KEY">> { }
 }
 
 // Begin runtime types

@@ -42,7 +42,7 @@ export interface BoardsAPI {
   getById: (id: string) => Promise<Board | null>;
 
   // CRUD
-  create: (title?: string, id?: string, expiresInHours?: number, templateId?: string) => Promise<Board>;
+  create: (title?: string, id?: string, expiresInHours?: number) => Promise<Board>;
   update: (board: Board) => Promise<void>;
   delete: (id: string) => Promise<void>;
 

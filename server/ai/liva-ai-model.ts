@@ -75,4 +75,66 @@ export class LivaAIModel {
             tools: tools || [],
         });
     }
+
+    /**
+     * Voice session: stream with optional tools and custom system prompt.
+     * Messages can include role 'tool' (content + toolCallId), assistant with toolCalls,
+     * and user messages with multimodal content (content as array with image parts) for Gemini vision.
+     */
+    async streamChatVoice(
+        messages: Array<{
+            role: string;
+            content: string | Array<{ type: "text"; content: string } | { type: "image"; source: { type: "data"; value: string }; metadata?: { mimeType?: string } }>;
+            toolCallId?: string;
+            toolCalls?: Array<{ id?: string; name?: string; arguments?: string }>;
+        }>,
+        opts: { tools?: Array<unknown>; systemPrompt?: string } = {}
+    ) {
+        const { tools = [], systemPrompt: customSystemPrompt } = opts;
+        const adapter = await this.getAdapter();
+        const systemPrompt = customSystemPrompt ?? `
+        You are a concise voice assistant for someone using a whiteboard. Be brief. Use the read_board tool when you need to see what is on the board. When you receive the board image in the conversation, describe or use what you see to help the user.
+        `;
+        const tanstackMessages = messages
+            .filter((m) => m.role !== "system")
+            .map((m) => {
+                if (m.role === "tool" && m.toolCallId != null) {
+                    const content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+                    return { role: "tool" as const, content, toolCallId: m.toolCallId };
+                }
+                if (m.role === "assistant" && m.toolCalls?.length) {
+                    const content = typeof m.content === "string" ? m.content : "";
+                    return {
+                        role: "assistant" as const,
+                        content,
+                        toolCalls: m.toolCalls.map((tc) => ({
+                            id: tc.id ?? tc.name ?? "",
+                            type: "function" as const,
+                            function: {
+                                name: tc.name ?? "read_board",
+                                arguments: tc.arguments ?? "{}",
+                            },
+                        })),
+                    };
+                }
+                if (m.role === "user" && Array.isArray(m.content)) {
+                    return { role: "user" as const, content: m.content };
+                }
+                const content = typeof m.content === "string" ? m.content : "";
+                return {
+                    role: (m.role === "assistant" ? "assistant" : "user") as "user" | "assistant",
+                    content,
+                };
+            });
+        const messagesWithSystem = [
+            { role: "user" as const, content: systemPrompt },
+            ...tanstackMessages,
+        ];
+        // @ts-ignore
+        return chat({
+            adapter,
+            messages: messagesWithSystem,
+            tools: tools.length ? tools : undefined,
+        });
+    }
 }

@@ -2,25 +2,8 @@ import { useRef, useEffect, useCallback } from "react"
 import type { ConceptInfo } from "./types"
 import { cn } from "@/lib/utils"
 import { mixpanelService, MixpanelEvents } from "@/lib/mixpanel"
-import {
-  Menu,
-  X,
-  ArrowLeft,
-  TrendingUp,
-  RefreshCcw,
-  BookOpen,
-  Database,
-  Network,
-  MessageSquare,
-  Zap,
-  Table,
-  Layout,
-  Server,
-  Activity,
-  Shield,
-  Lock,
-  type LucideIcon,
-} from "lucide-react"
+import { Menu, X, ArrowLeft, TrendingUp, RefreshCcw, BookOpen } from "lucide-react"
+import { TRACK_ICONS } from "./tracks"
 import { signIn } from "@/lib/auth-client"
 
 /** Detect anonymous user (better-auth uses temp@ or temp-*@ email pattern). */
@@ -29,24 +12,9 @@ function isAnonymousUser(user: SessionUser): boolean {
   return email.startsWith("temp@") || /^temp-[^@]+@/.test(email)
 }
 
-const TRACK_ICONS: Record<string, LucideIcon> = {
-  foundations: BookOpen,
-  "distributed-systems": Network,
-  storage: Database,
-  "messaging-streaming": MessageSquare,
-  scalability: Activity,
-  reliability: Shield,
-  "latency-performance": Zap,
-  "data-modeling": Table,
-  "system-archetypes": Layout,
-  "deployment-environments": Server,
-  operability: Activity,
-  security: Lock,
-}
-
-function getTopicIcon(topic: ConceptInfo): LucideIcon {
+function getTopicIcon(topic: ConceptInfo) {
   const track = topic.track
-  if (track && TRACK_ICONS[track]) return TRACK_ICONS[track]
+  if (track && TRACK_ICONS[track as keyof typeof TRACK_ICONS]) return TRACK_ICONS[track as keyof typeof TRACK_ICONS]
   return BookOpen
 }
 

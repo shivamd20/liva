@@ -19,25 +19,13 @@ export type ApiReel = {
   /** Micro-signal hint for UI (e.g., "Seen before. Answer faster.") */
   microSignal?: string | null
 }
-export type ReelCardVariant = "A" | "B" | "C"
 
-export const THEME_BORDER: Record<ReelTheme, string> = {
-  accent: "border-accent",
-  "chart-1": "border-chart-1",
-  "chart-2": "border-chart-2",
-  "chart-3": "border-chart-3",
-  "chart-4": "border-chart-4",
-  "chart-5": "border-chart-5",
-}
-
-export const THEME_BG: Record<ReelTheme, string> = {
-  accent: "bg-accent",
-  "chart-1": "bg-chart-1",
-  "chart-2": "bg-chart-2",
-  "chart-3": "bg-chart-3",
-  "chart-4": "bg-chart-4",
-  "chart-5": "bg-chart-5",
-}
+/** Display shape for MCQ (options and correctIndex required). */
+export type DisplayMCQ = ApiReel & { type: "mcq"; options: string[]; correctIndex: number }
+/** Display shape for flash card. */
+export type DisplayFlash = ApiReel & { type: "flash" }
+/** Reel shape passed to ReelCard (ApiReel with non-null options/correctIndex for MCQ). */
+export type DisplayReel = DisplayMCQ | DisplayFlash
 
 // ============================================================================
 // Focus Mode Types
@@ -49,15 +37,5 @@ export interface ConceptInfo {
   name: string
   track?: string
   difficulty?: "intro" | "core" | "advanced"
-}
-
-/** Focus Mode state for the feed. */
-export interface FocusModeState {
-  /** Currently focused concept ID, or null for mixed feed. */
-  focusedConceptId: string | null
-  /** Available topics for switcher. */
-  availableTopics: ConceptInfo[]
-  /** Whether Focus Mode is active. */
-  isActive: boolean
 }
 
