@@ -383,35 +383,30 @@ export class ProcessingJobDO extends DurableObject<Env> {
 
 			case "transcribing": {
 				const audioKey = `processed/${sessionId}/audio.wav`;
-				const audioObj = await this.env.files.get(audioKey);
-				if (!audioObj) {
-					this.updateJob(jobId, { status: "failed", error: "Audio file not found in R2" });
+				const workerUrl = (this.env as Record<string, unknown>).SELF_URL as string || "http://localhost:8787";
+
+				// #region agent log
+				fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'ProcessingJobDO.ts:transcribing',message:'calling worker endpoint',data:{audioKey,workerUrl},timestamp:Date.now(),hypothesisId:'H5-fix'})}).catch(()=>{});
+				// #endregion
+
+				const transcribeRes = await fetch(`${workerUrl}/api/internal/transcribe`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ r2Key: audioKey }),
+				});
+
+				const transcribeJson = await transcribeRes.json() as { ok: boolean; result?: { text?: string; vtt?: string }; error?: string };
+
+				// #region agent log
+				fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'ProcessingJobDO.ts:transcribing',message:'worker response',data:{ok:transcribeJson.ok,hasText:!!transcribeJson.result?.text,textLen:transcribeJson.result?.text?.length,error:transcribeJson.error},timestamp:Date.now(),hypothesisId:'H5-fix'})}).catch(()=>{});
+				// #endregion
+
+				if (!transcribeJson.ok) {
+					this.updateJob(jobId, { status: "failed", error: `Transcription failed: ${transcribeJson.error}` });
 					return;
 				}
 
-				const audioBytes = await audioObj.arrayBuffer();
-				const audioBinary = new Uint8Array(audioBytes);
-				// #region agent log
-				fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'ProcessingJobDO.ts:transcribing',message:'audioBinary info',data:{byteLength:audioBytes.byteLength,constructor:audioBinary?.constructor?.name,length:audioBinary.length},timestamp:Date.now(),hypothesisId:'H1-fix'})}).catch(()=>{});
-				// #endregion
-
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				let transcriptResult: { text?: string; vtt?: string };
-				try {
-					transcriptResult = (await this.env.AI.run("@cf/openai/whisper-large-v3-turbo", {
-						audio: audioBinary,
-					} as any)) as { text?: string; vtt?: string };
-					// #region agent log
-					fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'ProcessingJobDO.ts:transcribing',message:'AI.run success',data:{hasText:!!transcriptResult?.text,textLen:transcriptResult?.text?.length},timestamp:Date.now(),hypothesisId:'H1-fix'})}).catch(()=>{});
-					// #endregion
-				} catch (aiErr) {
-					// #region agent log
-					fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'ProcessingJobDO.ts:transcribing',message:'AI.run failed',data:{error:String(aiErr),audioByteLen:audioBytes.byteLength},timestamp:Date.now(),hypothesisId:'H1-fix'})}).catch(()=>{});
-					// #endregion
-					throw aiErr;
-				}
-
-				const transcriptJson = JSON.stringify(transcriptResult);
+				const transcriptJson = JSON.stringify(transcribeJson.result ?? {});
 				this.updateJob(jobId, {
 					transcript: transcriptJson,
 					status: "complete",

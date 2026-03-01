@@ -362,6 +362,47 @@ export default {
 			});
 		}
 
+		// Internal: Transcribe audio via Workers AI (called by ProcessingJobDO)
+		if (url.pathname === "/api/internal/transcribe" && request.method === "POST") {
+			try {
+				const { r2Key } = (await request.json()) as { r2Key: string };
+				if (!r2Key) return Response.json({ error: "r2Key required" }, { status: 400 });
+
+				const audioObj = await env.files.get(r2Key);
+				if (!audioObj) return Response.json({ error: "Audio not found in R2" }, { status: 404 });
+
+				const audioBytes = await audioObj.arrayBuffer();
+				const uint8 = new Uint8Array(audioBytes);
+
+				const attempts = [
+					{ label: "v3-turbo-base64", model: "@cf/openai/whisper-large-v3-turbo" as const, input: { audio: btoa(String.fromCharCode(...uint8)) } },
+					{ label: "whisper-number[]", model: "@cf/openai/whisper" as const, input: { audio: [...uint8] } },
+				];
+
+				for (const attempt of attempts) {
+					try {
+						// #region agent log
+						fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'index.ts:transcribe',message:`trying ${attempt.label}`,data:{r2Key,size:audioBytes.byteLength},timestamp:Date.now(),hypothesisId:'H9'})}).catch(()=>{});
+						// #endregion
+						const result = await (env.AI.run as any)(attempt.model, attempt.input);
+						// #region agent log
+						fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'index.ts:transcribe',message:`SUCCESS ${attempt.label}`,data:{hasText:!!result?.text,textLen:result?.text?.length,textPreview:result?.text?.slice(0,100)},timestamp:Date.now(),hypothesisId:'H9'})}).catch(()=>{});
+						// #endregion
+						return Response.json({ ok: true, result });
+					} catch (e) {
+						const msg = e instanceof Error ? e.message : String(e);
+						// #region agent log
+						fetch('http://127.0.0.1:7452/ingest/76d149d6-cce2-4bf2-a818-7dc29428d885',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'34e33e'},body:JSON.stringify({sessionId:'34e33e',location:'index.ts:transcribe',message:`FAILED ${attempt.label}`,data:{error:msg},timestamp:Date.now(),hypothesisId:'H9'})}).catch(()=>{});
+						// #endregion
+					}
+				}
+				return Response.json({ ok: false, error: "All transcription attempts failed" }, { status: 500 });
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return Response.json({ ok: false, error: msg }, { status: 500 });
+			}
+		}
+
 		// Serve processed files: /api/processed/:sessionId/:filename
 		const processedMatch = url.pathname.match(/^\/api\/processed\/([^/]+)\/(.+)$/);
 		if (processedMatch && request.method === "GET") {
